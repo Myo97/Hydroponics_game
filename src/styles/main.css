@@ -410,6 +410,10 @@ kbd {
   color: var(--accent);
 }
 
+.hud-row .warn {
+  color: var(--warn);
+}
+
 .hud-divider {
   height: 1px;
   background: var(--line-soft);

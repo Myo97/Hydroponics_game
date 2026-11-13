@@ -12,7 +12,7 @@ export const QUALITY_PRESETS = {
     shadowMapSize: 1024,
     shadows: true,
     anisotropy: 2,
-    environmentIntensity: 0.55,
+    environmentIntensity: 0.45,
     showDetail: false,
   },
   medium: {
@@ -22,7 +22,7 @@ export const QUALITY_PRESETS = {
     shadowMapSize: 2048,
     shadows: true,
     anisotropy: 4,
-    environmentIntensity: 0.8,
+    environmentIntensity: 0.6,
     showDetail: true,
   },
   high: {
@@ -32,7 +32,7 @@ export const QUALITY_PRESETS = {
     shadowMapSize: 4096,
     shadows: true,
     anisotropy: 8,
-    environmentIntensity: 1.0,
+    environmentIntensity: 0.6,
     showDetail: true,
   },
 };

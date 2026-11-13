@@ -29,8 +29,9 @@ export class PlantSimulation {
       cultivar: CULTIVARS[index % CULTIVARS.length].name,
       ageDays: 12 + index * 2,
       health: 1,
-      plantsPerChannel: 54,
-      channels: layout.beds.channelsPerBed,
+      plantsPerGully: layout.beds.holesPerGully,
+      gulliesPerTable: layout.beds.gulliesPerTable,
+      tables: layout.beds.tablesPerRow,
     }));
   }
 
@@ -40,7 +41,7 @@ export class PlantSimulation {
 
   get summary() {
     const total = this.rows.reduce(
-      (sum, row) => sum + row.plantsPerChannel * row.channels,
+      (sum, row) => sum + row.plantsPerGully * row.gulliesPerTable * row.tables,
       0,
     );
     const averageHealth =

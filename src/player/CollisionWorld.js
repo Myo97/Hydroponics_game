@@ -18,6 +18,7 @@ export class CollisionWorld {
       minZ: z - depth / 2,
       maxZ: z + depth / 2,
       label,
+      enabled: true,
     };
     this.boxes.push(box);
     return box;
@@ -36,6 +37,7 @@ export class CollisionWorld {
   resolve(position, radius) {
     for (let pass = 0; pass < 2; pass += 1) {
       for (const box of this.boxes) {
+        if (box.enabled === false) continue;
         const closestX = Math.min(box.maxX, Math.max(box.minX, position.x));
         const closestZ = Math.min(box.maxZ, Math.max(box.minZ, position.z));
         let dx = position.x - closestX;

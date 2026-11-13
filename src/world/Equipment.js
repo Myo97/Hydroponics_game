@@ -1,23 +1,38 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
-import { BeamBatch, CylinderBatch, boxMesh } from './Batches.js';
+import { CylinderBatch, boxMesh } from './Batches.js';
+import { DashboardDisplay } from './DashboardDisplay.js';
+import { NftTables } from './NftTables.js';
+import { HydraulicNetwork } from './HydraulicNetwork.js';
+import { HafFans } from './HafFans.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const DEG = THREE.MathUtils.degToRad;
 
 /**
- * Greenhouse equipment: NFT benches, bulk tanks, nutrient dosing station,
- * pump skid, control cabinet, circulation fans and the pipework connecting them.
+ * Greenhouse equipment: NFT tables, bulk tanks, nutrient dosing station,
+ * circulation pumps, climate cabinet, fans and the connecting pipework.
  * Each unit exposes `userData.interactable` metadata for the inspect system and
  * registers its footprint with the collision world.
  */
 export class Equipment {
-  constructor({ scene, materials, collisionWorld }) {
+  constructor({ scene, materials, collisionWorld, climate = null }) {
     this.scene = scene;
     this.materials = materials;
     this.collisionWorld = collisionWorld;
+    this.climate = climate;
     this.interactables = [];
     this.fans = [];
+    this.tables = [];
+    this.tableSystem = null;
+    this.hydraulics = null;
+    this.fanSystem = null;
+    this.fansEnabled = true;
     this.group = null;
+    this.dashboard = null;
+    this.cabinetDoor = null;
+    this.doorAmount = 0;
+    this.doorTarget = 0;
   }
 
   build() {
@@ -42,874 +57,1080 @@ export class Equipment {
     return object;
   }
 
-  buildBenches() {
-    const beds = LAYOUT.beds;
-    const {
-      centersX,
-      channelsPerBed,
-      channelSpacing,
-      channelWidth,
-      channelHeight,
-      channelLength,
-      channelStartZ,
-      benchHeight,
-      legSpacing,
-      slopeDegrees,
-    } = beds;
-
-    const rows = new THREE.Group();
-    rows.name = 'nft-benches';
-    this.group.add(rows);
-
-    const frame = new BeamBatch(this.materials.steel);
-    const channels = new BeamBatch(this.materials.pvcWhite);
-    const slots = new BeamBatch(this.materials.rubber);
-    const plumbing = new CylinderBatch(this.materials.pvcGrey);
-
-    const slope = Math.tan(THREE.MathUtils.degToRad(slopeDegrees));
-    const zLow = channelStartZ + channelLength;
-    const railTopAt = (z) => benchHeight + slope * (zLow - z);
-    const channelCentreAt = (z) => railTopAt(z) + 0.02 + channelHeight / 2;
-    const bedHalfWidth = 0.4;
-    const legZs = [];
-    for (let z = channelStartZ; z <= zLow + 1e-6; z += legSpacing) legZs.push(z);
-
-    const rowGroups = [];
-
-
-    centersX.forEach((cx, row) => {
-      const rowGroup = new THREE.Group();
-      rowGroup.name = `nft-row-${row + 1}`;
-      rows.add(rowGroup);
-      rowGroups.push({ group: rowGroup, cx, row });
-
-      for (const z of legZs) {
-        const top = railTopAt(z);
-        for (const sx of [-1, 1]) {
-          frame.add(V(cx + sx * bedHalfWidth, 0.02, z), V(cx + sx * bedHalfWidth, top, z), 0.055, 0.055);
-        }
-        frame.add(V(cx - bedHalfWidth, top - 0.03, z), V(cx + bedHalfWidth, top - 0.03, z), 0.05, 0.05);
-        frame.add(V(cx - bedHalfWidth, 0.22, z), V(cx + bedHalfWidth, 0.22, z), 0.04, 0.04);
-      }
-
-      for (const sx of [-1, 1]) {
-        frame.add(
-          V(cx + sx * bedHalfWidth, railTopAt(channelStartZ) - 0.02, channelStartZ),
-          V(cx + sx * bedHalfWidth, railTopAt(zLow) - 0.02, zLow),
-          0.06,
-          0.08,
-        );
-      }
-
-      for (let c = 0; c < channelsPerBed; c += 1) {
-        const x = cx + (c - (channelsPerBed - 1) / 2) * channelSpacing;
-        const topStart = channelCentreAt(channelStartZ) + channelHeight / 2;
-        const topEnd = channelCentreAt(zLow) + channelHeight / 2;
-
-        channels.add(
-          V(x, channelCentreAt(channelStartZ), channelStartZ),
-          V(x, channelCentreAt(zLow), zLow),
-          channelWidth,
-          channelHeight,
-        );
-        slots.add(
-          V(x, topStart + 0.002, channelStartZ + 0.06),
-          V(x, topEnd + 0.002, zLow - 0.06),
-          0.052,
-          0.004,
-        );
-
-        // End cap and drain spout at the low end of each channel.
-        const cap = boxMesh(
-          channelWidth + 0.02,
-          channelHeight + 0.02,
-          0.05,
-          this.materials.pvcGrey,
-          V(x, channelCentreAt(zLow), zLow + 0.025),
-          'channel-end-cap',
-        );
-        cap.castShadow = false;
-        rowGroup.add(cap);
-        plumbing.addPath(
-          [
-            V(x, channelCentreAt(zLow) - 0.03, zLow + 0.03),
-            V(x, channelCentreAt(zLow) - 0.06, zLow + 0.28),
-            V(x, 0.58, zLow + 0.28),
-          ],
-          0.022,
-        );
-
-        // Feed stub from the header pipe above the high end.
-        plumbing.addPath(
-          [
-            V(x, channelCentreAt(channelStartZ) + 0.28, channelStartZ - 0.34),
-            V(x, channelCentreAt(channelStartZ) + 0.28, channelStartZ - 0.1),
-            V(x, topStart + 0.04, channelStartZ + 0.01),
-          ],
-          0.014,
-        );
-      }
-
-      // Header pipe feeding this row.
-      plumbing.add(
-        V(cx - bedHalfWidth - 0.1, channelCentreAt(channelStartZ) + 0.3, channelStartZ - 0.34),
-        V(cx + bedHalfWidth + 0.1, channelCentreAt(channelStartZ) + 0.3, channelStartZ - 0.34),
-        0.026,
-      );
-    });
-
-    frame.build(rows, 'bench-frames');
-    channels.build(rows, 'nft-channels');
-    slots.build(rows, 'channel-slots');
-    plumbing.build(rows, 'bench-plumbing');
-
-    rowGroups.forEach(({ group, row, cx }) => {
-      // Instanced batch geometry is not raycastable per row, so give each row an
-      // invisible hit volume covering the bench footprint (also used by the
-      // BoxHelper highlight).
-      const benchTopY = channelCentreAt(channelStartZ + channelLength / 2) + channelHeight / 2;
-      const hitProxy = new THREE.Mesh(
-        new THREE.BoxGeometry(bedHalfWidth * 2, benchTopY, channelLength),
-        this.materials.hitProxy,
-      );
-      hitProxy.name = `nft-row-${row + 1}-hit`;
-      hitProxy.position.set(cx, benchTopY / 2, channelStartZ + channelLength / 2);
-      hitProxy.visible = false;
-      group.add(hitProxy);
-
-      this.register(group, {
-        id: `nft-row-${row + 1}`,
-        category: 'Growing system',
-        title: `NFT bench — Row ${row + 1}`,
-        description:
-          'Three gravity-fed nutrient film channels on a galvanised bench. A shallow film of nutrient solution runs continuously from the high end to the drain, keeping roots moist and oxygenated.',
-        specs: [
-          ['Channels', `${channelsPerBed} × ${channelLength} m`],
-          ['Channels / house', String(centersX.length * channelsPerBed)],
-          ['Bench height', `${benchHeight.toFixed(2)} m`],
-          ['Falling slope', `${slopeDegrees}°`],
-          ['Flow rate', '2.0 L/min / channel'],
-          ['Crop', 'Loose-leaf lettuce'],
-        ],
-      });
-    });
-
-    for (const cx of centersX) {
-      this.collisionWorld.addBox({
-        x: cx,
-        z: channelStartZ + channelLength / 2,
-        width: bedHalfWidth * 2 + 0.12,
-        depth: channelLength + 0.2,
-        label: 'NFT bench',
-      });
-    }
+  getInteractables() {
+    return this.interactables;
   }
 
+  /* ------------------------------------------------------------- NFT tables */
+
+  buildBenches() {
+    this.tableSystem = new NftTables({
+      materials: this.materials,
+      collisionWorld: this.collisionWorld,
+    }).build(this.group);
+    this.tables = this.tableSystem.tables;
+    this.interactables.push(...this.tableSystem.interactables);
+  }
+
+
+  /* -------------------------------------------------------------- bulk water */
+
   buildReservoirs() {
-    const { radius, height, positions } = LAYOUT.tanks.reservoirs;
+    const config = LAYOUT.tanks.reservoirs;
     const group = new THREE.Group();
     group.name = 'bulk-reservoirs';
     this.group.add(group);
 
-    const pipes = new CylinderBatch(this.materials.pipeDark);
     const labels = [
-      this.materials.createLabelMaterial('RESERVOIR A', 'NFT STOCK SOLUTION · 4 000 L'),
-      this.materials.createLabelMaterial('RESERVOIR B', 'DRAIN RETURN · 4 000 L'),
+      ['RO STORAGE 01', 'RAW WATER · 3,000 L', 'TANK 01'],
+      ['RO STORAGE 02', 'MIXED FEED · 3,000 L', 'TANK 02'],
     ];
 
-    positions.forEach(([x, z], index) => {
+    config.positions.forEach(([x, z], index) => {
       const tank = new THREE.Group();
       tank.name = `reservoir-${index + 1}`;
       tank.position.set(x, 0, z);
       group.add(tank);
 
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius, radius, height, 28, 1, true),
-        this.materials.tankHDPE,
+      tank.add(
+        boxMesh(
+          config.radius * 2.15,
+          0.07,
+          config.radius * 2.15,
+          this.materials.concretePlinth,
+          V(0, 0.035, 0),
+          `reservoir-pad-${index + 1}`,
+        ),
       );
-      body.position.y = height / 2 + 0.12;
-      body.castShadow = true;
-      body.receiveShadow = true;
-      tank.add(body);
 
-      const base = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius + 0.04, radius + 0.04, 0.14, 28),
-        this.materials.tankHDPE,
+      const shell = new THREE.Mesh(
+        new THREE.CylinderGeometry(config.radius, config.radius * 1.01, config.height, 40, 1),
+        this.materials.tankHDPEBlue,
       );
-      base.position.y = 0.07;
-      base.castShadow = true;
-      base.receiveShadow = true;
-      tank.add(base);
+      shell.position.y = 0.07 + config.height / 2;
+      shell.castShadow = true;
+      shell.receiveShadow = true;
+      tank.add(shell);
 
       const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius + 0.02, radius + 0.02, 0.09, 28),
-        this.materials.tankHDPELight,
+        new THREE.CylinderGeometry(config.radius * 1.015, config.radius * 1.015, 0.05, 40),
+        this.materials.tankHDPEBlue,
       );
-      lid.position.y = height + 0.16;
+      lid.position.y = 0.07 + config.height + 0.018;
       lid.castShadow = true;
       tank.add(lid);
 
-      const manway = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3, 0.3, 0.12, 18),
-        this.materials.tankHDPELight,
-      );
-      manway.position.y = height + 0.25;
-      manway.castShadow = true;
-      tank.add(manway);
-
-      for (const y of [0.75, 1.55, 2.35]) {
-        const rib = new THREE.Mesh(
-          new THREE.TorusGeometry(radius + 0.012, 0.022, 6, 30),
-          this.materials.tankHDPELight,
+      // Ribs and hoops make the moulded HDPE read at close range.
+      for (const y of [0.62, 1.43, 2.24]) {
+        const hoop = new THREE.Mesh(
+          new THREE.TorusGeometry(config.radius * 1.012, 0.018, 6, 40),
+          this.materials.tankHDPE,
         );
-        rib.rotation.x = Math.PI / 2;
-        rib.position.y = y;
-        tank.add(rib);
+        hoop.rotation.x = Math.PI / 2;
+        hoop.position.y = y;
+        tank.add(hoop);
       }
 
-      // Sight glass on the aisle-facing side, with a scale plate.
-      const sightX = -radius * 0.55;
-      const sightZ = radius * 0.82;
-      const tube = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.024, 0.024, 1.85, 10, 1, true),
-        this.materials.glassDoor,
-      );
-      tube.position.set(sightX, 1.25, sightZ);
-      tube.renderOrder = 3;
-      tank.add(tube);
+      for (let rib = 0; rib < 12; rib += 1) {
+        const angle = (rib / 12) * Math.PI * 2;
+        const mesh = boxMesh(
+          0.045,
+          config.height - 0.2,
+          0.09,
+          this.materials.tankHDPEBlue,
+          V(
+            Math.cos(angle) * config.radius * 1.006,
+            0.07 + config.height / 2,
+            Math.sin(angle) * config.radius * 1.006,
+          ),
+          `reservoir-rib-${index + 1}-${rib}`,
+        );
+        mesh.rotation.y = -angle;
+        tank.add(mesh);
+      }
 
-      const level = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.017, 0.017, 1.15, 10),
+      const hatch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 0.08, 24),
+        this.materials.pvcGrey,
+      );
+      hatch.position.set(0.28, 0.07 + config.height + 0.07, 0.1);
+      hatch.castShadow = true;
+      tank.add(hatch);
+      tank.add(
+        boxMesh(
+          0.3,
+          0.035,
+          0.06,
+          this.materials.steelDark,
+          V(0.28, 0.07 + config.height + 0.125, 0.1),
+          `reservoir-hatch-handle-${index + 1}`,
+        ),
+      );
+
+      const vent = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.4, 12),
+        this.materials.pvcGrey,
+      );
+      vent.position.set(-0.65, 0.07 + config.height + 0.21, -0.25);
+      tank.add(vent);
+      const ventCap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.075, 0.06, 12),
+        this.materials.pvcGrey,
+      );
+      ventCap.position.set(-0.65, 0.07 + config.height + 0.43, -0.25);
+      tank.add(ventCap);
+
+      // Side-mounted sight tube with a simple float indicator.
+      const sightGlass = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 1.5, 12),
+        this.materials.glass,
+      );
+      sightGlass.position.set(0.9, 1.2, config.radius * 0.99);
+      tank.add(sightGlass);
+      const sightWater = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.021, 0.021, 1.12, 10),
         this.materials.water,
       );
-      level.position.set(sightX, 0.9, sightZ);
-      tank.add(level);
+      sightWater.position.set(0.9, 0.99, config.radius * 0.99);
+      tank.add(sightWater);
+      for (const y of [0.46, 1.94]) {
+        tank.add(
+          boxMesh(
+            0.12,
+            0.05,
+            0.12,
+            this.materials.stainless,
+            V(0.9, y, config.radius * 0.98),
+            `sight-bracket-${index + 1}`,
+          ),
+        );
+      }
 
-      const scale = boxMesh(0.06, 0.62, 0.16, this.materials.cabinetPaint, V(sightX + 0.05, 1.3, sightZ), 'sight-scale');
-      scale.castShadow = false;
-      tank.add(scale);
+      // Printed plate sits on a stainless carrier on the front of the tank.
+      const [title, subtitle] = labels[index];
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.28, 0.64),
+        this.materials.createLabelMaterial(title, subtitle, {
+          background: '#f0f2ea',
+          foreground: '#16324a',
+        }),
+      );
+      plate.position.set(0, 1.62, config.radius + 0.012);
+      tank.add(plate);
+      tank.add(
+        boxMesh(
+          1.4,
+          0.76,
+          0.025,
+          this.materials.stainless,
+          V(0, 1.62, config.radius + 0.001),
+          `reservoir-label-frame-${index + 1}`,
+        ),
+      );
 
       tank.add(
-        boxMesh(0.62, 0.34, 0.02, labels[index], V(0, 1.8, radius + 0.02), 'reservoir-label'),
+        boxMesh(
+          0.55,
+          0.38,
+          0.42,
+          this.materials.steelDark,
+          V(0, 0.28, config.radius + 0.08),
+          `reservoir-outlet-box-${index + 1}`,
+        ),
       );
 
-      pipes.addPath(
-        [
-          V(x + radius * 0.72, 0.4, z + radius * 0.7),
-          V(x + radius * 0.72 + 0.55, 0.4, z + radius * 0.7),
-          V(x + radius * 0.72 + 0.55, 0.16, z + radius * 0.7),
-        ],
-        0.05,
-      );
+      this.collisionWorld.addBox({
+        x,
+        z,
+        width: config.radius * 2.2,
+        depth: config.radius * 2.2,
+        label: 'Bulk water tank',
+      });
 
       this.register(tank, {
         id: `reservoir-${index + 1}`,
-        category: 'Water & nutrient',
-        title: index === 0 ? 'Reservoir A — stock tank' : 'Reservoir B — drain return',
+        category: 'Water source',
+        title: `Bulk reservoir ${index + 1} — ${title}`,
         description:
-          'Insulated HDPE bulk tank with a sight glass for manual level checks. Reservoir A holds freshly mixed nutrient solution; Reservoir B collects the return flow from the NFT channels before it is re-dosed and pumped back.',
+          'Insulated HDPE buffer tank holding reverse-osmosis water. A float valve tops the tank up, and the side sight tube gives a local level check. Tank 2 is the mixed feed buffer that supplies the NFT circulation pump.',
         specs: [
-          ['Capacity', '4 000 L'],
-          ['Diameter', `${(radius * 2).toFixed(1)} m`],
-          ['Height', `${height.toFixed(2)} m`],
-          ['Level', index === 0 ? '72 %' : '38 %'],
-          ['Solution temp.', '19.8 °C'],
-          ['Material', 'Double-wall HDPE'],
+          ['Nominal volume', '3,000 L'],
+          ['Material', 'Moulded HDPE'],
+          ['Current level', index === 0 ? '72 %' : '64 %'],
+          ['Top-up', 'RO permeate · float valve'],
+          ['Outlet', 'DN50 · bottom drain'],
         ],
       });
-
-      this.collisionWorld.addCircle({ x, z, radius: radius + 0.1, label: 'reservoir' });
     });
-
-    pipes.build(group, 'reservoir-outlets');
   }
 
 
+  /* ---------------------------------------------------------- dosing station */
+
   buildNutrientStation() {
-    const { radius, height, position, spacing, labels } = LAYOUT.tanks.nutrients;
-    const [baseX, baseZ] = position;
+    const config = LAYOUT.tanks.nutrients;
+    const [baseX, baseZ] = config.position;
+    const spacing = config.spacing;
+    const totalWidth = spacing * (config.labels.length - 1);
     const station = new THREE.Group();
-    station.name = 'nutrient-station';
+    station.name = 'nutrient-dosing-station';
     this.group.add(station);
 
-    // Containment bund.
-    const bund = boxMesh(3.15, 0.14, 1.0, this.materials.pvcGrey, V(baseX + spacing, 0.07, baseZ), 'nutrient-bund');
-    bund.castShadow = false;
-    station.add(bund);
-
-    // Dosing frame behind the drums.
-    const frame = new BeamBatch(this.materials.steel);
-    const frameZ = baseZ - 0.72;
-    for (const x of [baseX - 0.5, baseX + spacing * 2 + 0.5]) {
-      frame.add(V(x, 0.1, frameZ), V(x, 1.75, frameZ), 0.06, 0.06);
-      frame.add(V(x, 1.72, frameZ), V(x, 1.72, baseZ + 0.45), 0.05, 0.05);
-    }
-    frame.add(V(baseX - 0.5, 1.72, frameZ), V(baseX + spacing * 2 + 0.5, 1.72, frameZ), 0.06, 0.06);
-    frame.add(V(baseX - 0.5, 1.2, frameZ), V(baseX + spacing * 2 + 0.5, 1.2, frameZ), 0.05, 0.05);
-    frame.build(station, 'nutrient-frame');
-
-    const dosing = new CylinderBatch(this.materials.pvcGrey);
-    const drums = new THREE.Group();
-
-    labels.forEach(([letter, chemical], index) => {
-      const x = baseX + index * spacing;
-      const drum = new THREE.Group();
-      drum.name = `nutrient-drum-${letter}`;
-      drum.position.set(x, 0.14, baseZ);
-      drums.add(drum);
-
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius, radius, height, 22),
-        this.materials.tankHDPELight,
+    // Bunded containment tray.
+    const bundWidth = totalWidth + config.radius * 2 + 0.7;
+    const bundDepth = 1.22;
+    station.add(
+      boxMesh(
+        bundWidth,
+        0.14,
+        bundDepth,
+        this.materials.concretePlinth,
+        V(baseX + totalWidth / 2, 0.07, baseZ),
+        'nutrient-bund-base',
+      ),
+    );
+    for (const side of [-1, 1]) {
+      station.add(
+        boxMesh(
+          bundWidth,
+          0.18,
+          0.06,
+          this.materials.concretePlinth,
+          V(baseX + totalWidth / 2, 0.13, baseZ + side * (bundDepth / 2 - 0.03)),
+          `nutrient-bund-rim-${side}`,
+        ),
       );
-      body.position.y = height / 2;
-      body.castShadow = true;
-      body.receiveShadow = true;
-      drum.add(body);
+    }
+
+    const dosingLines = new CylinderBatch(this.materials.pvcWhite);
+    const dosingRailY = 0.42;
+    const railZ = baseZ + 0.62;
+
+    config.labels.forEach((label, index) => {
+      const x = baseX + index * spacing;
+      const tank = new THREE.Group();
+      tank.name = `nutrient-tank-${label.key}`;
+      station.add(tank);
+
+      const shellMaterial =
+        label.colour === 'white' ? this.materials.tankHDPEAcid : this.materials.tankHDPEBlue;
+      const shell = new THREE.Mesh(
+        new THREE.CylinderGeometry(config.radius, config.radius * 1.02, config.height, 28),
+        shellMaterial,
+      );
+      shell.position.set(x, 0.14 + config.height / 2, baseZ);
+      shell.castShadow = true;
+      shell.receiveShadow = true;
+      tank.add(shell);
 
       const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius + 0.02, radius + 0.02, 0.07, 22),
+        new THREE.CylinderGeometry(config.radius * 0.52, config.radius * 0.52, 0.07, 20),
         this.materials.pvcGrey,
       );
-      lid.position.y = height + 0.03;
-      drum.add(lid);
+      lid.position.set(x + 0.08, 0.14 + config.height + 0.035, baseZ - 0.03);
+      lid.castShadow = true;
+      tank.add(lid);
 
-      const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.09, 0.09, 0.1, 12),
-        this.materials.pumpPaint,
+      const handle = new THREE.Mesh(
+        new THREE.TorusGeometry(0.12, 0.018, 6, 14, Math.PI),
+        this.materials.steelDark,
       );
-      cap.position.set(radius * 0.55, height + 0.1, 0);
-      drum.add(cap);
+      handle.rotation.y = Math.PI / 2;
+      handle.position.set(x + 0.08, 0.14 + config.height + 0.09, baseZ - 0.03);
+      tank.add(handle);
 
-      const label = this.materials.createLabelMaterial(
-        `${letter} · ${chemical.split(' ')[0]}`,
-        chemical,
+      // Moulded rib ring and a graduated strip.
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(config.radius * 1.005, 0.014, 6, 28),
+        this.materials.tankHDPE,
       );
-      drum.add(
-        boxMesh(0.52, 0.3, 0.02, label, V(0, height * 0.62, radius + 0.02), 'drum-label'),
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(x, 0.14 + config.height * 0.62, baseZ);
+      tank.add(ring);
+
+      const strip = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.09, 0.58),
+        this.materials.createLabelMaterial('20', '40\n60\n80\n100 L', {
+          width: 128,
+          height: 512,
+          background: '#eff2ec',
+          foreground: '#1c3a4f',
+        }),
+      );
+      strip.position.set(x + config.radius * 0.78, 0.74, baseZ + config.radius * 0.63);
+      strip.rotation.y = Math.PI / 6;
+      tank.add(strip);
+
+      const labelPlate = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.62, 0.4),
+        this.materials.createLabelMaterial(label.title, label.subtitle, {
+          background: label.colour === 'white' ? '#1f3a52' : '#f0f2e9',
+          foreground: label.colour === 'white' ? '#f3f4ec' : '#17324a',
+        }),
+      );
+      labelPlate.position.set(x, 0.72, baseZ + config.radius + 0.014);
+      tank.add(labelPlate);
+
+      // Metering pump head on a small skid rail in front of each tank.
+      tank.add(
+        boxMesh(
+          0.24,
+          0.3,
+          0.24,
+          this.materials.pumpBlue,
+          V(x, 0.29, railZ),
+          `dosing-pump-${label.key}`,
+        ),
+      );
+      tank.add(
+        boxMesh(
+          0.3,
+          0.05,
+          0.32,
+          this.materials.steelDark,
+          V(x, 0.12, railZ),
+          `dosing-pump-foot-${label.key}`,
+        ),
+      );
+      tank.add(
+        boxMesh(
+          0.16,
+          0.08,
+          0.02,
+          this.materials.ledWhite,
+          V(x, 0.39, railZ + 0.125),
+          `dosing-pump-display-${label.key}`,
+        ),
       );
 
-      // Suction lance and dosing line up to the pump shelf.
-      dosing.addPath(
+      dosingLines.addPath(
         [
-          V(x, height + 0.16, baseZ),
-          V(x, 1.5, frameZ + 0.02),
-          V(x, 1.5, frameZ - 0.16),
+          V(x, 0.2, baseZ + config.radius * 0.7),
+          V(x, 0.3, baseZ + config.radius * 0.86),
+          V(x, 0.3, railZ - 0.1),
+          V(x, 0.42, railZ - 0.1),
+        ],
+        0.012,
+      );
+      dosingLines.addPath(
+        [
+          V(x, 0.44, railZ + 0.12),
+          V(x, 0.44, baseZ + 0.86),
+          V(baseX + totalWidth / 2, 0.44, baseZ + 0.86),
         ],
         0.014,
       );
 
-      // Dosing pump on the shelf.
-      const pump = boxMesh(0.2, 0.16, 0.3, this.materials.pumpPaint, V(x, 1.32, frameZ), 'dosing-pump');
-      station.add(pump);
-      station.add(
-        boxMesh(0.14, 0.09, 0.02, this.materials.screen, V(x, 1.34, frameZ + 0.16), 'dosing-display'),
-      );
-
-      this.register(drum, {
-        id: `nutrient-${letter}`,
-        category: 'Water & nutrient',
-        title: `Nutrient drum ${letter}`,
-        description: `Concentrated ${chemical.toLowerCase()} stock, dosed into the mixing tank by a peristaltic pump. Drum weights and dosing volumes are logged at every batch mix.`,
+      this.register(tank, {
+        id: `nutrient-${label.key}`,
+        category: 'Nutrient dosing',
+        title: `${label.title} stock tank`,
+        description:
+          label.colour === 'white'
+            ? 'Acid stock tank feeding the inline pH dosing pump. The controller pulses the pump against the pH probe in the return manifold and locks out dosing if the circulation pump stops.'
+            : 'Concentrated fertiliser stock tank. A calibrated metering pump injects stock into the mixing chamber proportionally to the irrigation flow, while the EC probe trims the final strength.',
         specs: [
-          ['Chemical', chemical],
-          ['Volume', '60 L'],
-          ['Drum level', ['64 %', '58 %', '71 %'][index]],
-          ['Dosing pump', 'Peristaltic, 3 L/h'],
-          ['Last dose', '10:18'],
-          ['Target EC', '1.8 mS/cm'],
+          ['Stock volume', '60 L'],
+          ['Contents', label.subtitle.split('·')[0].trim()],
+          ['Dosing pump', `Diaphragm · ${label.key}`],
+          ['Injection ratio', label.colour === 'white' ? '0–40 ml/m³' : '1:200'],
+          ['Level', index === 2 ? '48 %' : index === 1 ? '71 %' : '66 %'],
         ],
       });
     });
 
-    station.add(drums);
-    dosing.build(station, 'nutrient-lines');
-
-    this.register(station, {
-      id: 'nutrient-station',
-      category: 'Water & nutrient',
-      title: 'Nutrient dosing station',
-      description:
-        'Three-part stock dosing: calcium nitrate, potassium sulphate and nitric acid for pH control. Each drum feeds a dedicated peristaltic pump controlled from the climate cabinet.',
-      specs: [
-        ['Drums', '3 × 60 L'],
-        ['Pumps', '3 × peristaltic'],
-        ['Controller', 'Dosing unit · 4-channel'],
-        ['pH target', '5.8 – 6.0'],
-        ['EC target', '1.8 mS/cm'],
-        ['Bund', '110 % containment'],
-      ],
-    });
+    dosingLines.build(station, 'dosing-lines');
 
     this.collisionWorld.addBox({
-      x: baseX + spacing,
-      z: baseZ - 0.3,
-      width: spacing * 2 + 1.0,
-      depth: 1.3,
-      label: 'nutrient dosing station',
+      x: baseX + totalWidth / 2,
+      z: baseZ + 0.2,
+      width: bundWidth,
+      depth: bundDepth + 0.5,
+      label: 'Nutrient dosing station',
     });
   }
 
 
+  /* --------------------------------------------------------- pump skid */
+
   buildPumpSkid() {
-    const skid = new THREE.Group();
-    skid.name = 'pump-skid';
-    this.group.add(skid);
+    const config = LAYOUT.pumps;
+    const group = new THREE.Group();
+    group.name = 'pump-skid';
+    this.group.add(group);
 
-    // Common skid frame.
-    skid.add(
-      boxMesh(2.1, 0.1, 1.0, this.materials.steelDark, V(5.35, 0.05, -14.3), 'pump-skid-base'),
-    );
-    const rails = new BeamBatch(this.materials.steelDark);
-    for (const z of [-14.75, -13.85]) {
-      rails.add(V(4.3, 0.12, z), V(6.4, 0.12, z), 0.07, 0.07);
-    }
-    rails.build(skid, 'pump-skid-rails');
-
-    const pipework = new CylinderBatch(this.materials.pipeDark);
-    const pumps = new THREE.Group();
-    skid.add(pumps);
-
-    LAYOUT.pumps.positions.forEach(([x, z], index) => {
+    config.positions.forEach(([x, z, yaw], index) => {
+      const duty = index === config.dutyIndex;
       const pump = new THREE.Group();
       pump.name = `pump-${index + 1}`;
       pump.position.set(x, 0, z);
-      pumps.add(pump);
+      pump.rotation.y = yaw;
+      group.add(pump);
 
-      pump.add(boxMesh(1.0, 0.08, 0.44, this.materials.steelDark, V(0, 0.13, 0), 'pump-plinth'));
+      pump.add(
+        boxMesh(
+          1.05,
+          0.11,
+          0.62,
+          this.materials.steelDark,
+          V(0, 0.075, 0),
+          `pump-skid-${index + 1}`,
+        ),
+      );
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          pump.add(
+            boxMesh(
+              0.1,
+              0.045,
+              0.12,
+              this.materials.rubber,
+              V(sx * 0.4, 0.022, sz * 0.23),
+              `pump-pad-${index + 1}`,
+            ),
+          );
+        }
+      }
 
       const motor = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.16, 0.16, 0.46, 16),
-        this.materials.pumpPaint,
+        new THREE.CylinderGeometry(0.19, 0.19, 0.47, 24),
+        this.materials.pumpBlue,
       );
       motor.rotation.z = Math.PI / 2;
-      motor.position.set(-0.28, 0.38, 0);
+      motor.position.set(-0.22, 0.43, 0);
       motor.castShadow = true;
       pump.add(motor);
 
-      const cowl = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.17, 0.13, 0.14, 16),
+      for (let fin = 0; fin < 7; fin += 1) {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.193, 0.009, 5, 22),
+          this.materials.pumpPaint,
+        );
+        ring.rotation.y = Math.PI / 2;
+        ring.position.set(-0.42 + fin * 0.055, 0.43, 0);
+        pump.add(ring);
+      }
+
+      const fanCowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.175, 0.185, 0.12, 20),
         this.materials.steelDark,
       );
-      cowl.rotation.z = Math.PI / 2;
-      cowl.position.set(-0.58, 0.38, 0);
-      pump.add(cowl);
+      fanCowl.rotation.z = Math.PI / 2;
+      fanCowl.position.set(-0.49, 0.43, 0);
+      pump.add(fanCowl);
+      for (let blade = 0; blade < 6; blade += 1) {
+        const spoke = boxMesh(
+          0.024,
+          0.15,
+          0.018,
+          this.materials.steelDark,
+          V(-0.553, 0.43, 0),
+          `pump-fan-blade-${index + 1}-${blade}`,
+        );
+        spoke.rotation.x = (blade / 6) * Math.PI * 2;
+        pump.add(spoke);
+      }
 
-      const volute = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.21, 0.21, 0.24, 18),
-        this.materials.pumpPaint,
-      );
-      volute.rotation.z = Math.PI / 2;
-      volute.position.set(0.2, 0.38, 0);
-      volute.castShadow = true;
-      pump.add(volute);
-
-      const suction = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.055, 0.055, 0.34, 12),
-        this.materials.pipeDark,
-      );
-      suction.position.set(0.2, 0.55, 0.22);
-      pump.add(suction);
-
-      const discharge = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.048, 0.048, 0.3, 12),
-        this.materials.pipeDark,
-      );
-      discharge.position.set(0.2, 0.9, 0);
-      pump.add(discharge);
-
-      // Discharge valve wheel.
-      const wheel = new THREE.Mesh(
-        new THREE.TorusGeometry(0.085, 0.012, 6, 18),
-        this.materials.stainless,
-      );
-      wheel.rotation.x = Math.PI / 2;
-      wheel.position.set(0.2, 1.06, 0);
-      pump.add(wheel);
-      const spindle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.012, 0.012, 0.14, 6),
-        this.materials.stainless,
-      );
-      spindle.position.set(0.2, 1.0, 0);
-      pump.add(spindle);
-
-      // Pump plate.
       pump.add(
         boxMesh(
-          0.3,
-          0.16,
-          0.02,
-          this.materials.createLabelMaterial(`P-${index + 1}`, index === 0 ? 'DUTY' : 'STANDBY'),
-          V(-0.28, 0.62, 0.17),
-          'pump-plate',
+          0.14,
+          0.12,
+          0.17,
+          this.materials.steelDark,
+          V(-0.22, 0.64, 0),
+          `pump-terminal-box-${index + 1}`,
         ),
       );
 
-      // Suction and discharge connections to the floor / overhead mains.
-      pipework.addPath(
-        [
-          V(x, 0.35, z + 0.32),
-          V(x, 0.35, z + 0.55),
-          V(x, 0.16, z + 0.55),
-        ],
-        0.05,
+      pump.add(
+        boxMesh(
+          0.17,
+          0.28,
+          0.3,
+          this.materials.stainless,
+          V(0.03, 0.43, 0),
+          `pump-coupling-guard-${index + 1}`,
+        ),
       );
-      pipework.addPath(
-        [
-          V(x, 1.05, z),
-          V(x, 1.35, z),
-          V(x, 1.35, z + 0.75),
-        ],
-        0.045,
+
+      const volute = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.255, 0.255, 0.23, 28),
+        this.materials.pumpBlue,
       );
+      volute.rotation.x = Math.PI / 2;
+      volute.position.set(0.29, 0.41, 0.02);
+      volute.castShadow = true;
+      pump.add(volute);
+
+      const voluteRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.255, 0.016, 6, 28),
+        this.materials.pumpPaint,
+      );
+      voluteRing.position.set(0.29, 0.41, 0.14);
+      pump.add(voluteRing);
+
+      const suction = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.115, 0.115, 0.1, 20),
+        this.materials.steelDark,
+      );
+      suction.rotation.x = Math.PI / 2;
+      suction.position.set(0.29, 0.41, 0.2);
+      pump.add(suction);
+      const suctionFlange = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.155, 0.155, 0.035, 20),
+        this.materials.stainless,
+      );
+      suctionFlange.rotation.x = Math.PI / 2;
+      suctionFlange.position.set(0.29, 0.41, 0.26);
+      pump.add(suctionFlange);
+
+      const discharge = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.095, 0.3, 18),
+        this.materials.steelDark,
+      );
+      discharge.position.set(0.29, 0.74, 0.02);
+      pump.add(discharge);
+      const dischargeFlange = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, 0.035, 20),
+        this.materials.stainless,
+      );
+      dischargeFlange.position.set(0.29, 0.9, 0.02);
+      pump.add(dischargeFlange);
+
+
+      const gaugeStem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.016, 0.016, 0.16, 8),
+        this.materials.stainless,
+      );
+      gaugeStem.rotation.x = Math.PI / 2;
+      gaugeStem.position.set(0.44, 0.72, 0.13);
+      pump.add(gaugeStem);
+      const gauge = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.075, 0.075, 0.04, 20),
+        this.materials.stainless,
+      );
+      gauge.rotation.x = Math.PI / 2;
+      gauge.position.set(0.44, 0.72, 0.22);
+      pump.add(gauge);
+      const gaugeFace = new THREE.Mesh(
+        new THREE.CircleGeometry(0.06, 20),
+        this.materials.ledWhite,
+      );
+      gaugeFace.position.set(0.44, 0.72, 0.242);
+      pump.add(gaugeFace);
+
+      const valveWheel = new THREE.Mesh(
+        new THREE.TorusGeometry(0.075, 0.012, 5, 16),
+        this.materials.ledRed,
+      );
+      valveWheel.rotation.x = Math.PI / 2;
+      valveWheel.position.set(0.29, 0.84, 0.02);
+      pump.add(valveWheel);
+
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, 0.16),
+        this.materials.createLabelMaterial(
+          `P-0${index + 1}`,
+          duty ? 'DUTY · NFT SUPPLY' : 'STANDBY · AUTO START',
+          { background: '#e9ece3', foreground: '#16324a' },
+        ),
+      );
+      plate.position.set(0, 0.302, 0.312);
+      pump.add(plate);
+
+      const lamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.028, 12, 8),
+        duty ? this.materials.ledGreen : this.materials.ledAmber,
+      );
+      lamp.position.set(0.36, 0.35, 0.312);
+      pump.add(lamp);
+
+      const warning = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.18, 0.09),
+        this.materials.createWarningMaterial(),
+      );
+      warning.position.set(-0.32, 0.32, 0.312);
+      pump.add(warning);
+
+      this.collisionWorld.addBox({
+        x,
+        z,
+        width: 1.2,
+        depth: 0.8,
+        label: 'Circulation pump skid',
+      });
 
       this.register(pump, {
         id: `pump-${index + 1}`,
-        category: 'Water & nutrient',
-        title: `Circulation pump P-${index + 1}`,
-        description:
-          index === 0
-            ? 'Duty pump for the NFT supply main. Draws filtered nutrient solution from Reservoir A and pushes it to the row headers at roughly 2 bar.'
-            : 'Standby pump on automatic changeover. Starts if the duty pump trips or if the supply pressure falls below setpoint.',
+        category: 'Irrigation',
+        title: `Circulation pump P-0${index + 1}`,
+        description: duty
+          ? 'Duty pump for the NFT supply main. Variable-speed control holds the manifold pressure at 1.4 bar, and the controller rotates duty weekly to equalise wear. A dry-run relay protects the mechanical seal if the buffer tank empties.'
+          : 'Standby pump on automatic changeover. It starts on a pressure drop or duty-pump fault, with a soft starter to avoid water hammer in the floor main.',
         specs: [
-          ['Duty', index === 0 ? 'Lead / duty' : 'Standby'],
-          ['Flow', '90 L/min'],
-          ['Head', '18 m'],
-          ['Motor', '1.1 kW · 230 V'],
-          ['Running hours', index === 0 ? '1 284 h' : '212 h'],
-          ['Status', index === 0 ? 'Running' : 'Ready'],
+          ['Duty', duty ? 'Lead / duty' : 'Standby / auto'],
+          ['Motor', '1.1 kW · 400 V · 2,900 rpm'],
+          ['Flow', '18 m³/h at 3.5 m head'],
+          ['Discharge pressure', duty ? '1.4 bar' : 'set to 1.4 bar'],
+          ['Protection', 'Dry-run + thermal overload'],
         ],
       });
-    });
-
-    pipework.build(skid, 'pump-connections');
-
-    this.register(skid, {
-      id: 'pump-skid',
-      category: 'Water & nutrient',
-      title: 'Pump skid',
-      description:
-        'Duty / standby centrifugal pumps on a common skid, with isolation valves and a pressure switch. The skid is the hydraulic heart of the NFT loop.',
-      specs: [
-        ['Configuration', '2 × 90 L/min'],
-        ['Control', 'Duty / standby auto-changeover'],
-        ['Supply pressure', '1.9 bar'],
-        ['Isolation', 'Ball valves, both sides'],
-        ['Power', '2 × 1.1 kW'],
-        ['Status', '1 running · 1 ready'],
-      ],
-    });
-
-    this.collisionWorld.addBox({
-      x: 5.35,
-      z: -14.3,
-      width: 2.2,
-      depth: 1.1,
-      label: 'pump skid',
     });
   }
 
 
+  /* ------------------------------------------------------- climate cabinet */
+
   buildControlCabinet() {
-    const [x, z] = LAYOUT.cabinet.position;
-    const [width, height, depth] = LAYOUT.cabinet.size;
+    const config = LAYOUT.cabinet;
+    const [x, z] = config.position;
+    const [depth, height, width] = config.size;
+    const foot = config.footHeight;
     const cabinet = new THREE.Group();
-    cabinet.name = 'control-cabinet';
+    cabinet.name = 'climate-cabinet';
     cabinet.position.set(x, 0, z);
     this.group.add(cabinet);
 
-    const body = boxMesh(width, height, depth, this.materials.cabinetPaint, V(0, 1.62, 0), 'cabinet-body');
-    cabinet.add(body);
-
-    // Door, hinged on the north edge, facing the aisle (-X).
-    const door = boxMesh(0.03, height - 0.08, depth - 0.06, this.materials.cabinetPaint, V(-width / 2 - 0.015, 1.62, 0), 'cabinet-door');
-    cabinet.add(door);
-
-    const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.3, 0.2),
-      this.materials.screen,
-    );
-    screen.rotation.y = -Math.PI / 2;
-    screen.position.set(-width / 2 - 0.032, 1.92, 0.12);
-    cabinet.add(screen);
-
-    const button = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.026, 0.026, 0.02, 12),
-      this.materials.stainless,
-    );
-    button.rotation.z = Math.PI / 2;
-    button.position.set(-width / 2 - 0.035, 1.42, -0.06);
-    cabinet.add(button);
-
-    const handle = boxMesh(0.03, 0.22, 0.035, this.materials.stainless, V(-width / 2 - 0.04, 1.5, -0.32), 'cabinet-handle');
-    cabinet.add(handle);
-
     cabinet.add(
       boxMesh(
-        0.02,
-        0.16,
-        0.26,
-        this.materials.createLabelMaterial('CLIMATE', 'CONTROL · 400 V'),
-        V(-width / 2 - 0.035, 1.2, 0.18),
-        'cabinet-label',
+        depth + 0.2,
+        0.06,
+        width + 0.2,
+        this.materials.concretePlinth,
+        V(0, 0.03, 0),
+        'cabinet-plinth',
       ),
     );
 
-    // Cable tray / conduit rising to the roof purlin.
-    const conduit = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, 2.5, 10),
-      this.materials.pvcGrey,
-    );
-    conduit.position.set(-0.1, 3.0, -0.36);
-    cabinet.add(conduit);
-
-    this.register(cabinet, {
-      id: 'control-cabinet',
-      category: 'Controls',
-      title: 'Climate control cabinet',
-      description:
-        'Main control panel for fertigation, vents and circulation. Setpoints, dosing recipes and alarm history are managed here; the touchscreen mirrors the same data on a phone.',
-      specs: [
-        ['Controller', 'GreenCtrl 400'],
-        ['Functions', 'Fertigation · vents · fans'],
-        ['Sensors', 'Air temp / RH / CO₂'],
-        ['Mode', 'Auto'],
-        ['Day setpoint', '21.5 °C'],
-        ['Alarms', 'None active'],
-      ],
-    });
-
-    this.collisionWorld.addBox({
-      x: x - 0.05,
-      z,
-      width: 0.55,
-      depth: depth + 0.2,
-      label: 'control cabinet',
-    });
-  }
-
-  buildFans() {
-    const { positions, height, radius } = LAYOUT.fans;
-    const fanRoot = new THREE.Group();
-    fanRoot.name = 'circulation-fans';
-    this.group.add(fanRoot);
-
-    positions.forEach(([x, z], index) => {
-      const fan = new THREE.Group();
-      fan.name = `fan-${index + 1}`;
-      fan.position.set(x, height, z);
-      fanRoot.add(fan);
-
-      // Suspension rods up to the ridge tie.
-      const rods = new BeamBatch(this.materials.steelDark);
-      rods.add(V(0, 0, 0), V(0, 0.62, 0), 0.025, 0.025);
-      rods.add(V(-0.2, 0.1, 0), V(-0.2, 0.62, 0), 0.018, 0.018);
-      rods.add(V(0.2, 0.1, 0), V(0.2, 0.62, 0), 0.018, 0.018);
-      rods.build(fan, `fan-${index + 1}-rods`);
-
-      const motor = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.16, 0.14, 0.28, 16),
-        this.materials.pumpPaint,
-      );
-      motor.castShadow = true;
-      fan.add(motor);
-
-      const rotor = new THREE.Group();
-      rotor.position.y = -0.2;
-      fan.add(rotor);
-
-      const hub = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.11, 0.11, 0.1, 14),
-        this.materials.aluminium,
-      );
-      rotor.add(hub);
-
-      for (let b = 0; b < 5; b += 1) {
-        const pivot = new THREE.Group();
-        pivot.rotation.y = (b / 5) * Math.PI * 2;
-        const blade = new THREE.Mesh(
-          new THREE.BoxGeometry(radius * 0.82, 0.012, 0.16),
-          this.materials.aluminium,
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        cabinet.add(
+          boxMesh(
+            0.05,
+            foot,
+            0.05,
+            this.materials.steelDark,
+            V(sx * (depth / 2 - 0.05), 0.06 + foot / 2, sz * (width / 2 - 0.05)),
+            'cabinet-foot',
+          ),
         );
-        blade.position.set(radius * 0.55, 0, 0);
-        blade.rotation.x = 0.26;
-        blade.castShadow = true;
-        pivot.add(blade);
-        rotor.add(pivot);
       }
+    }
 
-      const guard = new THREE.Mesh(
-        new THREE.TorusGeometry(radius, 0.012, 6, 40),
-        this.materials.steelDark,
-      );
-      guard.rotation.x = Math.PI / 2;
-      guard.position.y = -0.24;
-      fan.add(guard);
-
-      const lowerGuard = new THREE.Mesh(
-        new THREE.TorusGeometry(radius * 0.62, 0.01, 6, 32),
-        this.materials.steelDark,
-      );
-      lowerGuard.rotation.x = Math.PI / 2;
-      lowerGuard.position.y = -0.34;
-      fan.add(lowerGuard);
-
-      this.fans.push({ group: fan, rotor, speed: 2.1 + index * 0.15 });
-
-      // Invisible hit volume so the high-mounted fan is easy to target from the
-      // floor without pixel-perfect aim at the blades or guard ring.
-      const hitProxy = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius + 0.22, radius + 0.22, 0.95, 14),
-        this.materials.hitProxy,
-      );
-      hitProxy.name = `fan-${index + 1}-hit`;
-      hitProxy.position.y = -0.18;
-      hitProxy.visible = false;
-      fan.add(hitProxy);
-
-      this.register(fan, {
-        id: `fan-${index + 1}`,
-        category: 'Climate',
-        title: `Circulation fan ${index + 1}`,
-        description:
-          'Horizontal air circulator that keeps temperature and humidity uniform through the crop canopy. Runs continuously during the day and on a humidity trigger at night.',
-        specs: [
-          ['Diameter', `${(radius * 2).toFixed(2)} m`],
-          ['Airflow', '4 200 m³/h'],
-          ['Mounting', 'Suspended, ridge tie'],
-          ['Speed', '1 400 rpm'],
-          ['Control', 'VFD · 0-100 %'],
-          ['Status', 'Running · 65 %'],
-        ],
-      });
-    });
-  }
-
-
-  buildPipework() {
-    const mains = new THREE.Group();
-    mains.name = 'main-pipework';
-    this.group.add(mains);
-
-    const pvc = new CylinderBatch(this.materials.pvcGrey);
-    const dark = new CylinderBatch(this.materials.pipeDark);
-    const bedRowXs = LAYOUT.beds.centersX;
-
-    // Suction main: reservoir outlets along the headhouse wall to the pumps.
-    pvc.addPath(
-      [
-        V(-8.15, 0.16, -14.23),
-        V(-8.15, 0.16, -13.75),
-        V(6.1, 0.16, -13.75),
-      ],
-      0.05,
+    const shellY = foot + height / 2 + 0.06;
+    cabinet.add(
+      boxMesh(depth, 0.04, width, this.materials.cabinetPaint, V(0, shellY + height / 2, 0)),
     );
-    pvc.addPath([V(-4.95, 0.16, -14.23), V(-4.95, 0.16, -13.75)], 0.05);
+    cabinet.add(
+      boxMesh(depth, 0.05, width, this.materials.cabinetPaint, V(0, shellY - height / 2, 0)),
+    );
+    cabinet.add(
+      boxMesh(0.04, height, width, this.materials.cabinetPaint, V(depth / 2 - 0.02, shellY, 0)),
+    );
+    cabinet.add(
+      boxMesh(
+        depth,
+        height,
+        0.04,
+        this.materials.cabinetPaint,
+        V(0, shellY, width / 2 - 0.02),
+      ),
+    );
+    cabinet.add(
+      boxMesh(
+        depth,
+        height,
+        0.04,
+        this.materials.cabinetPaint,
+        V(0, shellY, -width / 2 + 0.02),
+      ),
+    );
 
-    // Discharge from each pump down onto the feed main.
-    for (const [x] of LAYOUT.pumps.positions) {
-      pvc.addPath(
-        [
-          V(x, 1.35, -13.55),
-          V(x, 1.35, -13.3),
-          V(x, 0.2, -13.3),
-        ],
-        0.045,
+    // Interior back board and mounting rails.
+    cabinet.add(
+      boxMesh(
+        0.025,
+        height - 0.06,
+        width - 0.06,
+        this.materials.cabinetInterior,
+        V(depth / 2 - 0.045, shellY, 0),
+        'cabinet-interior-back',
+      ),
+    );
+
+    const railX = depth / 2 - 0.085;
+    for (const railY of [1.64, 1.09, 0.82]) {
+      cabinet.add(
+        boxMesh(
+          0.03,
+          0.035,
+          width - 0.12,
+          this.materials.aluminium,
+          V(railX, railY, 0),
+          'cabinet-din-rail',
+        ),
       );
     }
 
-    // Feed main: east aisle, then west along the head of the benches.
-    pvc.addPath(
-      [
-        V(4.6, 0.2, -13.3),
-        V(10.9, 0.2, -13.3),
-        V(10.9, 0.2, -9.6),
-        V(-10.6, 0.2, -9.6),
-      ],
-      0.055,
+    // Wire ducts frame the HMI and keep the interior reading as a real panel.
+    for (const ductY of [1.46, 0.96, 0.62]) {
+      cabinet.add(
+        boxMesh(
+          0.055,
+          0.065,
+          width - 0.09,
+          this.materials.pvcGrey,
+          V(railX, ductY, 0),
+          'cabinet-wire-duct',
+        ),
+      );
+    }
+    for (const ductZ of [-width / 2 + 0.095, width / 2 - 0.095]) {
+      cabinet.add(
+        boxMesh(0.045, 0.88, 0.055, this.materials.pvcGrey, V(railX, 1.16, ductZ)),
+      );
+    }
+
+    // HMI screen: the seven live metrics are rendered onto this surface.
+    const screenX = depth / 2 - 0.122;
+    cabinet.add(
+      boxMesh(
+        0.028,
+        0.38,
+        0.68,
+        this.materials.steelDark,
+        V(depth / 2 - 0.105, 1.22, 0),
+        'dashboard-bezel',
+      ),
+    );
+    this.dashboard = new DashboardDisplay({ materials: this.materials });
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.31), this.dashboard.material);
+    screen.name = 'climate-dashboard';
+    screen.rotation.y = -Math.PI / 2;
+    screen.position.set(screenX, 1.22, 0);
+    cabinet.add(screen);
+
+    // Small status button cluster beside the screen.
+    for (let i = 0; i < 4; i += 1) {
+      const button = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, 0.012, 12),
+        i === 0 ? this.materials.ledGreen : this.materials.ledWhite,
+      );
+      button.rotation.z = Math.PI / 2;
+      button.position.set(depth / 2 - 0.135, 1.28 - i * 0.055, 0.36);
+      cabinet.add(button);
+    }
+
+    this.cabinetLight = new THREE.PointLight(0xa8ecda, 0, 1.1, 2);
+    this.cabinetLight.position.set(depth / 2 - 0.05, 1.24, 0);
+    cabinet.add(this.cabinetLight);
+
+    // Hinged door. The pivot sits on the +Z edge, and the panel extends -Z.
+    const hinge = new THREE.Group();
+    hinge.name = 'cabinet-door-hinge';
+    hinge.position.set(-depth / 2 + 0.017, shellY, width / 2 - 0.01);
+    cabinet.add(hinge);
+    this.cabinetDoor = hinge;
+    this.cabinetDoorAngle = config.doorOpenAngle;
+
+    hinge.add(
+      boxMesh(
+        0.035,
+        height - 0.035,
+        width - 0.02,
+        this.materials.cabinetDoor,
+        V(0, 0, -(width - 0.02) / 2),
+        'cabinet-door',
+      ),
     );
 
-    // Riser + isolation valve at the head of every bench row.
-    const highHeaderY = LAYOUT.beds.benchHeight +
-      Math.tan(THREE.MathUtils.degToRad(LAYOUT.beds.slopeDegrees)) * LAYOUT.beds.channelLength +
-      0.02 + LAYOUT.beds.channelHeight / 2 + 0.3;
-    for (const x of bedRowXs) {
-      pvc.addPath(
-        [
-          V(x, 0.2, -9.6),
-          V(x, highHeaderY, -9.6),
-          V(x, highHeaderY, -9.34),
-        ],
-        0.032,
-      );
-      const wheel = new THREE.Mesh(
-        new THREE.TorusGeometry(0.075, 0.01, 6, 16),
+    for (const y of [-height / 2 + 0.12, height / 2 - 0.12]) {
+      const hingeKnuckle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.019, 0.019, 0.09, 10),
         this.materials.stainless,
       );
-      wheel.rotation.x = Math.PI / 2;
-      wheel.position.set(x, 1.0, -9.6);
-      mains.add(wheel);
+      hingeKnuckle.position.set(0.01, y, 0);
+      hinge.add(hingeKnuckle);
     }
 
-    // Return collector under the low ends of the benches.
-    pvc.addPath([V(-10.2, 0.58, 9.28), V(10.2, 0.58, 9.28)], 0.065);
-    pvc.addPath(
-      [
-        V(-10.2, 0.58, 9.28),
-        V(-11.3, 0.58, 9.28),
-        V(-11.3, 0.25, 9.28),
-        V(-11.3, 0.25, -16.0),
-        V(-7.7, 0.25, -16.0),
-        V(-7.7, 0.52, -15.1),
+    // Latch handle on the free edge.
+    hinge.add(
+      boxMesh(
+        0.045,
+        0.23,
+        0.035,
+        this.materials.stainless,
+        V(-0.035, -0.02, -width + 0.115),
+        'cabinet-handle',
+      ),
+    );
+    hinge.add(
+      boxMesh(
+        0.028,
+        0.055,
+        0.045,
+        this.materials.steelDark,
+        V(-0.038, -0.15, -width + 0.115),
+        'cabinet-latch',
+      ),
+    );
+
+    // Ventilation louvres in the lower half of the door.
+    for (let louvre = 0; louvre < 9; louvre += 1) {
+      hinge.add(
+        boxMesh(
+          0.014,
+          0.012,
+          width - 0.24,
+          this.materials.steelDark,
+          V(-0.022, -0.5 - louvre * 0.038, -width / 2),
+          `cabinet-louvre-${louvre}`,
+        ),
+      );
+    }
+
+
+    // DIN breakers along the top rail.
+    for (let breaker = 0; breaker < 8; breaker += 1) {
+      const bz = -0.33 + breaker * 0.094;
+      cabinet.add(
+        boxMesh(
+          0.065,
+          0.13,
+          0.07,
+          this.materials.cabinetInterior,
+          V(railX, 1.64, bz),
+          `cabinet-breaker-${breaker}`,
+        ),
+      );
+      cabinet.add(
+        boxMesh(
+          0.016,
+          0.035,
+          0.022,
+          breaker % 2 === 0 ? this.materials.pvcWhite : this.materials.ledWhite,
+          V(railX - 0.041, 1.66, bz),
+          `cabinet-breaker-toggle-${breaker}`,
+        ),
+      );
+    }
+
+    // Terminal blocks along the lower rail.
+    for (let terminal = 0; terminal < 12; terminal += 1) {
+      const tz = -0.3 + terminal * 0.055;
+      cabinet.add(
+        boxMesh(
+          0.055,
+          0.1,
+          0.042,
+          this.materials.pvcGrey,
+          V(railX, 0.82, tz),
+          `cabinet-terminal-${terminal}`,
+        ),
+      );
+      cabinet.add(
+        boxMesh(
+          0.012,
+          0.016,
+          0.03,
+          terminal % 3 === 0 ? this.materials.ledWhite : this.materials.pumpBlue,
+          V(railX - 0.033, 0.86, tz),
+          `cabinet-terminal-tag-${terminal}`,
+        ),
+      );
+    }
+
+    // Compact PLC, relay and 24 V supply modules below the HMI.
+    cabinet.add(
+      boxMesh(
+        0.075,
+        0.2,
+        0.11,
+        this.materials.steelDark,
+        V(railX, 1.09, 0.37),
+        'cabinet-plc',
+      ),
+    );
+    for (let led = 0; led < 4; led += 1) {
+      const pilot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.009, 8, 6),
+        led === 0 ? this.materials.ledGreen : this.materials.ledAmber,
+      );
+      pilot.position.set(railX - 0.042, 1.14 - led * 0.03, 0.37);
+      cabinet.add(pilot);
+    }
+    cabinet.add(
+      boxMesh(
+        0.085,
+        0.16,
+        0.11,
+        this.materials.cabinetInterior,
+        V(railX, 1.1, 0.23),
+        'cabinet-relay-module',
+      ),
+    );
+    cabinet.add(
+      boxMesh(
+        0.075,
+        0.12,
+        0.09,
+        this.materials.aluminium,
+        V(railX, 0.72, 0.34),
+        'cabinet-psu',
+      ),
+    );
+
+    // Door branding, safety sticker and status LED.
+    const doorPanel = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.56, 0.2),
+      this.materials.createLabelMaterial('CLIMATE CONTROL', 'CC-4 · NFT HOUSE 4', {
+        background: '#dfe4df',
+        foreground: '#172d3a',
+      }),
+    );
+    doorPanel.rotation.y = -Math.PI / 2;
+    doorPanel.position.set(-0.02, 0.6, -(width - 0.02) / 2);
+    hinge.add(doorPanel);
+
+    const doorSticker = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.18, 0.09),
+      this.materials.createWarningMaterial(),
+    );
+    doorSticker.rotation.y = -Math.PI / 2;
+    doorSticker.position.set(-0.021, -0.31, -0.28);
+    hinge.add(doorSticker);
+
+    const doorLed = new THREE.Mesh(
+      new THREE.SphereGeometry(0.014, 10, 8),
+      this.materials.ledGreen,
+    );
+    doorLed.position.set(-0.025, 0.48, 0.24);
+    hinge.add(doorLed);
+
+    // Roof-mounted extract fan and cable conduit to the ceiling.
+    const exhaust = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.13, 0.07, 16),
+      this.materials.steelDark,
+    );
+    exhaust.position.set(0.02, shellY + height / 2 + 0.04, -0.24);
+    cabinet.add(exhaust);
+    const conduit = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.035, 2.35, 10),
+      this.materials.pvcGrey,
+    );
+    conduit.position.set(depth / 2 - 0.08, shellY + height / 2 + 1.19, 0.3);
+    cabinet.add(conduit);
+
+    this.collisionWorld.addBox({
+      x,
+      z,
+      width: depth + 0.06,
+      depth: width + 0.1,
+      label: 'Climate cabinet',
+    });
+
+    this.register(cabinet, {
+      id: 'climate-cabinet',
+      category: 'Climate control',
+      title: 'Climate control cabinet CC-4',
+      description:
+        'The greenhouse controller, safety interlocks and variable-speed drives. The hinged door gives access to the HMI, which is showing live air temperature, humidity, VPD, PPFD, DLI, EC and pH. Press E near the cabinet to swing the door open or closed.',
+      specs: [
+        ['Controller', 'GreenCtrl 400 · 7-channel'],
+        ['Sensors', 'Air temp / RH · PAR · EC / pH'],
+        ['Vent control', '2 × proportional actuators'],
+        ['Fan control', '24 × EC HAF fans · per-bay loops'],
+        ['Supply', '400 V three-phase + 24 V DC'],
       ],
-      0.055,
-    );
+      interactionHint: 'Open cabinet',
+      interaction: 'toggle-cabinet',
+    });
 
-    // Shallow collection trough so the return reads continuously along the row.
-    pvc.add(V(-10.0, 0.62, 9.05), V(10.0, 0.62, 9.05), 0.028);
-
-    // Balance line between the two bulk tanks.
-    dark.addPath([V(-7.58, 0.55, -15.1), V(-8.42, 0.55, -15.1)], 0.05);
-
-    // Inline filter beside the pump skid.
-    const filter = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.17, 0.17, 0.52, 16),
-      this.materials.stainless,
-    );
-    filter.position.set(7.05, 0.78, -14.75);
-    filter.castShadow = true;
-    mains.add(filter);
-    const gauge = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.07, 0.03, 16),
-      this.materials.stainless,
-    );
-    gauge.rotation.z = Math.PI / 2;
-    gauge.position.set(7.05, 1.08, -14.75);
-    mains.add(gauge);
-
-    pvc.build(mains, 'pvc-mains');
-    dark.build(mains, 'dark-mains');
+    this.setCabinetDoor(false);
   }
 
-  getInteractables() {
-    return this.interactables;
+  toggleCabinetDoor() {
+    this.setCabinetDoor(this.doorTarget < 0.5);
+    return this.doorTarget > 0.5;
   }
+
+  setCabinetDoor(open) {
+    this.doorTarget = open ? 1 : 0;
+    const data = this.interactables.find((entry) => entry.data.id === 'climate-cabinet');
+    if (data) data.data.interactionHint = open ? 'Close cabinet' : 'Open cabinet';
+  }
+
+  get isCabinetOpen() {
+    return this.doorTarget > 0.5;
+  }
+
+
+  /* -------------------------------------------------------------- fans */
+
+  buildFans() {
+    this.fanSystem = new HafFans({ materials: this.materials }).build(this.group);
+    this.fans = this.fanSystem.fans;
+    this.fansEnabled = this.fanSystem.enabled;
+    this.interactables.push(...this.fanSystem.interactables);
+  }
+
+  setFansEnabled(enabled) {
+    this.fansEnabled = this.fanSystem ? this.fanSystem.setEnabled(enabled) : Boolean(enabled);
+    return this.fansEnabled;
+  }
+
+  toggleFans() {
+    this.fansEnabled = this.fanSystem ? this.fanSystem.toggle() : !this.fansEnabled;
+    return this.fansEnabled;
+  }
+
+
+  /* ----------------------------------------------------------- pipework */
+
+  buildPipework() {
+    this.hydraulicNetwork = new HydraulicNetwork({
+      materials: this.materials,
+      tables: this.tables,
+      parent: this.group,
+    }).build();
+    this.hydraulics = this.hydraulicNetwork.hydraulics;
+  }
+
+  /* ------------------------------------------------------------- lifecycle */
 
   update(dt) {
-    for (const fan of this.fans) {
-      fan.rotor.rotation.y += fan.speed * dt;
+    this.fanSystem?.update(dt);
+
+    if (this.cabinetDoor) {
+      const blend = 1 - Math.exp(-dt * 7);
+      this.doorAmount += (this.doorTarget - this.doorAmount) * blend;
+      if (Math.abs(this.doorTarget - this.doorAmount) < 0.002) {
+        this.doorAmount = this.doorTarget;
+      }
+      this.cabinetDoor.rotation.y = this.doorAmount * this.cabinetDoorAngle;
+      if (this.cabinetLight) this.cabinetLight.intensity = this.doorAmount * 0.55;
     }
+
+    this.dashboard?.update(dt, this.climate);
   }
 
   dispose() {
+    this.dashboard?.dispose();
     if (!this.group) return;
     this.group.traverse((child) => {
-      if (child.isMesh && child.geometry) child.geometry.dispose();
+      if (child.isMesh || child.isInstancedMesh) child.geometry?.dispose();
     });
-    this.group.parent?.remove(this.group);
+    this.group.removeFromParent();
     this.group = null;
-    this.fans.length = 0;
     this.interactables.length = 0;
+    this.fans.length = 0;
+    this.tables.length = 0;
+    this.tableSystem = null;
+    this.hydraulicNetwork = null;
+    this.fanSystem = null;
+    this.dashboard = null;
+    this.cabinetDoor = null;
+    this.cabinetLight = null;
   }
 }
 

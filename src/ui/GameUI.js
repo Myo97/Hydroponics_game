@@ -14,8 +14,8 @@ const HUD_MARKUP = `
       <div class="hud-divider"></div>
       <div class="hud-row"><span>Air temp</span><strong class="accent" data-air>21.4 &deg;C</strong></div>
       <div class="hud-row"><span>Humidity</span><strong data-rh>64 %</strong></div>
-      <div class="hud-row"><span>Solution</span><strong>EC 1.8 &middot; pH 5.9</strong></div>
-      <div class="hud-row"><span>Status</span><strong class="accent">Nominal</strong></div>
+      <div class="hud-row"><span>Solution</span><strong data-solution>EC 1.84 &middot; pH 5.88</strong></div>
+      <div class="hud-row"><span>Status</span><strong class="accent" data-status>Nominal</strong></div>
     </div>
 
     <div class="hud-block hud-block--tr">
@@ -31,7 +31,7 @@ const HUD_MARKUP = `
 
     <div class="interaction-hint panel" id="interaction-hint">
       <span class="interaction-name" data-hint-name>Bench</span>
-      <span class="interaction-action"><kbd>E</kbd>Inspect</span>
+      <span class="interaction-action"><kbd>E</kbd><span data-hint-action>Inspect</span></span>
       <span class="interaction-range" data-hint-range>1.4 m</span>
     </div>
 
@@ -40,7 +40,9 @@ const HUD_MARKUP = `
       <span class="sep"></span>
       <span><kbd>Shift</kbd> Sprint</span>
       <span class="sep"></span>
-      <span><kbd>E</kbd> Inspect</span>
+      <span><kbd>E</kbd> Interact</span>
+      <span class="sep"></span>
+      <span><kbd>F</kbd> Fans</span>
       <span class="sep"></span>
       <span><kbd>Esc</kbd> Menu</span>
     </div>
@@ -134,7 +136,12 @@ export class GameUI {
       crosshair: $('#crosshair'),
       hint: $('#interaction-hint'),
       hintName: $('[data-hint-name]'),
+      hintAction: $('[data-hint-action]'),
       hintRange: $('[data-hint-range]'),
+      air: $('[data-air]'),
+      rh: $('[data-rh]'),
+      solution: $('[data-solution]'),
+      status: $('[data-status]'),
       zone: $('[data-zone]'),
       zoneTag: $('#location-tag'),
       zoneTagText: $('[data-zone-tag]'),
@@ -210,6 +217,22 @@ export class GameUI {
     this.el.fps.textContent = Math.round(fps);
   }
 
+  /** Live climate readout shared with the controller HMI inside the cabinet. */
+  setClimate(data) {
+    if (!data) return;
+    const air = `${data.airTemp.toFixed(1)} \u00b0C`;
+    const humidity = `${Math.round(data.humidity)} %`;
+    const solution = `EC ${data.ec.toFixed(2)} \u00b7 pH ${data.ph.toFixed(2)}`;
+    const status = data.isAlarm ? data.status[0] : 'Nominal';
+
+    if (this.el.air.textContent !== air) this.el.air.textContent = air;
+    if (this.el.rh.textContent !== humidity) this.el.rh.textContent = humidity;
+    if (this.el.solution.textContent !== solution) this.el.solution.textContent = solution;
+    if (this.el.status.textContent !== status) this.el.status.textContent = status;
+    this.el.status.classList.toggle('accent', !data.isAlarm);
+    this.el.status.classList.toggle('warn', data.isAlarm);
+  }
+
   setPlayerState({ x, z, speed, zone }) {
     this.el.pos.textContent = `${x.toFixed(1)} / ${z.toFixed(1)}`;
     this.el.speed.textContent = `${speed.toFixed(1)} m/s`;
@@ -233,6 +256,7 @@ export class GameUI {
     this.el.hint.classList.toggle('is-visible', active && !this.inspectOpen);
     if (active) {
       this.el.hintName.textContent = target.data.title;
+      this.el.hintAction.textContent = target.data.interactionHint ?? 'Inspect';
       this.el.hintRange.textContent = `${target.distance.toFixed(1)} m`;
     }
   }

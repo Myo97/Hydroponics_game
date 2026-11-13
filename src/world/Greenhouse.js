@@ -1,6 +1,8 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { LAYOUT, DIM, GUTTER_X, RIDGE_X, FRAME_Z } from '../config/layout.js';
 import { BeamBatch, PanelBatch, CylinderBatch, boxMesh } from './Batches.js';
+import { EntranceDoors } from './EntranceDoors.js';
+import { ShadeScreen } from './ShadeScreen.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -18,6 +20,9 @@ export class Greenhouse {
     this.collisionWorld = collisionWorld;
     this.preset = preset;
     this.detailGroup = null;
+    this.entrance = null;
+    this.shadeScreen = null;
+    this.interactables = [];
   }
 
   build() {
@@ -32,6 +37,7 @@ export class Greenhouse {
     this.buildGlass();
     this.buildGuttersAndDownpipes();
     this.buildDoors();
+    this.buildShadeScreen();
     this.buildInteriorDetails();
     this.buildColliders();
 
@@ -395,100 +401,33 @@ export class Greenhouse {
     pipes.build(this.group, 'gutters-downpipes');
   }
 
-  /** Wide sliding entrance: both leaves are shown open against the front wall. */
+  /** Build the animated, two-leaf sliding main entrance. */
   buildDoors() {
-    const doorGroup = new THREE.Group();
-    doorGroup.name = 'entrance-door';
-    const z = DIM.halfLength - 0.1;
-    const { width, height } = LAYOUT.entrance;
-    const doorHalf = width / 2;
-    const leafWidth = 1.62;
-    const leafHeight = height - 0.06;
-    const alu = this.materials.aluminium;
-
-    // Jambs and head.
-    for (const x of [-doorHalf - 0.04, doorHalf + 0.04]) {
-      doorGroup.add(
-        boxMesh(0.09, height, 0.16, alu, V(x, height / 2, DIM.halfLength - 0.06), 'door-jamb'),
-      );
-    }
-    doorGroup.add(
-      boxMesh(
-        width + 0.22,
-        0.18,
-        0.18,
-        alu,
-        V(0, height + 0.06, DIM.halfLength - 0.06),
-        'door-head',
-      ),
-    );
-
-    // Sliding track above the leaves.
-    doorGroup.add(
-      boxMesh(DIM.halfWidth * 0.62, 0.1, 0.1, alu, V(0, height + 0.25, z), 'door-track'),
-    );
-    for (const x of [-2.6, 2.6]) {
-      doorGroup.add(boxMesh(0.04, 0.3, 0.04, alu, V(x, height + 0.1, z), 'track-hanger'));
-    }
-
-    // Two leaves, slid open either side of the opening.
-    for (const sign of [-1, 1]) {
-      const leaf = new THREE.Group();
-      leaf.name = sign < 0 ? 'door-leaf-left' : 'door-leaf-right';
-      const railGeometry = new THREE.BoxGeometry(leafWidth, 0.065, 0.055);
-      const stileGeometry = new THREE.BoxGeometry(0.065, leafHeight, 0.055);
-
-      const topRail = new THREE.Mesh(railGeometry, alu);
-      topRail.position.set(0, leafHeight - 0.033, 0);
-      const bottomRail = new THREE.Mesh(railGeometry, alu);
-      bottomRail.position.set(0, 0.033, 0);
-      const leftStile = new THREE.Mesh(stileGeometry, alu);
-      leftStile.position.set(-leafWidth / 2 + 0.033, leafHeight / 2, 0);
-      const rightStile = new THREE.Mesh(stileGeometry, alu);
-      rightStile.position.set(leafWidth / 2 - 0.033, leafHeight / 2, 0);
-
-      for (const part of [topRail, bottomRail, leftStile, rightStile]) {
-        part.castShadow = true;
-        part.receiveShadow = true;
-        leaf.add(part);
-      }
-
-      const pane = new THREE.Mesh(
-        new THREE.PlaneGeometry(leafWidth - 0.14, leafHeight - 0.14),
-        this.materials.glassDoor,
-      );
-      pane.position.set(0, leafHeight / 2, 0);
-      pane.renderOrder = 2;
-      leaf.add(pane);
-
-      // Vertical pull handle on the leading stile.
-      const handle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.018, 0.018, 0.5, 8),
-        this.materials.stainless,
-      );
-      handle.position.set(-sign * (leafWidth / 2 - 0.11), 1.1, 0.07);
-      leaf.add(handle);
-      for (const y of [0.92, 1.28]) {
-        const standoff = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012, 0.012, 0.07, 6),
-          this.materials.stainless,
-        );
-        standoff.rotation.x = Math.PI / 2;
-        standoff.position.set(-sign * (leafWidth / 2 - 0.11), y, 0.035);
-        leaf.add(standoff);
-      }
-
-      leaf.position.set(sign * (doorHalf + leafWidth / 2 + 0.02), 0, z);
-      doorGroup.add(leaf);
-    }
-
-    // Threshold plate, flush with the slab.
-    doorGroup.add(
-      boxMesh(width + 0.1, 0.025, 0.3, this.materials.aluminium, V(0, 0.012, DIM.halfLength - 0.12), 'door-threshold'),
-    );
-
-    this.group.add(doorGroup);
+    this.entrance = new EntranceDoors({
+      materials: this.materials,
+      collisionWorld: this.collisionWorld,
+    }).build(this.group);
+    this.interactables.push(...this.entrance.interactables);
   }
+
+  /** Build the horizontal shade deck below the roof trusses. */
+  buildShadeScreen() {
+    this.shadeScreen = new ShadeScreen({ materials: this.materials }).build(this.group);
+    this.interactables.push(...this.shadeScreen.interactables);
+  }
+
+  getInteractables() {
+    return this.interactables;
+  }
+
+  toggleEntranceDoors() {
+    return this.entrance?.toggle() ?? false;
+  }
+
+  update(dt) {
+    this.entrance?.update(dt);
+  }
+
 
   /** Floor joints, central drain channel and other small fixed details. */
   buildInteriorDetails() {

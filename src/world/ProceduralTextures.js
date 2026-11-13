@@ -113,21 +113,21 @@ export function createConcreteTextures({ size = 512, seed = 11 } = {}) {
   const rnd = mulberry32(seed);
   const { canvas, ctx } = canvas2d(size);
 
-  ctx.fillStyle = '#8b8a84';
+  ctx.fillStyle = '#c9c7bf';
   ctx.fillRect(0, 0, size, size);
 
   addBlobs(ctx, size, rnd, {
     count: 22,
     min: size * 0.08,
     max: size * 0.3,
-    color: '104, 103, 98',
+    color: '150, 149, 142',
     alpha: 0.16,
   });
   addBlobs(ctx, size, rnd, {
     count: 14,
     min: size * 0.06,
     max: size * 0.22,
-    color: '176, 174, 166',
+    color: '214, 212, 204',
     alpha: 0.12,
   });
 
@@ -138,15 +138,15 @@ export function createConcreteTextures({ size = 512, seed = 11 } = {}) {
     const r = 0.4 + rnd() * 1.5;
     const light = rnd() > 0.62;
     ctx.fillStyle = light
-      ? `rgba(200, 198, 190, ${0.05 + rnd() * 0.12})`
-      : `rgba(58, 58, 55, ${0.04 + rnd() * 0.14})`;
+      ? `rgba(232, 230, 222, ${0.05 + rnd() * 0.12})`
+      : `rgba(98, 98, 92, ${0.04 + rnd() * 0.14})`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, TAU);
     ctx.fill();
   }
 
   // Hairline cracks.
-  ctx.strokeStyle = 'rgba(52, 52, 50, 0.22)';
+  ctx.strokeStyle = 'rgba(93, 94, 90, 0.22)';
   ctx.lineWidth = 0.8;
   for (let i = 0; i < 5; i += 1) {
     let x = rnd() * size;
@@ -332,6 +332,46 @@ export function createGlassRoughnessTexture({ size = 512, seed = 63 } = {}) {
   return toTexture(canvas);
 }
 
+/** Woven agricultural shade-cloth alpha mat: dense threads, open mesh gaps. */
+export function createShadeClothTexture({ size = 256, seed = 91 } = {}) {
+  const rnd = mulberry32(seed);
+  const { canvas, ctx } = canvas2d(size);
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, size, size);
+  ctx.lineCap = 'butt';
+
+  // Warp and weft threads leave small open apertures for partial transmission.
+  const pitch = 5;
+  for (let i = 0; i < size; i += pitch) {
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.72 + rnd() * 0.24})`;
+    ctx.lineWidth = 1.6 + rnd() * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(i + 0.5, 0);
+    ctx.lineTo(i + 0.5, size);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.66 + rnd() * 0.25})`;
+    ctx.lineWidth = 1.35 + rnd() * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(0, i + 0.5);
+    ctx.lineTo(size, i + 0.5);
+    ctx.stroke();
+  }
+
+  // A few thicker tape bands read as the reinforced panel seams.
+  for (let i = 0; i < size; i += 64) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, size);
+    ctx.stroke();
+  }
+
+  return toTexture(canvas);
+}
+
 /** White/light-grey extruded PVC with faint longitudinal tool marks. */
 export function createPlasticTextures({ size = 256, seed = 77 } = {}) {
   const rnd = mulberry32(seed);
@@ -369,25 +409,83 @@ export function createPlasticTextures({ size = 256, seed = 77 } = {}) {
 }
 
 /** Printed equipment label (nutrient tanks, pump skids). */
-export function createLabelTexture(title, subtitle = '', { width = 512, height = 256 } = {}) {
+export function createLabelTexture(
+  title,
+  subtitle = '',
+  { width = 512, height = 256, background = '#e8e5da', foreground = '#20211f' } = {},
+) {
   const { canvas, ctx } = canvas2d(width, height);
 
-  ctx.fillStyle = '#e8e5da';
+  ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = '#20211f';
-  ctx.lineWidth = 8;
-  ctx.strokeRect(10, 10, width - 20, height - 20);
+  ctx.strokeStyle = foreground;
+  ctx.lineWidth = 7;
+  ctx.strokeRect(9, 9, width - 18, height - 18);
 
-  ctx.fillStyle = '#20211f';
-  ctx.font = 'bold 132px "Segoe UI", Arial, sans-serif';
+  // Fit the title inside the plate instead of letting long labels overflow.
+  let titleSize = Math.round(height * 0.52);
+  ctx.font = `bold ${titleSize}px "Segoe UI", Arial, sans-serif`;
+  while (ctx.measureText(title).width > width * 0.84 && titleSize > 28) {
+    titleSize -= 2;
+    ctx.font = `bold ${titleSize}px "Segoe UI", Arial, sans-serif`;
+  }
+  ctx.fillStyle = foreground;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(title, width * 0.5, height * 0.44);
+  ctx.fillText(title, width * 0.5, height * 0.43);
 
-  ctx.font = '600 26px "Segoe UI", Arial, sans-serif';
-  ctx.fillStyle = '#4a4a44';
-  ctx.fillText(subtitle, width * 0.5, height * 0.76);
+  let subSize = Math.round(height * 0.105);
+  ctx.font = `600 ${subSize}px "Segoe UI", Arial, sans-serif`;
+  while (ctx.measureText(subtitle).width > width * 0.88 && subSize > 12) {
+    subSize -= 1;
+    ctx.font = `600 ${subSize}px "Segoe UI", Arial, sans-serif`;
+  }
+  ctx.fillStyle = foreground;
+  ctx.globalAlpha = 0.72;
+  ctx.fillText(subtitle, width * 0.5, height * 0.75);
+  ctx.globalAlpha = 1;
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** Small yellow electrical-safety sticker used on the control cabinet. */
+export function createWarningLabelTexture({ width = 256, height = 128 } = {}) {
+  const { canvas, ctx } = canvas2d(width, height);
+  ctx.fillStyle = '#e3bf3f';
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = '#181914';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(4, 4, width - 8, height - 8);
+
+  // Hazard triangle.
+  ctx.beginPath();
+  ctx.moveTo(34, 96);
+  ctx.lineTo(58, 38);
+  ctx.lineTo(82, 96);
+  ctx.closePath();
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(58, 56);
+  ctx.lineTo(58, 78);
+  ctx.moveTo(58, 86);
+  ctx.lineTo(58, 87);
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  ctx.fillStyle = '#181914';
+  ctx.font = 'bold 38px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('400 V', 96, 58);
+  ctx.font = '600 19px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('ISOLATE BEFORE OPENING', 96, 88);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

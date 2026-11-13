@@ -5,8 +5,10 @@ import {
   createGrassTexture,
   createGlassRoughnessTexture,
   createPlasticTextures,
+  createShadeClothTexture,
   createLabelTexture,
   createScreenTexture,
+  createWarningLabelTexture,
 } from './ProceduralTextures.js';
 
 /**
@@ -35,6 +37,7 @@ export class MaterialLibrary {
       grass: createGrassTexture({ seed: 41 }),
       glassRoughness: createGlassRoughnessTexture({ seed: 63 }),
       plastic: createPlasticTextures({ seed: 77 }),
+      shadeCloth: createShadeClothTexture({ seed: 91 }),
       screen: createScreenTexture(),
     };
   }
@@ -59,10 +62,11 @@ export class MaterialLibrary {
         map: this.tiled(t.concrete.map, 6, 9),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 6, 9),
         normalMap: this.tiled(t.concrete.normalMap, 6, 9),
-        normalScale: new THREE.Vector2(0.45, 0.45),
+        normalScale: new THREE.Vector2(0.5, 0.5),
+        color: 0x777b77,
         metalness: 0.0,
-        roughness: 1.0,
-        envMapIntensity: 0.6,
+        roughness: 0.92,
+        envMapIntensity: 0.18,
       }),
     );
 
@@ -72,9 +76,11 @@ export class MaterialLibrary {
         map: this.tiled(t.concrete.map, 4, 1),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 4, 1),
         normalMap: this.tiled(t.concrete.normalMap, 4, 1),
-        normalScale: new THREE.Vector2(0.4, 0.4),
+        normalScale: new THREE.Vector2(0.42, 0.42),
+        color: 0x898c88,
         metalness: 0.0,
-        roughness: 1.0,
+        roughness: 0.9,
+        envMapIntensity: 0.2,
       }),
     );
 
@@ -84,10 +90,11 @@ export class MaterialLibrary {
         map: this.tiled(t.concrete.map, 14, 14),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 14, 14),
         normalMap: this.tiled(t.concrete.normalMap, 14, 14),
-        normalScale: new THREE.Vector2(0.5, 0.5),
-        color: 0x9d9a92,
+        normalScale: new THREE.Vector2(0.52, 0.52),
+        color: 0x7b7f7a,
         metalness: 0.0,
-        roughness: 1.0,
+        roughness: 0.94,
+        envMapIntensity: 0.16,
       }),
     );
 
@@ -96,10 +103,10 @@ export class MaterialLibrary {
         name: 'galvanised-steel',
         map: this.tiled(t.steel.map, 2, 2),
         roughnessMap: this.tiled(t.steel.roughnessMap, 2, 2),
-        color: 0xb6bab9,
-        metalness: 0.92,
-        roughness: 1.0,
-        envMapIntensity: 0.9,
+        color: 0x879297,
+        metalness: 0.55,
+        roughness: 0.68,
+        envMapIntensity: 0.4,
       }),
     );
 
@@ -108,9 +115,9 @@ export class MaterialLibrary {
         name: 'steel-dark',
         map: this.tiled(t.steel.map, 2, 2),
         roughnessMap: this.tiled(t.steel.roughnessMap, 2, 2),
-        color: 0x5c6163,
-        metalness: 0.85,
-        roughness: 0.9,
+        color: 0x5e6669,
+        metalness: 0.78,
+        roughness: 0.62,
       }),
     );
 
@@ -119,10 +126,10 @@ export class MaterialLibrary {
         name: 'aluminium',
         map: this.tiled(t.steel.map, 3, 3),
         roughnessMap: this.tiled(t.steel.roughnessMap, 3, 3),
-        color: 0xc9cdce,
-        metalness: 1.0,
-        roughness: 0.42,
-        envMapIntensity: 1.0,
+        color: 0x98a3a7,
+        metalness: 0.8,
+        roughness: 0.5,
+        envMapIntensity: 0.5,
       }),
     );
 
@@ -134,12 +141,12 @@ export class MaterialLibrary {
         roughness: 0.14,
         roughnessMap: this.tiled(t.glassRoughness, 1, 1),
         transparent: true,
-        opacity: 0.17,
+        opacity: 0.1,
         side: THREE.DoubleSide,
         depthWrite: false,
         ior: 1.52,
         reflectivity: 0.55,
-        envMapIntensity: 1.6,
+        envMapIntensity: 1.0,
         clearcoat: 0.6,
         clearcoatRoughness: 0.08,
       }),
@@ -152,23 +159,24 @@ export class MaterialLibrary {
         metalness: 0.0,
         roughness: 0.1,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.16,
         side: THREE.DoubleSide,
         depthWrite: false,
         ior: 1.52,
         reflectivity: 0.6,
-        envMapIntensity: 1.6,
+        envMapIntensity: 1.05,
       }),
     );
 
     this.pvcWhite = this.track(
       new THREE.MeshStandardMaterial({
-        name: 'pvc-white',
-        map: this.tiled(t.plastic.map, 3, 3),
-        roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 3),
-        color: 0xf0efe9,
+        name: 'pvc-supply',
+        map: this.tiled(t.plastic.map, 6, 2),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 6, 2),
+        color: 0xbcc0ba,
         metalness: 0.0,
-        roughness: 0.62,
+        roughness: 0.52,
+        envMapIntensity: 0.35,
       }),
     );
 
@@ -190,12 +198,42 @@ export class MaterialLibrary {
       }),
     );
 
+    /** Dark, slightly glossy return line so it reads separately from supply PVC. */
+    this.pvcReturn = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'pvc-return',
+        map: this.tiled(t.plastic.map, 5, 2),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 5, 2),
+        color: 0x33484b,
+        metalness: 0.08,
+        roughness: 0.4,
+        envMapIntensity: 0.45,
+      }),
+    );
+
     this.rubber = this.track(
       new THREE.MeshStandardMaterial({
         name: 'rubber',
         color: 0x1d1f1f,
         metalness: 0.0,
         roughness: 0.92,
+      }),
+    );
+
+    /** Woven neutral grey-green shade cloth; the alpha mat leaves the mesh open. */
+    this.shadeCloth = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'shade-cloth',
+        color: 0x9ba79c,
+        alphaMap: this.tiled(t.shadeCloth, 26, 40),
+        transparent: true,
+        opacity: 0.62,
+        alphaTest: 0.24,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        roughness: 0.94,
+        metalness: 0.0,
+        envMapIntensity: 0.22,
       }),
     );
 
@@ -220,13 +258,58 @@ export class MaterialLibrary {
       }),
     );
 
+    /** Deep industrial blue used for the circulation pump volute and motor. */
+    this.pumpBlue = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'pump-blue',
+        color: 0x163b63,
+        metalness: 0.38,
+        roughness: 0.46,
+        envMapIntensity: 0.55,
+      }),
+    );
+
     this.cabinetPaint = this.track(
       new THREE.MeshStandardMaterial({
         name: 'cabinet-paint',
-        color: 0xb7bbb6,
-        metalness: 0.25,
-        roughness: 0.62,
+        color: 0x9aa09f,
+        metalness: 0.28,
+        roughness: 0.54,
+        envMapIntensity: 0.45,
       }),
+    );
+
+    this.cabinetDoor = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'cabinet-door',
+        color: 0x80888a,
+        metalness: 0.3,
+        roughness: 0.5,
+        envMapIntensity: 0.5,
+      }),
+    );
+
+    this.cabinetInterior = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'cabinet-interior',
+        color: 0x363d3f,
+        metalness: 0.25,
+        roughness: 0.78,
+      }),
+    );
+
+    // Small indicator lamps (unlit so they stay visible in the cabinet shadow).
+    this.ledGreen = this.track(
+      new THREE.MeshBasicMaterial({ name: 'led-green', color: 0x62f5b0, toneMapped: false }),
+    );
+    this.ledAmber = this.track(
+      new THREE.MeshBasicMaterial({ name: 'led-amber', color: 0xffb347, toneMapped: false }),
+    );
+    this.ledRed = this.track(
+      new THREE.MeshBasicMaterial({ name: 'led-red', color: 0xff5a52, toneMapped: false }),
+    );
+    this.ledWhite = this.track(
+      new THREE.MeshBasicMaterial({ name: 'led-white', color: 0xcfe9e7, toneMapped: false }),
     );
 
     this.tankHDPE = this.track(
@@ -248,6 +331,32 @@ export class MaterialLibrary {
         color: 0xdfe1d9,
         metalness: 0.0,
         roughness: 0.66,
+      }),
+    );
+
+    /** Blue HDPE stock tanks for nutrient A/B. */
+    this.tankHDPEBlue = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'tank-hdpe-blue',
+        map: this.tiled(t.plastic.map, 3, 2),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 2),
+        color: 0x1f5a92,
+        metalness: 0.0,
+        roughness: 0.58,
+        envMapIntensity: 0.35,
+      }),
+    );
+
+    /** White/translucent HDPE for the pH stock tank. */
+    this.tankHDPEAcid = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'tank-hdpe-acid',
+        map: this.tiled(t.plastic.map, 3, 2),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 2),
+        color: 0xd8d9d1,
+        metalness: 0.0,
+        roughness: 0.55,
+        envMapIntensity: 0.3,
       }),
     );
 
@@ -317,15 +426,42 @@ export class MaterialLibrary {
   }
 
   /** Printed label material for a tank or skid. */
-  createLabelMaterial(title, subtitle) {
-    const material = new THREE.MeshStandardMaterial({
-      name: `label-${title}`,
-      map: createLabelTexture(title, subtitle),
-      roughness: 0.55,
-      metalness: 0.0,
-    });
+  createLabelMaterial(title, subtitle, options = {}) {
+    const material = this.track(
+      new THREE.MeshStandardMaterial({
+        name: `label-${title}`,
+        map: createLabelTexture(title, subtitle, options),
+        roughness: 0.55,
+        metalness: 0.0,
+      }),
+    );
     material.userData.isLabel = true;
     return material;
+  }
+
+  /** Unlit material for a live controller display (keeps the canvas legible). */
+  createScreenMaterial(texture) {
+    const material = this.track(
+      new THREE.MeshBasicMaterial({
+        name: 'dashboard-screen',
+        map: texture,
+        toneMapped: false,
+      }),
+    );
+    material.userData.isDashboard = true;
+    return material;
+  }
+
+  /** Yellow safety sticker. */
+  createWarningMaterial() {
+    return this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'safety-label',
+        map: createWarningLabelTexture(),
+        roughness: 0.62,
+        metalness: 0.05,
+      }),
+    );
   }
 
   applyAnisotropy(maxAnisotropy) {

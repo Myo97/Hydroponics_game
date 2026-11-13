@@ -71,7 +71,7 @@ export class Environment {
   }
 
   buildSun() {
-    const sun = new THREE.DirectionalLight(0xfff2df, 3.1);
+    const sun = new THREE.DirectionalLight(0xfff2df, 1.9);
     sun.name = 'sun';
     sun.position.copy(this.sunDirection).multiplyScalar(70);
     sun.target.position.set(0, 1.2, 0);
@@ -95,7 +95,7 @@ export class Environment {
 
     // Sky bounce / skylight fill. Keeps the shaded interior readable without
     // looking like artificial studio lighting.
-    const hemisphere = new THREE.HemisphereLight(0xc4d8e2, 0x6d6759, 0.55);
+    const hemisphere = new THREE.HemisphereLight(0xc4d8e2, 0x6d6759, 0.32);
     hemisphere.position.set(0, 12, 0);
     this.scene.add(hemisphere);
     this.lights.push(hemisphere);

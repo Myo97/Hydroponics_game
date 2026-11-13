@@ -11,6 +11,7 @@ import { InteractionSystem } from '../interaction/InteractionSystem.js';
 import { GameUI } from '../ui/GameUI.js';
 import { PlantSimulation } from '../simulation/PlantSimulation.js';
 import { WaterNutrientSimulation } from '../simulation/WaterNutrientSimulation.js';
+import { GreenhouseClimate } from '../simulation/GreenhouseClimate.js';
 import { SaveSystem } from '../save/SaveSystem.js';
 
 const SETTINGS_KEY = 'verde-block4:settings';
@@ -78,12 +79,14 @@ export class Game {
     }).build();
     this.greenhouse.setDetailVisible(this.preset.showDetail);
 
-    this.report(0.72, 'Installing NFT benches and plant…');
+    this.report(0.72, 'Installing NFT tables and hydraulics…');
     await this.nextTick();
+    this.climate = new GreenhouseClimate({ startHour: 10.7 });
     this.equipment = new Equipment({
       scene: this.scene,
       materials: this.materials,
       collisionWorld: this.collisionWorld,
+      climate: this.climate,
     }).build();
 
     this.report(0.86, 'Calibrating sensors and player…');
@@ -98,7 +101,10 @@ export class Game {
     this.interaction = new InteractionSystem({
       camera: this.camera,
       scene: this.scene,
-      interactables: this.equipment.getInteractables(),
+      interactables: [
+        ...this.greenhouse.getInteractables(),
+        ...this.equipment.getInteractables(),
+      ],
     });
 
     this.ui = new GameUI({
@@ -157,9 +163,9 @@ export class Game {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.02;
+    this.renderer.toneMappingExposure = 0.58;
     this.renderer.shadowMap.enabled = this.preset.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.tabIndex = 0;
     this.container.appendChild(this.renderer.domElement);
 
@@ -200,7 +206,7 @@ export class Game {
     this.interaction.setEnabled(true);
     this.interaction.setLockState(true);
     this.clock.getDelta();
-    this.ui.toast('Walkthrough ready — E inspects equipment');
+    this.ui.toast('Walkthrough ready — E opens doors, operates equipment and inspects units');
   }
 
   pause() {
@@ -282,8 +288,31 @@ export class Game {
         return;
       }
       const target = this.interaction.target;
+      if (target?.data.interaction === 'toggle-entrance') {
+        const open = this.greenhouse.toggleEntranceDoors();
+        this.ui.toast(open ? 'Entrance opening' : 'Entrance closing');
+        this.ui.setTarget(target);
+        return;
+      }
+      if (target?.data.interaction === 'toggle-cabinet') {
+        const open = this.equipment.toggleCabinetDoor();
+        this.ui.toast(
+          open
+            ? 'Climate cabinet open — live HMI shows 7 metrics'
+            : 'Climate cabinet closed and latched',
+        );
+        this.ui.setTarget(target);
+        return;
+      }
       if (target) this.openInspect(target.data);
       else this.ui.toast('Nothing within reach — move closer and aim at a unit', 'warn');
+      return;
+    }
+
+    if (event.code === 'KeyF' && !this.ui.isModalOpen() && !this.inspecting) {
+      event.preventDefault();
+      const running = this.equipment.toggleFans();
+      this.ui.toast(running ? 'HAF fans running' : 'HAF fans paused for testing');
       return;
     }
 
@@ -376,12 +405,15 @@ export class Game {
 
     if (interactive) {
       if (!this.inspecting) this.player.update(dt);
+      this.climate.update(dt);
+      this.greenhouse.update(dt);
       this.equipment.update(dt);
       this.water.update(dt);
       this.plants.update(dt);
 
       const target = this.interaction.update();
       if (!this.inspecting) this.ui.setTarget(target);
+      this.ui.setClimate(this.climate.snapshot());
       this.ui.setPlayerState({
         x: this.player.position.x,
         z: this.player.position.z,
