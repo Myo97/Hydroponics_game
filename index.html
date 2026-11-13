@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Realistic 3D hydroponic greenhouse simulator - first-person walkthrough prototype."
+    />
+    <title>Verde Block 4 — Hydroponic Glasshouse</title>
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="viewport" aria-label="3D greenhouse viewport"></div>
+
+      <!-- Boot / enter screen -->
+      <section id="boot-screen" class="boot-screen">
+        <div class="boot-grid" aria-hidden="true"></div>
+        <div class="boot-panel">
+          <p class="eyebrow">Controlled Environment Agriculture</p>
+          <h1>Verde <span>Block&nbsp;4</span></h1>
+          <p class="boot-sub">
+            NFT lettuce house · 24 × 36 m Venlo glasshouse · galvanised steel frame
+          </p>
+
+          <div class="boot-meta">
+            <div>
+              <span class="meta-label">Location</span>
+              <span class="meta-value">North yard, bay 4</span>
+            </div>
+            <div>
+              <span class="meta-label">Time</span>
+              <span class="meta-value">10:42 · clear sky</span>
+            </div>
+            <div>
+              <span class="meta-label">Mode</span>
+              <span class="meta-value">Walkthrough</span>
+            </div>
+          </div>
+
+          <div class="boot-progress-wrap">
+            <div class="boot-progress"><span id="boot-progress"></span></div>
+            <p id="boot-status" class="boot-status">Initialising renderer…</p>
+          </div>
+
+          <button id="boot-start" class="btn btn-primary" disabled>Loading…</button>
+
+          <ul class="boot-controls">
+            <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Walk</span></li>
+            <li><kbd>Shift</kbd><span>Sprint</span></li>
+            <li><kbd>Mouse</kbd><span>Look</span></li>
+            <li><kbd>E</kbd><span>Inspect</span></li>
+            <li><kbd>Esc</kbd><span>Menu</span></li>
+          </ul>
+
+          <p class="boot-note">
+            Desktop browser · mouse + keyboard required. Clicking the button locks the pointer.
+          </p>
+        </div>
+        <p class="boot-footer">PROTOTYPE BUILD 0.1 · MILESTONE 1 — ENVIRONMENT &amp; WALKTHROUGH</p>
+      </section>
+
+      <!-- Runtime UI is created by src/ui/GameUI.js -->
+      <div id="ui-root"></div>
+    </div>
+
+    <noscript>
+      <p style="color: #fff; padding: 2rem">
+        This simulator requires JavaScript and WebGL to run.
+      </p>
+    </noscript>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
