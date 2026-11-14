@@ -22,8 +22,11 @@ export const LAYOUT = {
   entrance: {
     width: 3.2,
     height: 2.7,
-    panelWidth: 1.62,
-    openTravel: 1.63,
+    panelWidth: 1.58,
+    openTravel: 1.62,
+    leafDepth: 0.055,
+    trackOverrun: 1.05,
+    interlockDelay: 0.18,
     // Located in the south gable wall (Z = +length / 2).
   },
 
@@ -59,14 +62,6 @@ export const LAYOUT = {
   },
 
   tanks: {
-    reservoirs: {
-      radius: 1.25,
-      height: 2.7,
-      positions: [
-        [-9.6, -15.1],
-        [-6.4, -15.1],
-      ],
-    },
     nutrients: {
       radius: 0.4,
       height: 1.1,
@@ -78,6 +73,166 @@ export const LAYOUT = {
         { key: 'C', title: 'pH', subtitle: 'NITRIC ACID · pH DOWN · 60 L', colour: 'white' },
       ],
     },
+  },
+
+  /**
+   * Below-ground water infrastructure (Version 3).
+   *
+   * The two RO storage tanks are buried in a twin concrete vault under the
+   * headhouse. A separate nutrient-return tank receives all NFT drainage: it
+   * never shares a compartment with the clean RO store. The above-ground
+   * rainwater harvester is fed by the north roof collector and tops the RO
+   * tanks through a dedicated transfer pump and distribution manifold.
+   */
+  storage: {
+    vaultRadius: 1.76,
+    vaultDepth: 3.5,
+    tankRadius: 1.42,
+    tankHeight: 2.45,
+    tankTopY: -0.52,
+    coverRadius: 0.46,
+    hatchRadius: 0.6,
+    roTanks: [
+      {
+        id: 'ro-tank-1',
+        code: 'RO-01',
+        label: 'RO STORAGE 01',
+        subtitle: 'PERMEATE · 12,000 L',
+        position: [-9.8, -14.9],
+        capacity: 12000,
+        initialLevel: 0.78,
+        ec: 0.02,
+        ph: 6.9,
+        temp: 18.6,
+        targetEc: 0.02,
+        targetPh: 6.9,
+      },
+      {
+        id: 'ro-tank-2',
+        code: 'RO-02',
+        label: 'RO STORAGE 02',
+        subtitle: 'MIXED FEED · 12,000 L',
+        position: [-6.2, -14.9],
+        capacity: 12000,
+        initialLevel: 0.64,
+        ec: 1.82,
+        ph: 5.88,
+        temp: 19.3,
+        targetEc: 1.8,
+        targetPh: 5.9,
+      },
+    ],
+    returnTank: {
+      id: 'return-tank',
+      code: 'DR-01',
+      label: 'NUTRIENT RETURN',
+      subtitle: 'DIRTY DRAIN · 8,000 L',
+      position: [8.8, -15.2],
+      capacity: 8000,
+      initialLevel: 0.31,
+      radius: 1.28,
+      height: 2.25,
+      topY: -0.5,
+    },
+    harvester: {
+      id: 'rainwater-harvester',
+      label: 'RAINWATER HARVESTER',
+      subtitle: 'ROOF RUN-OFF · 5,000 L',
+      position: [-2.15, -15.35],
+      radius: 1.02,
+      height: 2.35,
+      capacity: 5000,
+      initialLevel: 0.46,
+    },
+    transferPump: {
+      id: 'rain-transfer-pump',
+      label: 'RAIN TRANSFER PUMP',
+      position: [-3.05, -17.0],
+      yaw: 0,
+    },
+    distribution: {
+      y: 0.62,
+      z: -14.55,
+      valveXs: [-9.8, -6.2],
+    },
+    suction: {
+      y: 0.16,
+      z: -13.82,
+      riserXs: [-9.8, -6.2],
+    },
+    returnInlet: {
+      x: 8.8,
+      z: -13.58,
+    },
+  },
+
+  /** Roof rainwater collection to the harvester inlet. */
+  rainwater: {
+    collectorY: 4.18,
+    collectorZ: -17.55,
+    startX: -12,
+    endX: 12,
+    collectorRadius: 0.09,
+    downpipeX: -2.15,
+    harvesterInletY: 2.46,
+    firstFlushLength: 0.85,
+    strainerRadius: 0.17,
+  },
+
+  /** Bluelab Pro Controller + three-channel dosing station. */
+  bluelab: {
+    position: [5.3, -16.85],
+    // depth (X) × height (Y) × width (Z)
+    size: [0.5, 1.46, 1.02],
+    footHeight: 0.07,
+    screenSize: [0.66, 0.34],
+    pumps: 3,
+    probeSets: 2,
+    selectorValves: 6,
+  },
+
+  /** Per-bay screens and hinged roof vents. */
+  screens: {
+    shadeY: 4.32,
+    energyY: 4.14,
+    insetX: 0.18,
+    insetZ: 0.22,
+    bayGap: 0.06,
+    retractedFraction: 0.12,
+  },
+  vents: {
+    openingAngle: 0.64,
+    slopeLength: 1.34,
+    lengthInset: 0.22,
+    frameThickness: 0.05,
+  },
+
+  /** Yellow sticky traps clipped to structural columns (pest monitoring). */
+  traps: {
+    positions: [
+      [-8, -10],
+      [4, -10],
+      [8, -10],
+      [-8, -2],
+      [4, -2],
+      [8, -2],
+      [-8, 6],
+      [4, 6],
+      [8, 6],
+      [-8, 14],
+      [4, 14],
+      [8, 14],
+    ],
+    width: 0.22,
+    height: 0.3,
+    offset: 0.24,
+  },
+
+  topView: {
+    centerZ: -13.4,
+    width: 27,
+    minDepth: 14.5,
+    height: 26,
   },
 
   pumps: {

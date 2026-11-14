@@ -237,6 +237,36 @@ export class MaterialLibrary {
       }),
     );
 
+    /** Reflective woven energy screen, hung below the shade deck. */
+    this.energyScreen = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'energy-screen',
+        color: 0xe9eee4,
+        map: this.tiled(t.shadeCloth, 24, 44),
+        transparent: true,
+        opacity: 0.52,
+        alphaTest: 0.2,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        roughness: 0.46,
+        metalness: 0.28,
+        envMapIntensity: 0.9,
+      }),
+    );
+
+    /** Dark green return-tank shell, deliberately different from RO blue. */
+    this.returnTank = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'return-tank',
+        map: this.tiled(t.plastic.map, 8, 3),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 8, 3),
+        color: 0x35544c,
+        metalness: 0.05,
+        roughness: 0.52,
+        envMapIntensity: 0.4,
+      }),
+    );
+
     this.stainless = this.track(
       new THREE.MeshStandardMaterial({
         name: 'stainless',

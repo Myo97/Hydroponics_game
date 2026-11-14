@@ -202,6 +202,11 @@ export class Environment {
     this.scene.fog.near = preset.id === 'low' ? 48 : 62;
   }
 
+  /** Top view hides the exterior yard so buried storage reads as a cutaway. */
+  setTopView(active) {
+    if (this.exteriorGroup) this.exteriorGroup.visible = !active;
+  }
+
   dispose() {
     for (const light of this.lights) light.parent?.remove(light);
     if (this.exteriorGroup) {

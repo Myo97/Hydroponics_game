@@ -2,5 +2,10 @@ node_modules
 dist
 .vite
 *.local
+*.log
+*.pid
+.chrome-*/
+chrome-dom.html
+screenshot-*.png
 .DS_Store
 Thumbs.db

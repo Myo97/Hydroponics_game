@@ -8,29 +8,30 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  * Complete NFT hydraulic network.
  *
  * Supply path:
- *   reservoir 2 → pump suction manifold → duty/standby pumps → pump discharge
+ *   buried RO-02 tank → pump suction manifold → duty/standby pumps → pump discharge
  *   → main supply header → one dedicated branch and valve per table → 8 gullies.
  *
  * Return path:
  *   8 gully outlets → table collection manifold → one dedicated table drain
- *   → gravity return header → reservoir 2.
+ *   → gravity return header → buried nutrient return tank.
  *
  * Supply and return are separate networks; no header is cross-connected.
  */
 export class HydraulicNetwork {
-  constructor({ materials, tables, parent }) {
+  constructor({ materials, tables, parent, control = null }) {
     this.materials = materials;
     this.tables = tables;
     this.parent = parent;
+    this.control = control;
     this.group = null;
     this.tableSupplies = [];
     this.tableReturns = [];
+    this.runningTime = 0;
   }
 
   build() {
     const pipes = LAYOUT.pipework;
     const pumpConfig = LAYOUT.pumps;
-    const tanks = LAYOUT.tanks.reservoirs;
     const group = new THREE.Group();
     group.name = 'hydraulic-network';
     this.group = group;
@@ -57,16 +58,20 @@ export class HydraulicNetwork {
     };
     returnLine.add(returnMain.start, returnMain.end, pipes.returnRadius);
 
-    // Suction manifold from the mixed-feed reservoir to both pump inlets.
-    const reservoirX = tanks.positions[1][0];
-    const reservoirZ = tanks.positions[1][1];
-    const tankOutlet = V(reservoirX, 0.36, reservoirZ + tanks.radius + 0.08);
+    // Suction manifold from the buried RO-02 storage tank to both pump inlets.
+    // The tank riser comes up through the slab at x - 0.95, then turns toward
+    // the pump skid; this is the only route from clean storage into the NFT
+    // supply network.
+    const roTank = LAYOUT.storage.roTanks[1];
+    const reservoirX = roTank.position[0];
+    const reservoirZ = roTank.position[1];
+    const tankOutlet = V(reservoirX - 0.95, 0.36, reservoirZ + 0.36);
     const suctionHeaderZ = pumpConfig.positions[0][1] + 0.54;
     const pumpInlets = pumpConfig.positions.map(([x, z]) => V(x + 0.29, 0.41, z + 0.26));
     supply.addPath(
       [
         tankOutlet,
-        V(reservoirX, 0.36, suctionHeaderZ),
+        V(tankOutlet.x, 0.36, suctionHeaderZ),
         V(pumpInlets[0].x, 0.41, suctionHeaderZ),
         V(pumpInlets[pumpInlets.length - 1].x, 0.41, suctionHeaderZ),
       ],
@@ -76,14 +81,15 @@ export class HydraulicNetwork {
       supply.addPath([V(inlet.x, 0.41, suctionHeaderZ), inlet], 0.045);
       supply.addJoint(inlet, 0.06);
     }
+    supply.addJoint(tankOutlet, 0.062);
     group.add(
       boxMesh(
-        0.24,
-        0.24,
+        0.28,
+        0.28,
         0.08,
         this.materials.stainless,
-        V(reservoirX, 0.36, reservoirZ + tanks.radius + 0.04),
-        'reservoir-suction-flange',
+        V(tankOutlet.x, 0.36, tankOutlet.z),
+        'ro-tank-suction-flange',
       ),
     );
 
@@ -141,6 +147,8 @@ export class HydraulicNetwork {
       pumpSuctionConnected: true,
       pumpDischargeConnected: true,
       returnsToReservoir: false,
+      supplySource: 'RO-02',
+      returnSource: 'DR-01',
       tableSupplies: this.tableSupplies,
       tableReturns: this.tableReturns,
     };
@@ -149,6 +157,10 @@ export class HydraulicNetwork {
     this.buildReturnToReservoir(group, returnLine);
     this.buildSigns(group);
     this.buildSupports(group, saddles);
+    if (this.control && typeof this.control.registerTables === 'function') {
+      this.control.registerTables(this.tables);
+    }
+    group.userData.interactables = this.interactables ?? [];
 
     supply.build(group, 'supply-pipe-runs');
     returnLine.build(group, 'return-pipe-runs');
@@ -194,20 +206,44 @@ export class HydraulicNetwork {
       valve.position.set(table.supplyX, 0.48, table.supplyZ);
       valve.castShadow = true;
       group.add(valve);
-      group.add(
-        boxMesh(
-          0.15,
-          0.022,
-          0.036,
-          this.materials.pumpBlue,
-          V(table.supplyX + 0.055, 0.535, table.supplyZ),
-          `table-supply-valve-${table.row}-${table.bay}`,
-        ),
+
+      const handle = new THREE.Group();
+      handle.name = `table-valve-handle-${table.row}-${table.bay}`;
+      handle.position.set(table.supplyX, 0.535, table.supplyZ);
+      group.add(handle);
+      handle.add(
+        boxMesh(0.15, 0.022, 0.036, this.materials.pumpBlue, V(0.055, 0, 0), 'table-valve-lever'),
       );
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), this.materials.ledRed);
+      knob.position.set(0.132, 0, 0);
+      handle.add(knob);
+
+      const tableValveInfo = {
+        id: `table-valve-${table.id}`,
+        category: 'NFT hydraulics',
+        title: `Supply valve · ${table.label ?? `Table ${table.row}-${table.bay}`}`,
+        description:
+          'Quarter-turn isolation valve on the dedicated supply branch from the main header. Closing it stops flow to this table only, so the rest of the bay keeps irrigating while the gullies are serviced or the drippers are cleared.',
+        specs: [
+          ['Table', table.id],
+          ['Branch', 'DN20 · dedicated supply'],
+          ['Valve', 'PVC ball valve · quarter turn'],
+          ['Position', `x ${table.supplyX.toFixed(2)} · z ${table.supplyZ.toFixed(2)}`],
+        ],
+        interactionHint: 'Toggle table valve',
+        interaction: 'toggle-table-valve',
+        tableId: table.id,
+      };
+      handle.userData.interactable = tableValveInfo;
+      this.interactables = this.interactables ?? [];
+      this.interactables.push({ object: handle, data: tableValveInfo });
+
       table.supplyValve = valve;
+      table.supplyValveHandle = handle;
       this.tableSupplies.push({
         tableId: table.id,
         valve,
+        handle,
         inlet: table.supplyInlet,
         connected: true,
       });
@@ -269,36 +305,35 @@ export class HydraulicNetwork {
   }
   buildReturnToReservoir(group, returnLine) {
     const pipes = LAYOUT.pipework;
-    const tanks = LAYOUT.tanks.reservoirs;
-    const reservoirX = tanks.positions[1][0];
-    const reservoirZ = tanks.positions[1][1];
-    const inletX = reservoirX - 0.8;
-    const tankInletZ = reservoirZ + Math.sqrt(tanks.radius ** 2 - 0.8 ** 2);
+    const inlet = LAYOUT.storage.returnInlet;
 
-    // Perimeter gravity main: west aisle → north cross aisle → tank inlet.
+    // Perimeter gravity main: east aisle → north cross aisle → return tank
+    // inlet (DR-01). The return network never connects to the clean RO store.
     returnLine.addPath(
       [
-        V(pipes.returnMainStartX, pipes.returnY, pipes.returnMainZ),
-        V(-11.35, 0.1, 11.0),
-        V(-11.35, 0.1, -12.35),
-        V(inletX, 0.1, -12.35),
-        V(inletX, 0.34, -13.7),
-        V(inletX, 0.34, tankInletZ),
+        V(pipes.returnMainEndX, pipes.returnY, pipes.returnMainZ),
+        V(11.35, pipes.returnY, pipes.returnMainZ - 0.3),
+        V(11.35, 0.1, 10.9),
+        V(11.35, 0.1, -12.35),
+        V(inlet.x, 0.1, -12.35),
+        V(inlet.x, 0.34, -13.35),
+        V(inlet.x, 0.34, inlet.z),
       ],
       pipes.returnRadius,
     );
-    returnLine.addJoint(V(inletX, 0.34, tankInletZ), 0.085);
+    returnLine.addJoint(V(inlet.x, 0.34, inlet.z), 0.085);
     group.add(
       boxMesh(
-        0.28,
-        0.28,
+        0.3,
+        0.3,
         0.07,
         this.materials.pvcReturn,
-        V(inletX, 0.34, tankInletZ),
-        'reservoir-return-flange',
+        V(inlet.x, 0.34, inlet.z),
+        'return-tank-inlet-flange',
       ),
     );
-    this.hydraulics.returnsToReservoir = true;
+    this.hydraulics.returnsToReservoir = false;
+    this.hydraulics.returnsToReturnTank = true;
   }
 
   buildSigns(group) {
@@ -323,8 +358,8 @@ export class HydraulicNetwork {
       }
     };
 
-    addSign('NFT SUPPLY', 'PUMP → HEADER → TABLE VALVES', 1.8, LAYOUT.pipework.crossMainZ, 1);
-    addSign('NFT RETURN', 'TABLE DRAINS → GRAVITY → TANK 02', 1.8, LAYOUT.pipework.returnMainZ, -1);
+    addSign('NFT SUPPLY', 'RO-02 → PUMP → TABLE VALVES', 1.8, LAYOUT.pipework.crossMainZ, 1);
+    addSign('NFT RETURN', 'TABLE DRAINS → DR-01 RETURN TANK', 1.8, LAYOUT.pipework.returnMainZ, -1);
   }
 
   buildSupports(group, saddles) {
@@ -335,6 +370,38 @@ export class HydraulicNetwork {
     for (let x = pipes.returnMainEndX; x >= pipes.returnMainStartX; x -= 1.6) {
       saddles.add(V(x, 0.015, pipes.returnMainZ), V(x, pipes.returnY, pipes.returnMainZ), 0.04, 0.04);
     }
+  }
+
+  /** Animate every table valve handle from the shared control state. */
+  update(dt) {
+    this.runningTime += dt;
+    for (const supply of this.tableSupplies) {
+      const open = this.control ? this.control.isTableValveOpen(supply.tableId) : true;
+      const target = open ? 0 : -Math.PI / 2;
+      supply.handle.rotation.y += (target - supply.handle.rotation.y) * Math.min(1, dt * 10);
+    }
+  }
+
+  toggleTableValve(tableId) {
+    if (!this.control) return false;
+    return this.control.toggleTableValve(tableId);
+  }
+
+  setTopView(active) {
+    this.topView = Boolean(active);
+  }
+
+  dispose() {
+    if (!this.group) return;
+    this.group.parent?.remove(this.group);
+    this.group.traverse((object) => {
+      if (!object.geometry) return;
+      if (object.userData.sharedGeometry) return;
+      object.geometry.dispose();
+    });
+    this.group = null;
+    this.tableSupplies.length = 0;
+    this.tableReturns.length = 0;
   }
 }
 

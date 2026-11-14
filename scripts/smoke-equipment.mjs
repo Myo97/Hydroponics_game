@@ -29,7 +29,11 @@ globalThis.document = {
 
 const { Equipment } = await import('../src/world/Equipment.js');
 const { Greenhouse } = await import('../src/world/Greenhouse.js');
+const { WaterStorage } = await import('../src/world/WaterStorage.js');
+const { BluelabController } = await import('../src/world/BluelabController.js');
 const { GreenhouseClimate } = await import('../src/simulation/GreenhouseClimate.js');
+const { WaterNutrientSimulation } = await import('../src/simulation/WaterNutrientSimulation.js');
+const { GreenhouseControlSystem } = await import('../src/systems/GreenhouseControlSystem.js');
 const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
 const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION } = await import('../src/config/layout.js');
 
@@ -51,13 +55,18 @@ const materials = new Proxy(
 const scene = new THREE.Scene();
 const collisionWorld = new CollisionWorld();
 const climate = new GreenhouseClimate({ startHour: 10.7 });
+const control = new GreenhouseControlSystem({ bayCount: 6 });
 const greenhouse = new Greenhouse({
   scene,
   materials,
   collisionWorld,
   preset: { showDetail: true },
+  control,
 }).build();
-const equipment = new Equipment({ scene, materials, collisionWorld, climate }).build();
+const equipment = new Equipment({ scene, materials, collisionWorld, climate, control }).build();
+const storage = new WaterStorage({ materials, control, collisionWorld }).build(scene);
+const bluelab = new BluelabController({ materials, control }).build(scene);
+const water = new WaterNutrientSimulation({ equipment, layout: LAYOUT, control });
 greenhouse.update(0);
 
 const checks = [];
@@ -68,6 +77,8 @@ const check = (name, condition, detail = '') => {
 const allInteractables = [
   ...greenhouse.getInteractables(),
   ...equipment.getInteractables(),
+  ...storage.interactables,
+  ...bluelab.interactables,
 ];
 
 check('all interactables registered', allInteractables.length >= 52, allInteractables.length);
@@ -120,7 +131,7 @@ check('pump suction connected', equipment.hydraulics?.pumpSuctionConnected === t
 check('pump discharge connected', equipment.hydraulics?.pumpDischargeConnected === true);
 check('all table supplies connected', equipment.hydraulics?.tableSupplies.length === 18 && equipment.hydraulics.tableSupplies.every((entry) => entry.connected));
 check('all table drains connected', equipment.hydraulics?.tableReturns.length === 18 && equipment.hydraulics.tableReturns.every((entry) => entry.connected));
-check('return reaches reservoir', equipment.hydraulics?.returnsToReservoir === true);
+check('return reaches return tank', equipment.hydraulics?.returnsToReturnTank === true && equipment.hydraulics?.returnsToReservoir === false);
 check(
   'supply and return are separate',
   equipment.hydraulics?.supplyHeader.start.z !== equipment.hydraulics?.returnHeader.start.z,
@@ -128,8 +139,8 @@ check(
 
 const pumpX = LAYOUT.pumps.positions[0][0];
 const pumpZ = LAYOUT.pumps.positions[0][1];
-const reservoirX = LAYOUT.tanks.reservoirs.positions[1][0];
-const reservoirZ = LAYOUT.tanks.reservoirs.positions[1][1];
+const reservoirX = LAYOUT.storage.roTanks[1].position[0];
+const reservoirZ = LAYOUT.storage.roTanks[1].position[1];
 check(
   'pump sited beside reservoir',
   Math.hypot(pumpX - reservoirX, pumpZ - reservoirZ) < 4,
@@ -138,7 +149,7 @@ check(
 const entrance = greenhouse.entrance;
 const doorEntry = greenhouse.getInteractables().find((entry) => entry.data.id === 'entrance-doors');
 check('sliding entrance built', Boolean(entrance?.leafLeft && entrance?.leafRight));
-check('entrance starts closed', entrance?.doorAmount === 0 && entrance?.collisionBox.enabled === true);
+check('entrance starts closed', entrance?.doorAmount === 0 && entrance?.leafColliders.every((entry) => entry.box?.enabled));
 check('entrance uses E interaction', doorEntry?.data.interaction === 'toggle-entrance', doorEntry?.data.interaction);
 check('door hint asks to open', doorEntry?.data.interactionHint === 'Open entrance', doorEntry?.data.interactionHint);
 
@@ -165,7 +176,11 @@ check(
   entrance.leafLeft.position.x < -2.3 && entrance.leafRight.position.x > 2.3,
   `${entrance.leafLeft.position.x.toFixed(2)} / ${entrance.leafRight.position.x.toFixed(2)}`,
 );
-check('open entrance collision disabled', entrance.collisionBox.enabled === false);
+check(
+  'door colliders slide with leaves',
+  entrance.leafColliders[0].box.maxX < -1.4 && entrance.leafColliders[1].box.minX > 1.4,
+  `${entrance.leafColliders[0].box.maxX.toFixed(2)} / ${entrance.leafColliders[1].box.minX.toFixed(2)}`,
+);
 const openZ = walkDoorway(19.2, 16.0);
 check('open entrance is walkable', openZ < 16.1, openZ.toFixed(2));
 
@@ -173,16 +188,17 @@ entrance.toggle();
 for (let frame = 0; frame < 120; frame += 1) greenhouse.update(1 / 60);
 check('entrance closes again', entrance.doorAmount < 0.02 && entrance.collisionBox.enabled === true);
 
-check('shade screen built', Boolean(greenhouse.shadeScreen?.screen));
+check('per-bay screens built', greenhouse.bayScreens?.shadePanels.length === 6 && greenhouse.bayScreens.energyPanels.length === 6);
+check('twelve roof vent leaves built', greenhouse.bayScreens?.vents.length === 12, greenhouse.bayScreens?.vents.length);
 check(
   'shade screen below truss chord',
-  LAYOUT.shade.height < LAYOUT.greenhouse.gutterHeight - 0.06,
-  `${LAYOUT.shade.height} < ${LAYOUT.greenhouse.gutterHeight - 0.06}`,
+  LAYOUT.screens.shadeY < LAYOUT.greenhouse.gutterHeight - 0.06,
+  `${LAYOUT.screens.shadeY} < ${LAYOUT.greenhouse.gutterHeight - 0.06}`,
 );
 check(
   'shade screen is horizontal',
-  Math.abs(greenhouse.shadeScreen.screen.rotation.x + Math.PI / 2) < 1e-6,
-  greenhouse.shadeScreen.screen.rotation.x.toFixed(3),
+  Math.abs(greenhouse.bayScreens.shadePanels[0].mesh.rotation.x + Math.PI / 2) < 1e-6,
+  greenhouse.bayScreens.shadePanels[0].mesh.rotation.x.toFixed(3),
 );
 
 const tableBoxes = collisionWorld.boxes.filter((box) => box.label === 'NFT table');
@@ -250,9 +266,15 @@ const fanRotation = equipment.fans[0].blades.rotation.z;
 equipment.update(1 / 60);
 check('fan blades rotate', equipment.fans[0].blades.rotation.z !== fanRotation);
 equipment.setFansEnabled(false);
+for (let frame = 0; frame < 300; frame += 1) equipment.update(1 / 60);
 const pausedRotation = equipment.fans[0].blades.rotation.z;
 equipment.update(1 / 60);
-check('fan animation can be paused', equipment.fans[0].blades.rotation.z === pausedRotation);
+check(
+  'fan animation ramps to a stop',
+  equipment.fans[0].currentSpeed < 0.01 &&
+    Math.abs(equipment.fans[0].blades.rotation.z - pausedRotation) < 1e-3,
+  `${equipment.fans[0].currentSpeed.toFixed(4)} rad/s`,
+);
 equipment.setFansEnabled(true);
 
 equipment.toggleCabinetDoor();
@@ -267,9 +289,121 @@ check('cabinet door rotates', Math.abs(equipment.cabinetDoor.rotation.y) > 1.8, 
 equipment.toggleCabinetDoor();
 check('cabinet closes', equipment.isCabinetOpen === false);
 
+/* ------------------------------------------------ Version 3 sub-systems */
+
+check('control registers every NFT table', control.tables.size === 18, control.tables.size);
+check('storage built two RO tanks and return tank', storage.roVisuals.length === 2 && Boolean(storage.returnVisuals));
+check(
+  'no above-ground bulk reservoir duplicates',
+  !scene.getObjectByName('bulk-reservoirs') && !scene.getObjectByName('reservoir-1'),
+);
+check('rainwater collector reaches harvester', Boolean(greenhouse.group.getObjectByName('rainwater-collector-runs')));
+check('sticky traps clipped to columns', greenhouse.stickyTraps?.traps.length === 12, greenhouse.stickyTraps?.traps.length);
+const trapInspection = greenhouse.stickyTraps.inspect(2);
+check(
+  'sticky trap inspection reports a count',
+  trapInspection?.caught > 0 && trapInspection.threshold === 25,
+  `${trapInspection?.caught} caught`,
+);
+
+control.setBayDevice(1, 'shadeNetExtended', false);
+for (let frame = 0; frame < 120; frame += 1) greenhouse.update(1 / 60);
+check(
+  'shade retracts only in its own bay',
+  greenhouse.bayScreens.shadePanels[0].coverage < 0.3 &&
+    greenhouse.bayScreens.shadePanels[1].coverage > 0.95,
+  `${greenhouse.bayScreens.shadePanels[0].coverage.toFixed(2)} / ${greenhouse.bayScreens.shadePanels[1].coverage.toFixed(2)}`,
+);
+
+control.setBayDevice(2, 'roofVentOpen', true);
+control.setBayDevice(3, 'energyScreenExtended', true);
+for (let frame = 0; frame < 120; frame += 1) greenhouse.update(1 / 60);
+const ventBay2 = greenhouse.bayScreens.vents.filter((vent) => vent.bay === 2);
+const ventBay1 = greenhouse.bayScreens.vents.filter((vent) => vent.bay === 1);
+check(
+  'ridge vents open only in their bay',
+  ventBay2.length === 2 && ventBay2.every((vent) => vent.openAmount > 0.95) &&
+    ventBay1.every((vent) => vent.openAmount < 0.05),
+  ventBay2.map((vent) => vent.openAmount.toFixed(2)).join('/'),
+);
+check(
+  'energy screen deploys independently',
+  greenhouse.bayScreens.energyPanels[2].coverage > 0.95 &&
+    greenhouse.bayScreens.energyPanels[1].coverage < 0.2,
+  `${greenhouse.bayScreens.energyPanels[2].coverage.toFixed(2)} / ${greenhouse.bayScreens.energyPanels[1].coverage.toFixed(2)}`,
+);
+
+control.setBayDevice(4, 'fansOn', false);
+for (let frame = 0; frame < 180; frame += 1) equipment.update(1 / 60);
+check(
+  'one bay of HAF fans can be isolated',
+  equipment.fans.filter((fan) => fan.bay === 4).every((fan) => fan.currentSpeed < 0.05) &&
+    equipment.fans.filter((fan) => fan.bay === 1).every((fan) => fan.currentSpeed > 0.5),
+);
+
+const firstTable = equipment.tables[0];
+const firstSupply = equipment.hydraulics.tableSupplies.find(
+  (supply) => supply.tableId === firstTable.id,
+);
+const valveBefore = firstSupply.handle.rotation.y;
+control.setTableValve(firstTable.id, false);
+for (let frame = 0; frame < 60; frame += 1) equipment.update(1 / 60);
+check(
+  'table valve handle follows the control system',
+  Math.abs(firstSupply.handle.rotation.y - valveBefore) > 0.8,
+  firstSupply.handle.rotation.y.toFixed(2),
+);
+const selectorResult = bluelab.toggleSelector(0);
+check(
+  'Bluelab selector mirrors the same table valve',
+  selectorResult === true && control.isTableValveOpen(firstTable.id) === true,
+);
+
+control.toggleStorageValve('ro-tank-2');
+for (let frame = 0; frame < 60; frame += 1) storage.update(1 / 60);
+check(
+  'clean-water isolation valve closes on command',
+  storage.valves.length === 2 && storage.valves[1].angle > 1.2,
+  storage.valves[1]?.angle.toFixed(2),
+);
+
+control.togglePump('irrigationOn');
+for (let frame = 0; frame < 120; frame += 1) water.update(1 / 60);
+const v3Snapshot = water.snapshot();
+check(
+  'water model reports both RO tanks, return and rain',
+  v3Snapshot.tanks.length === 2 &&
+    Number.isFinite(v3Snapshot.returnTank.level) &&
+    Number.isFinite(v3Snapshot.harvester.level) &&
+    v3Snapshot.flowRate < 20 &&
+    v3Snapshot.pressure < 0.5,
+  `${v3Snapshot.flowRate} L/min · ${v3Snapshot.pressure} bar`,
+);
+storage.update(1 / 60, v3Snapshot);
+bluelab.update(1 / 60, v3Snapshot);
+check('Bluelab HMI renders a water snapshot', Boolean(bluelab.screen?.material));
+check('tank selection cycles to RO-02', control.cycleTank() === 1 && water.selectedTank.code === 'RO-02');
+
+greenhouse.setTopView(true);
+storage.setTopView(true);
+equipment.hydraulicNetwork.setTopView(true);
+check(
+  'top view opens the floor cutaway',
+  greenhouse.floorSlab.visible === false &&
+    greenhouse.bayScreens.group.visible === false &&
+    storage.cutawayGroup.visible === true &&
+    storage.coverGroup.visible === false,
+);
+greenhouse.setTopView(false);
+storage.setTopView(false);
+equipment.hydraulicNetwork.setTopView(false);
+check('top view restores the walkthrough', greenhouse.floorSlab.visible === true && storage.coverGroup.visible === true);
+
 equipment.dispose();
 check('equipment disposed', equipment.group === null, equipment.group);
 check('tables disposed', equipment.tables.length === 0);
+storage.dispose();
+bluelab.dispose();
 greenhouse.dispose();
 check('scene emptied', scene.children.length === 0, scene.children.length);
 

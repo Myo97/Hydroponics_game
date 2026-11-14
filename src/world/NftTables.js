@@ -134,6 +134,13 @@ export class NftTables {
           beds.gullyWidth + 0.012,
           beds.gullyHeight + 0.01,
         );
+        // Upstream cap closes the extruded channel behind the inlet dripper.
+        endCaps.add(
+          V(x, centreStart, startZ),
+          V(x, centreStart, startZ - 0.022),
+          beds.gullyWidth + 0.012,
+          beds.gullyHeight + 0.01,
+        );
 
         topMatrices.push({
           position: V(x, topY(centerZ) - 0.006, centerZ),
@@ -206,6 +213,7 @@ export class NftTables {
           ['Table width', `${install.tableWidth.toFixed(2)} m`],
           ['Working height', `${table.topYStart.toFixed(2)} m at head`],
           ['Falling slope', `${beds.slopeDegrees.toFixed(1)}°`],
+          ['Supply valve', 'Dedicated PVC ball valve - E to isolate'],
           ['Supply / return', 'Dedicated DN50 / DN80'],
         ],
       };

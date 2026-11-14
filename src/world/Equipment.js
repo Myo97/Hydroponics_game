@@ -10,17 +10,18 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const DEG = THREE.MathUtils.degToRad;
 
 /**
- * Greenhouse equipment: NFT tables, bulk tanks, nutrient dosing station,
+ * Greenhouse equipment: NFT tables, nutrient dosing station,
  * circulation pumps, climate cabinet, fans and the connecting pipework.
  * Each unit exposes `userData.interactable` metadata for the inspect system and
  * registers its footprint with the collision world.
  */
 export class Equipment {
-  constructor({ scene, materials, collisionWorld, climate = null }) {
+  constructor({ scene, materials, collisionWorld, climate = null, control = null }) {
     this.scene = scene;
     this.materials = materials;
     this.collisionWorld = collisionWorld;
     this.climate = climate;
+    this.control = control;
     this.interactables = [];
     this.fans = [];
     this.tables = [];
@@ -33,6 +34,9 @@ export class Equipment {
     this.cabinetDoor = null;
     this.doorAmount = 0;
     this.doorTarget = 0;
+    this.bayIndicators = [];
+    this.masterSwitches = [];
+    this.waterSnapshot = null;
   }
 
   build() {
@@ -40,7 +44,6 @@ export class Equipment {
     this.group.name = 'equipment';
 
     this.buildBenches();
-    this.buildReservoirs();
     this.buildNutrientStation();
     this.buildPumpSkid();
     this.buildControlCabinet();
@@ -70,198 +73,6 @@ export class Equipment {
     }).build(this.group);
     this.tables = this.tableSystem.tables;
     this.interactables.push(...this.tableSystem.interactables);
-  }
-
-
-  /* -------------------------------------------------------------- bulk water */
-
-  buildReservoirs() {
-    const config = LAYOUT.tanks.reservoirs;
-    const group = new THREE.Group();
-    group.name = 'bulk-reservoirs';
-    this.group.add(group);
-
-    const labels = [
-      ['RO STORAGE 01', 'RAW WATER · 3,000 L', 'TANK 01'],
-      ['RO STORAGE 02', 'MIXED FEED · 3,000 L', 'TANK 02'],
-    ];
-
-    config.positions.forEach(([x, z], index) => {
-      const tank = new THREE.Group();
-      tank.name = `reservoir-${index + 1}`;
-      tank.position.set(x, 0, z);
-      group.add(tank);
-
-      tank.add(
-        boxMesh(
-          config.radius * 2.15,
-          0.07,
-          config.radius * 2.15,
-          this.materials.concretePlinth,
-          V(0, 0.035, 0),
-          `reservoir-pad-${index + 1}`,
-        ),
-      );
-
-      const shell = new THREE.Mesh(
-        new THREE.CylinderGeometry(config.radius, config.radius * 1.01, config.height, 40, 1),
-        this.materials.tankHDPEBlue,
-      );
-      shell.position.y = 0.07 + config.height / 2;
-      shell.castShadow = true;
-      shell.receiveShadow = true;
-      tank.add(shell);
-
-      const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(config.radius * 1.015, config.radius * 1.015, 0.05, 40),
-        this.materials.tankHDPEBlue,
-      );
-      lid.position.y = 0.07 + config.height + 0.018;
-      lid.castShadow = true;
-      tank.add(lid);
-
-      // Ribs and hoops make the moulded HDPE read at close range.
-      for (const y of [0.62, 1.43, 2.24]) {
-        const hoop = new THREE.Mesh(
-          new THREE.TorusGeometry(config.radius * 1.012, 0.018, 6, 40),
-          this.materials.tankHDPE,
-        );
-        hoop.rotation.x = Math.PI / 2;
-        hoop.position.y = y;
-        tank.add(hoop);
-      }
-
-      for (let rib = 0; rib < 12; rib += 1) {
-        const angle = (rib / 12) * Math.PI * 2;
-        const mesh = boxMesh(
-          0.045,
-          config.height - 0.2,
-          0.09,
-          this.materials.tankHDPEBlue,
-          V(
-            Math.cos(angle) * config.radius * 1.006,
-            0.07 + config.height / 2,
-            Math.sin(angle) * config.radius * 1.006,
-          ),
-          `reservoir-rib-${index + 1}-${rib}`,
-        );
-        mesh.rotation.y = -angle;
-        tank.add(mesh);
-      }
-
-      const hatch = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.42, 0.42, 0.08, 24),
-        this.materials.pvcGrey,
-      );
-      hatch.position.set(0.28, 0.07 + config.height + 0.07, 0.1);
-      hatch.castShadow = true;
-      tank.add(hatch);
-      tank.add(
-        boxMesh(
-          0.3,
-          0.035,
-          0.06,
-          this.materials.steelDark,
-          V(0.28, 0.07 + config.height + 0.125, 0.1),
-          `reservoir-hatch-handle-${index + 1}`,
-        ),
-      );
-
-      const vent = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.055, 0.055, 0.4, 12),
-        this.materials.pvcGrey,
-      );
-      vent.position.set(-0.65, 0.07 + config.height + 0.21, -0.25);
-      tank.add(vent);
-      const ventCap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.095, 0.075, 0.06, 12),
-        this.materials.pvcGrey,
-      );
-      ventCap.position.set(-0.65, 0.07 + config.height + 0.43, -0.25);
-      tank.add(ventCap);
-
-      // Side-mounted sight tube with a simple float indicator.
-      const sightGlass = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.032, 0.032, 1.5, 12),
-        this.materials.glass,
-      );
-      sightGlass.position.set(0.9, 1.2, config.radius * 0.99);
-      tank.add(sightGlass);
-      const sightWater = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.021, 0.021, 1.12, 10),
-        this.materials.water,
-      );
-      sightWater.position.set(0.9, 0.99, config.radius * 0.99);
-      tank.add(sightWater);
-      for (const y of [0.46, 1.94]) {
-        tank.add(
-          boxMesh(
-            0.12,
-            0.05,
-            0.12,
-            this.materials.stainless,
-            V(0.9, y, config.radius * 0.98),
-            `sight-bracket-${index + 1}`,
-          ),
-        );
-      }
-
-      // Printed plate sits on a stainless carrier on the front of the tank.
-      const [title, subtitle] = labels[index];
-      const plate = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.28, 0.64),
-        this.materials.createLabelMaterial(title, subtitle, {
-          background: '#f0f2ea',
-          foreground: '#16324a',
-        }),
-      );
-      plate.position.set(0, 1.62, config.radius + 0.012);
-      tank.add(plate);
-      tank.add(
-        boxMesh(
-          1.4,
-          0.76,
-          0.025,
-          this.materials.stainless,
-          V(0, 1.62, config.radius + 0.001),
-          `reservoir-label-frame-${index + 1}`,
-        ),
-      );
-
-      tank.add(
-        boxMesh(
-          0.55,
-          0.38,
-          0.42,
-          this.materials.steelDark,
-          V(0, 0.28, config.radius + 0.08),
-          `reservoir-outlet-box-${index + 1}`,
-        ),
-      );
-
-      this.collisionWorld.addBox({
-        x,
-        z,
-        width: config.radius * 2.2,
-        depth: config.radius * 2.2,
-        label: 'Bulk water tank',
-      });
-
-      this.register(tank, {
-        id: `reservoir-${index + 1}`,
-        category: 'Water source',
-        title: `Bulk reservoir ${index + 1} — ${title}`,
-        description:
-          'Insulated HDPE buffer tank holding reverse-osmosis water. A float valve tops the tank up, and the side sight tube gives a local level check. Tank 2 is the mixed feed buffer that supplies the NFT circulation pump.',
-        specs: [
-          ['Nominal volume', '3,000 L'],
-          ['Material', 'Moulded HDPE'],
-          ['Current level', index === 0 ? '72 %' : '64 %'],
-          ['Top-up', 'RO permeate · float valve'],
-          ['Outlet', 'DN50 · bottom drain'],
-        ],
-      });
-    });
   }
 
 
@@ -810,15 +621,75 @@ export class Equipment {
     screen.position.set(screenX, 1.22, 0);
     cabinet.add(screen);
 
-    // Small status button cluster beside the screen.
-    for (let i = 0; i < 4; i += 1) {
-      const button = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.018, 0.018, 0.012, 12),
-        i === 0 ? this.materials.ledGreen : this.materials.ledWhite,
-      );
-      button.rotation.z = Math.PI / 2;
-      button.position.set(depth / 2 - 0.135, 1.28 - i * 0.055, 0.36);
+    // Four grouped master switches beside the HMI: fans, shade, energy screen
+    // and roof vents. Each one drives every bay through the shared control
+    // state, so the cabinet and the physical devices cannot disagree.
+    const masterDefs = [
+      { key: 'fansOn', label: 'FANS' },
+      { key: 'shadeNetExtended', label: 'SHADE' },
+      { key: 'energyScreenExtended', label: 'ENERGY' },
+      { key: 'roofVentOpen', label: 'VENTS' },
+    ];
+    masterDefs.forEach((entry, index) => {
+      const buttonY = 1.31 - index * 0.075;
+      const button = new THREE.Group();
+      button.position.set(depth / 2 - 0.135, buttonY, 0.375);
       cabinet.add(button);
+
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.024, 0.024, 0.028, 14),
+        this.materials.steelDark,
+      );
+      body.rotation.z = Math.PI / 2;
+      button.add(body);
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.019, 0.019, 0.014, 14),
+        this.materials.ledGreen,
+      );
+      cap.rotation.z = Math.PI / 2;
+      cap.position.x = -0.016;
+      button.add(cap);
+
+      const info = {
+        id: `cabinet-master-${entry.key}`,
+        category: 'Climate control',
+        title: `Master ${entry.label.toLowerCase()} switch`,
+        description:
+          'Grouped master switch on the climate cabinet. It writes to every bay at once through the shared control system, overriding individual bay switches. The LED shows whether all six bays are currently on.',
+        specs: [
+          ['Group', entry.label],
+          ['Bays', '1 – 6 · all'],
+          ['Action', 'E to toggle all bays'],
+        ],
+        interactionHint: `Toggle ${entry.label.toLowerCase()}`,
+        interaction: 'toggle-all-bays',
+        bayKey: entry.key,
+      };
+      button.userData.interactable = info;
+      this.interactables.push({ object: button, data: info });
+      this.masterSwitches.push({ key: entry.key, cap, label: entry.label });
+    });
+
+    // One status LED per bay above the HMI, grouped left to right.
+    const indicatorTitle = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.34, 0.055),
+      this.materials.createLabelMaterial('BAY STATUS', '1 · 2 · 3 · 4 · 5 · 6', {
+        background: '#dfe5df',
+        foreground: '#172d3a',
+      }),
+    );
+    indicatorTitle.rotation.y = -Math.PI / 2;
+    indicatorTitle.position.set(depth / 2 - 0.128, 1.51, -0.1);
+    cabinet.add(indicatorTitle);
+
+    for (let bay = 0; bay < 6; bay += 1) {
+      const led = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 10, 8),
+        this.control?.getBay(bay + 1)?.fansOn ? this.materials.ledGreen : this.materials.steelDark,
+      );
+      led.position.set(depth / 2 - 0.135, 1.455, 0.03 + bay * 0.085);
+      cabinet.add(led);
+      this.bayIndicators.push({ bay: bay + 1, led });
     }
 
     this.cabinetLight = new THREE.PointLight(0xa8ecda, 0, 1.1, 2);
@@ -1068,7 +939,7 @@ export class Equipment {
   /* -------------------------------------------------------------- fans */
 
   buildFans() {
-    this.fanSystem = new HafFans({ materials: this.materials }).build(this.group);
+    this.fanSystem = new HafFans({ materials: this.materials, control: this.control }).build(this.group);
     this.fans = this.fanSystem.fans;
     this.fansEnabled = this.fanSystem.enabled;
     this.interactables.push(...this.fanSystem.interactables);
@@ -1092,14 +963,26 @@ export class Equipment {
       materials: this.materials,
       tables: this.tables,
       parent: this.group,
+      control: this.control,
     }).build();
     this.hydraulics = this.hydraulicNetwork.hydraulics;
+    if (this.control) this.control.registerTables(this.tables);
+    this.interactables.push(...(this.hydraulicNetwork.interactables ?? []));
   }
 
   /* ------------------------------------------------------------- lifecycle */
 
-  update(dt) {
+  toggleMasterBayDevice(key) {
+    if (!this.control) return false;
+    const allOn = this.control.bays.every((bay) => Boolean(bay[key]));
+    this.control.setAllBays(key, !allOn);
+    return !allOn;
+  }
+
+  update(dt, waterSnapshot = null) {
+    this.waterSnapshot = waterSnapshot ?? this.waterSnapshot;
     this.fanSystem?.update(dt);
+    this.hydraulicNetwork?.update(dt);
 
     if (this.cabinetDoor) {
       const blend = 1 - Math.exp(-dt * 7);
@@ -1111,7 +994,18 @@ export class Equipment {
       if (this.cabinetLight) this.cabinetLight.intensity = this.doorAmount * 0.55;
     }
 
-    this.dashboard?.update(dt, this.climate);
+    if (this.control) {
+      for (const entry of this.masterSwitches) {
+        const on = this.control.bays.every((bay) => Boolean(bay[entry.key]));
+        entry.cap.material = on ? this.materials.ledGreen : this.materials.steelDark;
+      }
+      for (const indicator of this.bayIndicators) {
+        const bay = this.control.getBay(indicator.bay);
+        indicator.led.material = bay?.fansOn ? this.materials.ledGreen : this.materials.steelDark;
+      }
+    }
+
+    this.dashboard?.update(dt, this.climate, this.control, this.waterSnapshot);
   }
 
   dispose() {
@@ -1131,6 +1025,8 @@ export class Equipment {
     this.dashboard = null;
     this.cabinetDoor = null;
     this.cabinetLight = null;
+    this.bayIndicators.length = 0;
+    this.masterSwitches.length = 0;
   }
 }
 

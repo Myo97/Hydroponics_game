@@ -1,11 +1,11 @@
 import { LAYOUT } from '../config/layout.js';
 
 /**
- * Crop growth model — placeholder for Milestone 2.
+ * Crop growth model — version 3 placeholder.
  *
- * Milestone 1 only needs the structure so the frame loop, save system and
- * future UI panels have a stable contract. `update()` advances the crop clock
- * and keeps simple per-row state; nothing is rendered from it yet.
+ * Keeps a stable per-row contract for the frame loop, save system and future UI
+ * panels. `update()` advances the crop clock and simple row state; no crop
+ * geometry is rendered from it yet.
  */
 const CULTIVARS = [
   { name: 'Rex Butterhead', daysToHarvest: 32, sowingDay: 6 },
@@ -54,7 +54,7 @@ export class PlantSimulation {
     };
   }
 
-  /** Advance the crop clock. Milestone 2 will grow plants and markers here. */
+  /** Advance the crop clock. Crop geometry and harvest visuals are still pending. */
   update(dt) {
     this.elapsedSeconds += dt;
     const daysAdvanced = this.elapsedSeconds / this.dayLengthSeconds;

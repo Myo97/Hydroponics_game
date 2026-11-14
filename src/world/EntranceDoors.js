@@ -18,6 +18,7 @@ export class EntranceDoors {
     this.group = null;
     this.leafLeft = null;
     this.leafRight = null;
+    this.leafColliders = [];
     this.collisionBox = null;
     this.doorAmount = 0;
     this.openTarget = 0;
@@ -134,16 +135,72 @@ export class EntranceDoors {
         boxMesh(0.055, 0.02, 0.05, this.materials.stainless, V(0, 0.015, 0), 'entrance-guide-shoe'),
       );
 
+      // Brushed kick plate and a rubber meeting astragal on the leading stile.
+      leaf.add(
+        boxMesh(
+          panelWidth - 0.16,
+          0.24,
+          0.008,
+          this.materials.stainless,
+          V(0, 0.3, 0.029),
+          'entrance-kick-plate',
+        ),
+      );
+      leaf.add(
+        boxMesh(
+          0.028,
+          leafHeight - 0.18,
+          0.1,
+          this.materials.rubber,
+          V(-sign * (panelWidth / 2 - 0.012), leafHeight / 2, 0),
+          'entrance-astragal',
+        ),
+      );
+
+      if (sign > 0) {
+        const sticker = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.17, 0.09),
+          this.materials.createWarningMaterial(),
+        );
+        sticker.position.set(panelWidth * 0.22, 1.42, 0.058);
+        leaf.add(sticker);
+      }
+
       const closedX = sign * (width / 4);
       leaf.position.set(closedX, 0, sign * 0.029);
       leaf.userData.closedX = closedX;
       leaf.userData.travel = openTravel;
+      leaf.userData.panelWidth = panelWidth;
       group.add(leaf);
       return leaf;
     };
 
     this.leafLeft = buildLeaf(-1);
     this.leafRight = buildLeaf(1);
+
+    // Two safety sensors on the head track and a status beacon above the door.
+    for (const x of [-doorHalf + 0.24, doorHalf - 0.24]) {
+      group.add(
+        boxMesh(0.09, 0.07, 0.09, this.materials.steelDark, V(x, height - 0.06, panelZ + 0.08), 'entrance-safety-sensor'),
+      );
+    }
+    this.statusLamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.045, 12, 10),
+      this.materials.ledGreen,
+    );
+    this.statusLamp.position.set(0, height + 0.08, frameZ + 0.09);
+    group.add(this.statusLamp);
+
+    const doorSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.42, 0.13),
+      this.materials.createLabelMaterial('MAIN ENTRANCE', 'SLIDING DOOR - KEEP CLEAR', {
+        background: '#e8ece5',
+        foreground: '#1b3440',
+      }),
+    );
+    doorSign.position.set(0, height - 0.22, frameZ - 0.1);
+    doorSign.rotation.y = Math.PI;
+    group.add(doorSign);
 
     // Invisible door-sized hit volume: keeps the entrance targetable when open.
     const proxy = new THREE.Mesh(
@@ -158,30 +215,35 @@ export class EntranceDoors {
     this.data = {
       id: 'entrance-doors',
       category: 'Access',
-      title: 'Main entrance — sliding doors',
+      title: 'Main entrance - sliding doors',
       interaction: 'toggle-entrance',
       interactionHint: 'Open entrance',
       description:
-        'Two glazed aluminium leaves run on a continuous top track with a recessed stainless bottom guide. Open the entrance to walk in; the leaves park in front of the gable glazing and leave the full 3.2 m opening clear.',
+        'Two glazed aluminium leaves run on a continuous top track with a recessed stainless bottom guide. Open the entrance to walk in; the leaves park in front of the gable glazing and leave the full 3.2 m opening clear. Each leaf carries its own collision volume, so the doorway opens progressively as the leaves slide.',
       specs: [
-        ['Opening', `${width.toFixed(1)} m wide × ${height.toFixed(1)} m high`],
-        ['Leaves', '2 × sliding aluminium-framed glass'],
-        ['Track', 'Top rollers · bottom guide'],
+        ['Opening', `${width.toFixed(1)} m wide x ${height.toFixed(1)} m high`],
+        ['Leaves', '2 x sliding aluminium-framed glass'],
+        ['Track', 'Top rollers / bottom guide'],
         ['Glazing', 'Toughened greenhouse glass'],
+        ['Safety', '2 x presence sensors + beacon'],
         ['Operation', 'E to open / close'],
       ],
     };
     group.userData.interactable = this.data;
     this.interactables.push({ object: group, data: this.data });
 
-    this.collisionBox = this.collisionWorld?.addBox({
-      x: 0,
-      z: panelZ,
-      width,
-      depth: 0.34,
-      label: 'entrance doors (closed)',
+    // One collider per leaf, moved with the leaf so the clear opening grows.
+    this.leafColliders = [this.leafLeft, this.leafRight].map((leaf) => {
+      const box = this.collisionWorld?.addBox({
+        x: leaf.userData.closedX,
+        z: panelZ,
+        width: panelWidth,
+        depth: 0.34,
+        label: `${leaf.name} (sliding)`,
+      });
+      return { leaf, box };
     });
-    if (this.collisionBox) this.collisionBox.enabled = true;
+    this.collisionBox = this.leafColliders[0]?.box ?? null;
 
     return this;
   }
@@ -213,11 +275,23 @@ export class EntranceDoors {
       leaf.position.x = leaf.userData.closedX + sign * leaf.userData.travel * this.doorAmount;
     }
 
-    // Keep the doorway blocked until the leaves have cleared it.
-    if (this.collisionBox) this.collisionBox.enabled = this.doorAmount < 0.2;
+    // Keep each collider under its leaf; the doorway clears as they separate.
+    for (const { leaf, box } of this.leafColliders) {
+      if (!leaf || !box) continue;
+      const half = (leaf.userData.panelWidth ?? 0) / 2;
+      box.minX = leaf.position.x - half;
+      box.maxX = leaf.position.x + half;
+      box.enabled = true;
+    }
+
+    if (this.statusLamp) {
+      const moving = this.doorAmount > 0.02 && this.doorAmount < 0.98;
+      this.statusLamp.material = moving ? this.materials.ledAmber : this.materials.ledGreen;
+    }
   }
 
   dispose() {
     this.interactables.length = 0;
+    this.leafColliders.length = 0;
   }
 }

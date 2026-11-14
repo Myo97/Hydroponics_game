@@ -2,7 +2,8 @@
 import { LAYOUT, DIM, GUTTER_X, RIDGE_X, FRAME_Z } from '../config/layout.js';
 import { BeamBatch, PanelBatch, CylinderBatch, boxMesh } from './Batches.js';
 import { EntranceDoors } from './EntranceDoors.js';
-import { ShadeScreen } from './ShadeScreen.js';
+import { BayScreens } from './BayScreens.js';
+import { StickyTraps } from './StickyTraps.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -14,14 +15,17 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  * the collision world; all structural geometry is instanced.
  */
 export class Greenhouse {
-  constructor({ scene, materials, collisionWorld, preset }) {
+  constructor({ scene, materials, collisionWorld, preset, control = null }) {
     this.scene = scene;
     this.materials = materials;
     this.collisionWorld = collisionWorld;
     this.preset = preset;
+    this.control = control;
     this.detailGroup = null;
+    this.floorSlab = null;
     this.entrance = null;
-    this.shadeScreen = null;
+    this.bayScreens = null;
+    this.stickyTraps = null;
     this.interactables = [];
   }
 
@@ -37,7 +41,8 @@ export class Greenhouse {
     this.buildGlass();
     this.buildGuttersAndDownpipes();
     this.buildDoors();
-    this.buildShadeScreen();
+    this.buildBayScreens();
+    this.buildStickyTraps();
     this.buildInteriorDetails();
     this.buildColliders();
 
@@ -68,6 +73,7 @@ export class Greenhouse {
     floor.position.set(0, -0.085, 0);
     floor.receiveShadow = true;
     floor.name = 'floor-slab';
+    this.floorSlab = floor;
     this.group.add(floor);
   }
 
@@ -363,42 +369,81 @@ export class Greenhouse {
 
   buildGuttersAndDownpipes() {
     const pipes = new CylinderBatch(this.materials.aluminium);
+    const rain = new CylinderBatch(this.materials.pvcWhite);
     const hw = DIM.halfWidth;
     const hl = DIM.halfLength;
+    const gutterY = DIM.gutterY - 0.04;
+    const collector = LAYOUT.rainwater;
 
     // Eave gutters run the length of the house at every gutter line.
     for (const x of GUTTER_X) {
-      pipes.add(V(x, DIM.gutterY - 0.04, -hl), V(x, DIM.gutterY - 0.04, hl), 0.11);
+      pipes.add(V(x, gutterY, -hl), V(x, gutterY, hl), 0.11);
+      // North end drops into the rainwater collector that feeds the harvester.
+      rain.addPath(
+        [
+          V(x, gutterY, -hl + 0.06),
+          V(x, collector.collectorY, collector.collectorZ),
+        ],
+        collector.collectorRadius * 0.55,
+      );
     }
 
-    // Downpipes at the four corners, with a splash block at the base.
+    // Level collector along the north eave, falling to the central downpipe.
+    rain.add(
+      V(-hw, collector.collectorY + 0.05, collector.collectorZ),
+      V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+      collector.collectorRadius,
+    );
+    rain.add(
+      V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+      V(hw, collector.collectorY + 0.05, collector.collectorZ),
+      collector.collectorRadius,
+    );
+
+    // Central downpipe turns into the above-ground rainwater harvester.
+    rain.addPath(
+      [
+        V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+        V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
+        V(collector.downpipeX, collector.harvesterInletY, -16.42),
+        V(collector.downpipeX, collector.harvesterInletY, -15.62),
+      ],
+      0.075,
+    );
+    rain.addJoint(V(collector.downpipeX, collector.collectorY, collector.collectorZ), 0.14);
+    rain.addJoint(
+      V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
+      0.1,
+    );
+
+    // Front downpipes still discharge to splash blocks; the roof water that
+    // matters for irrigation is captured on the north collector.
     for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        const x = sx * (hw - 0.22);
-        const z = sz * (hl - 0.25);
-        pipes.addPath(
-          [
-            V(sx * hw, DIM.gutterY - 0.1, z),
-            V(x, DIM.gutterY - 0.1, z),
-            V(x, 0.16, z),
-            V(x - sx * 0.12, 0.16, z),
-          ],
-          0.055,
-        );
-        const block = boxMesh(
-          0.46,
-          0.1,
-          0.46,
-          this.materials.concretePlinth,
-          V(x - sx * 0.12, 0.05, z),
-          'downpipe-splash-block',
-        );
-        block.castShadow = true;
-        this.group.add(block);
-      }
+      const x = sx * (hw - 0.22);
+      const z = hl - 0.25;
+      pipes.addPath(
+        [
+          V(sx * hw, gutterY - 0.1, z),
+          V(x, gutterY - 0.1, z),
+          V(x, 0.16, z),
+          V(x - sx * 0.12, 0.16, z),
+        ],
+        0.055,
+      );
+      const block = boxMesh(
+        0.46,
+        0.1,
+        0.46,
+        this.materials.concretePlinth,
+        V(x - sx * 0.12, 0.05, z),
+        'downpipe-splash-block',
+      );
+      block.castShadow = true;
+      this.group.add(block);
     }
 
     pipes.build(this.group, 'gutters-downpipes');
+    rain.build(this.group, 'rainwater-collector');
   }
 
   /** Build the animated, two-leaf sliding main entrance. */
@@ -410,10 +455,19 @@ export class Greenhouse {
     this.interactables.push(...this.entrance.interactables);
   }
 
-  /** Build the horizontal shade deck below the roof trusses. */
-  buildShadeScreen() {
-    this.shadeScreen = new ShadeScreen({ materials: this.materials }).build(this.group);
-    this.interactables.push(...this.shadeScreen.interactables);
+  /** Per-bay shade, energy screen and hinged ridge vents. */
+  buildBayScreens() {
+    this.bayScreens = new BayScreens({
+      materials: this.materials,
+      control: this.control,
+    }).build(this.group);
+    this.interactables.push(...this.bayScreens.interactables);
+  }
+
+  /** Yellow sticky traps clipped to the structural columns. */
+  buildStickyTraps() {
+    this.stickyTraps = new StickyTraps({ materials: this.materials }).build(this.group);
+    this.interactables.push(...this.stickyTraps.interactables);
   }
 
   getInteractables() {
@@ -426,6 +480,15 @@ export class Greenhouse {
 
   update(dt) {
     this.entrance?.update(dt);
+    this.bayScreens?.update(dt);
+    this.stickyTraps?.update(dt);
+  }
+
+  /** Top view hides overhead screens/vents and the floor slab for a cutaway. */
+  setTopView(active) {
+    if (this.floorSlab) this.floorSlab.visible = !active;
+    this.bayScreens?.setTopView(active);
+    this.stickyTraps?.setTopView(active);
   }
 
 
@@ -547,6 +610,11 @@ export class Greenhouse {
   }
 
   dispose() {
+    this.bayScreens?.dispose();
+    this.stickyTraps?.dispose();
+    this.bayScreens = null;
+    this.stickyTraps = null;
+    this.interactables.length = 0;
     this.group.traverse((child) => {
       if (child.isMesh && child.geometry) child.geometry.dispose();
     });

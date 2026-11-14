@@ -11,8 +11,9 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  * bracket frame and column connection. Blade sets can be paused for testing.
  */
 export class HafFans {
-  constructor({ materials }) {
+  constructor({ materials, control = null }) {
     this.materials = materials;
+    this.control = control;
     this.fans = [];
     this.interactables = [];
     this.group = null;
@@ -159,6 +160,7 @@ export class HafFans {
         fan: unit.fan,
         blades,
         speed,
+        currentSpeed: speed,
         position: fan.position.clone(),
       });
 
@@ -174,20 +176,27 @@ export class HafFans {
       id: `haf-fan-${unit.bay}-${unit.fan}`,
       category: 'Air movement',
       title: `HAF fan HF-${unit.bay}.${unit.fan}`,
-      interactionHint: 'Inspect fan',
+      interactionHint: 'Toggle bay fans',
+      interaction: 'toggle-fan-bay',
+      bayId: unit.bay,
       description:
-        'Horizontal air-flow fan mounted on the gutter column. Four units per bay run in the same direction to maintain a continuous air loop along the crop, reducing leaf wetness and temperature stratification without chilling the canopy.',
+        'Horizontal air-flow fan mounted on the gutter column. Four units per bay run in the same direction to maintain a continuous air loop along the crop, reducing leaf wetness and temperature stratification without chilling the canopy. Press E to start or stop all four fans in this bay.',
       specs: [
         ['Airflow', '7,800 m³/h'],
         ['Motor', '0.55 kW EC · 0–10 V'],
         ['Diameter', `${(this.config.radius * 2).toFixed(2)} m`],
         ['Mounting', `Column bracket at ${this.config.height.toFixed(2)} m`],
         ['Bay / unit', `${unit.bay} / ${unit.fan}`],
-        ['Control', 'Climate cabinet · 40 %'],
+        ['Control', 'Climate cabinet · per bay'],
       ],
     };
     object.userData.interactable = data;
     this.interactables.push({ object, data });
+  }
+
+  toggleBay(bayId) {
+    if (!this.control) return this.toggle();
+    return this.control.toggleBayDevice(bayId, 'fansOn');
   }
 
   setEnabled(enabled) {
@@ -201,9 +210,12 @@ export class HafFans {
   }
 
   update(dt) {
-    if (!this.enabled) return;
     for (const fan of this.fans) {
-      fan.blades.rotation.z -= dt * fan.speed;
+      const bay = this.control?.getBay(fan.bay);
+      const running = this.enabled && (bay ? bay.fansOn : true);
+      const target = running ? fan.speed : 0;
+      fan.currentSpeed += (target - fan.currentSpeed) * Math.min(1, dt * 1.8);
+      fan.blades.rotation.z -= dt * fan.currentSpeed;
     }
   }
 }

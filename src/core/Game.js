@@ -12,6 +12,9 @@ import { GameUI } from '../ui/GameUI.js';
 import { PlantSimulation } from '../simulation/PlantSimulation.js';
 import { WaterNutrientSimulation } from '../simulation/WaterNutrientSimulation.js';
 import { GreenhouseClimate } from '../simulation/GreenhouseClimate.js';
+import { GreenhouseControlSystem } from '../systems/GreenhouseControlSystem.js';
+import { WaterStorage } from '../world/WaterStorage.js';
+import { BluelabController } from '../world/BluelabController.js';
 import { SaveSystem } from '../save/SaveSystem.js';
 
 const SETTINGS_KEY = 'verde-block4:settings';
@@ -31,6 +34,7 @@ export class Game {
     this.inspecting = false;
     this.running = false;
     this.pointerLockWarned = false;
+    this.topView = false;
 
     this.fpsAccumulator = 0;
     this.fpsFrames = 0;
@@ -59,6 +63,7 @@ export class Game {
     this.materials = new MaterialLibrary(this.renderer);
     this.materials.applyAnisotropy(this.preset.anisotropy);
     this.collisionWorld = new CollisionWorld();
+    this.control = new GreenhouseControlSystem({ bayCount: 6 });
 
     this.report(0.28, 'Building sky, sun and site…');
     await this.nextTick();
@@ -76,6 +81,7 @@ export class Game {
       materials: this.materials,
       collisionWorld: this.collisionWorld,
       preset: this.preset,
+      control: this.control,
     }).build();
     this.greenhouse.setDetailVisible(this.preset.showDetail);
 
@@ -87,7 +93,25 @@ export class Game {
       materials: this.materials,
       collisionWorld: this.collisionWorld,
       climate: this.climate,
+      control: this.control,
     }).build();
+
+    this.storage = new WaterStorage({
+      materials: this.materials,
+      control: this.control,
+      collisionWorld: this.collisionWorld,
+    }).build(this.scene);
+    this.bluelab = new BluelabController({
+      materials: this.materials,
+      control: this.control,
+    }).build(this.scene);
+    this.collisionWorld.addBox({
+      x: LAYOUT.bluelab.position[0],
+      z: LAYOUT.bluelab.position[1],
+      width: 0.72,
+      depth: 1.18,
+      label: 'Bluelab controller',
+    });
 
     this.report(0.86, 'Calibrating sensors and player…');
     await this.nextTick();
@@ -104,6 +128,8 @@ export class Game {
       interactables: [
         ...this.greenhouse.getInteractables(),
         ...this.equipment.getInteractables(),
+        ...this.storage.interactables,
+        ...this.bluelab.interactables,
       ],
     });
 
@@ -136,7 +162,11 @@ export class Game {
     this.report(0.94, 'Waking simulations…');
     await this.nextTick();
     this.plants = new PlantSimulation({ equipment: this.equipment, layout: LAYOUT });
-    this.water = new WaterNutrientSimulation({ equipment: this.equipment, layout: LAYOUT });
+    this.water = new WaterNutrientSimulation({
+      equipment: this.equipment,
+      layout: LAYOUT,
+      control: this.control,
+    });
     this.saveSystem = new SaveSystem({ key: 'verde-block4:save' });
 
     this.report(1, 'Ready');
@@ -212,6 +242,15 @@ export class Game {
   pause() {
     if (!this.started || this.paused) return;
     this.paused = true;
+    if (this.topView) {
+      this.topView = false;
+      this.camera.near = 0.06;
+      this.camera.up.set(0, 1, 0);
+      this.camera.updateProjectionMatrix();
+      this.greenhouse?.setTopView(false);
+      this.storage?.setTopView(false);
+      this.environment?.setTopView(false);
+    }
     // Drop out of inspect first so the panel state cannot outlive the pause.
     this.inspecting = false;
     this.ui.closeInspect();
@@ -256,6 +295,115 @@ export class Game {
     }
   }
 
+  /**
+   * Central dispatch for every Version 3 interaction. Returns true when the
+   * action was handled, so E never falls through to the generic inspect panel.
+   */
+  handleInteraction(data) {
+    if (!data) return false;
+    switch (data.interaction) {
+      case 'toggle-entrance': {
+        const open = this.greenhouse.toggleEntranceDoors();
+        this.ui.toast(open ? 'Entrance opening' : 'Entrance closing');
+        return true;
+      }
+      case 'toggle-cabinet': {
+        const open = this.equipment.toggleCabinetDoor();
+        this.ui.toast(
+          open
+            ? 'Climate cabinet open — master switches and bay status live'
+            : 'Climate cabinet closed and latched',
+        );
+        return true;
+      }
+      case 'toggle-all-bays': {
+        const on = this.equipment.toggleMasterBayDevice(data.bayKey);
+        this.ui.toast(
+          `${data.bayKey.replace('On', '').replace('Extended', '').replace('Open', '')} all bays: ${on ? 'ON' : 'OFF'}`,
+        );
+        return true;
+      }
+      case 'toggle-fan-bay': {
+        const enabled = this.equipment.fanSystem?.toggleBay(data.bayId) ?? false;
+        this.ui.toast(`HAF fans bay ${data.bayId}: ${enabled ? 'running' : 'stopped'}`);
+        return true;
+      }
+      case 'toggle-table-valve': {
+        const open = this.equipment.hydraulicNetwork?.toggleTableValve(data.tableId) ?? false;
+        this.ui.toast(`${data.title}: ${open ? 'open' : 'isolated'}`);
+        this.bluelab.hmiAccumulator = 1;
+        return true;
+      }
+      case 'toggle-selector': {
+        const open = this.bluelab.toggleSelector(data.selectorIndex);
+        this.ui.toast(`Table selector ${data.selectorIndex + 1}: ${open ? 'open' : 'closed'}`);
+        return true;
+      }
+      case 'toggle-storage-valve': {
+        const open = this.control.toggleStorageValve(data.tankId);
+        data.interactionHint = open ? 'Close valve' : 'Open valve';
+        this.ui.toast(`${data.title}: ${open ? 'open' : 'closed'}`);
+        return true;
+      }
+      case 'toggle-rain-transfer': {
+        const on = this.control.togglePump('rainwaterTransferOn');
+        this.ui.toast(`Rain transfer pump: ${on ? 'running' : 'stopped'}`);
+        return true;
+      }
+      case 'toggle-dosing': {
+        const enabled = this.bluelab.toggleDosing(data.dosingKey);
+        const labels = { a: 'Nutrient A', b: 'Nutrient B', c: 'pH Down' };
+        this.ui.toast(`${labels[data.dosingKey] ?? 'Dosing'} pump: ${enabled ? 'running' : 'paused'}`);
+        return true;
+      }
+      case 'cycle-tank': {
+        this.bluelab.cycleTank();
+        const tank = this.water.selectedTank;
+        this.ui.toast(`Monitoring ${tank?.code ?? 'tank'} · press E to cycle`);
+        return true;
+      }
+      case 'inspect-trap': {
+        this.greenhouse.stickyTraps?.inspect(data.trapIndex);
+        this.openInspect(data);
+        return true;
+      }
+      case 'inspect':
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Cut-away top view. The camera is raised above the ridge and the near plane
+   * is pushed below roof height, so glazing and trusses are clipped away while
+   * the crop, machinery and underground tanks stay visible.
+   */
+  toggleTopView() {
+    if (!this.started || this.inspecting) return;
+    this.topView = !this.topView;
+    this.player.setEnabled(!this.topView);
+    this.interaction.setEnabled(!this.topView && !this.paused);
+    this.ui.setTarget(null);
+    this.greenhouse?.setTopView(this.topView);
+    this.storage?.setTopView(this.topView);
+    this.environment?.setTopView(this.topView);
+
+    if (this.topView) {
+      this.camera.position.set(0, 28, 0);
+      this.camera.up.set(0, 0, -1);
+      this.camera.near = 22.2;
+      this.camera.lookAt(0, 0, 0);
+      this.camera.updateProjectionMatrix();
+      this.ui.toast('Top view — roof cut away. Press V to return');
+    } else {
+      this.camera.near = 0.06;
+      this.camera.up.set(0, 1, 0);
+      this.camera.updateProjectionMatrix();
+      this.player.syncCamera();
+      this.ui.toast('Walkthrough view');
+    }
+  }
+
   /* ------------------------------------------------------------------- events */
 
   onPointerLockChange() {
@@ -281,6 +429,20 @@ export class Game {
   onKeyDown(event) {
     if (!this.started) return;
 
+    if (event.code === 'KeyV' && !this.ui.isModalOpen()) {
+      event.preventDefault();
+      this.toggleTopView();
+      return;
+    }
+
+    if (event.code === 'Tab' && !this.ui.isModalOpen() && !this.inspecting && !this.topView) {
+      event.preventDefault();
+      this.bluelab.cycleTank();
+      const tank = this.water.selectedTank;
+      this.ui.toast(`Monitoring ${tank?.code ?? 'tank'} · E on the Bluelab HMI cycles tanks`);
+      return;
+    }
+
     if (event.code === 'KeyE' && !this.ui.isModalOpen()) {
       event.preventDefault();
       if (this.inspecting) {
@@ -288,19 +450,7 @@ export class Game {
         return;
       }
       const target = this.interaction.target;
-      if (target?.data.interaction === 'toggle-entrance') {
-        const open = this.greenhouse.toggleEntranceDoors();
-        this.ui.toast(open ? 'Entrance opening' : 'Entrance closing');
-        this.ui.setTarget(target);
-        return;
-      }
-      if (target?.data.interaction === 'toggle-cabinet') {
-        const open = this.equipment.toggleCabinetDoor();
-        this.ui.toast(
-          open
-            ? 'Climate cabinet open — live HMI shows 7 metrics'
-            : 'Climate cabinet closed and latched',
-        );
+      if (target && this.handleInteraction(target.data)) {
         this.ui.setTarget(target);
         return;
       }
@@ -404,21 +554,26 @@ export class Game {
     }
 
     if (interactive) {
-      if (!this.inspecting) this.player.update(dt);
+      if (!this.inspecting && !this.topView) this.player.update(dt);
       this.climate.update(dt);
-      this.greenhouse.update(dt);
-      this.equipment.update(dt);
       this.water.update(dt);
+      const waterSnapshot = this.water.snapshot();
+      this.greenhouse.update(dt);
+      this.equipment.update(dt, waterSnapshot);
+      this.storage.update(dt, waterSnapshot);
+      this.bluelab.update(dt, waterSnapshot);
       this.plants.update(dt);
 
-      const target = this.interaction.update();
-      if (!this.inspecting) this.ui.setTarget(target);
+      if (!this.topView) {
+        const target = this.interaction.update();
+        if (!this.inspecting) this.ui.setTarget(target);
+      }
       this.ui.setClimate(this.climate.snapshot());
       this.ui.setPlayerState({
         x: this.player.position.x,
         z: this.player.position.z,
-        speed: this.player.currentSpeed,
-        zone: this.player.getZone(),
+        speed: this.topView ? 0 : this.player.currentSpeed,
+        zone: this.topView ? 'Top view' : this.player.getZone(),
       });
     }
 
@@ -434,6 +589,8 @@ export class Game {
     this.player?.dispose();
     this.interaction?.dispose();
     this.equipment?.dispose();
+    this.bluelab?.dispose();
+    this.storage?.dispose();
     this.greenhouse?.dispose();
     this.environment?.dispose();
     this.materials?.dispose();

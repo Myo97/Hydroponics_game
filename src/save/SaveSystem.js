@@ -3,9 +3,9 @@ const SAVE_VERSION = 1;
 /**
  * Save system scaffold.
  *
- * Milestone 1 only persists player pose and camera settings; the payload is
- * versioned and namespaced so crop and hydraulics state can be added later
- * without breaking existing saves.
+ * The payload is versioned and namespaced so player pose, settings, crop and
+ * water state can be stored together. Version 3 does not auto-save a pose from
+ * the walkthrough; only UI settings are persisted today.
  */
 export class SaveSystem {
   constructor({ key = 'verde-block4:save', storage = window.localStorage } = {}) {
