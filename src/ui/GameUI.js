@@ -44,9 +44,9 @@ const HUD_MARKUP = `
       <span class="sep"></span>
       <span><kbd>Tab</kbd> Tank</span>
       <span class="sep"></span>
-      <span><kbd>V</kbd> Top view</span>
+      <span><kbd>V</kbd> Drone view</span>
       <span class="sep"></span>
-      <span><kbd>F</kbd> Fans</span>
+      <span><kbd>Q</kbd><kbd>E</kbd> Drone altitude</span>
       <span class="sep"></span>
       <span><kbd>Esc</kbd> Menu</span>
     </div>
@@ -78,7 +78,7 @@ const HUD_MARKUP = `
         <h2>Walkthrough</h2>
       </div>
       <div class="modal-body">
-        <div class="hud-row"><span>Build</span><strong>Version 3 &middot; Water &amp; controls</strong></div>
+        <div class="hud-row"><span>Build</span><strong>Version 4 &middot; Drone &amp; bay control</strong></div>
         <div class="hud-row"><span>Pointer</span><strong>Released</strong></div>
         <p class="hint">Resume to re-lock the mouse and continue walking the house.</p>
       </div>

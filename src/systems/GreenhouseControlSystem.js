@@ -1,5 +1,5 @@
 /**
- * Shared control state for the Version 3 greenhouse.
+ * Shared control state for the Version 4 greenhouse.
  *
  * One instance is created by `Game` and injected into the 3D equipment, the
  * climate cabinet, the Bluelab station, the hydraulic network and the water
@@ -41,6 +41,12 @@ export class GreenhouseControlSystem {
       'ro-tank-2': true,
     };
 
+    /**
+     * Per-device actuator interlocks. Keyed `${bayId}:${key}` with an epoch-ms
+     * release time, so a bay switch cannot reverse a screen or vent mid-stroke.
+     */
+    this.deviceLocks = new Map();
+
     this.listeners = new Set();
   }
 
@@ -72,10 +78,34 @@ export class GreenhouseControlSystem {
     return bay[key];
   }
 
-  toggleBayDevice(bayId, key) {
+  toggleBayDevice(bayId, key, { lockMs = 0 } = {}) {
     const bay = this.getBay(bayId);
-    if (!bay) return false;
-    return this.setBayDevice(bayId, key, !bay[key]);
+    if (!bay || !(key in bay) || key === 'id') return false;
+    if (this.isBayDeviceLocked(bay.id, key)) return bay[key];
+    const next = !bay[key];
+    this.setBayDevice(bay.id, key, next);
+    if (lockMs > 0) this.deviceLocks.set(`${bay.id}:${key}`, Date.now() + lockMs);
+    return bay[key];
+  }
+
+  /** True while a screen or vent actuator is still travelling. */
+  isBayDeviceLocked(bayId, key, now = Date.now()) {
+    const lockKey = `${Number(bayId)}:${key}`;
+    const releaseAt = this.deviceLocks.get(lockKey);
+    if (releaseAt === undefined) return false;
+    if (now < releaseAt) return true;
+    this.deviceLocks.delete(lockKey);
+    return false;
+  }
+
+  /** Seconds left on the actuator interlock (0 when free). */
+  bayDeviceLockRemaining(bayId, key, now = Date.now()) {
+    const releaseAt = this.deviceLocks.get(`${Number(bayId)}:${key}`) ?? 0;
+    return Math.max(0, (releaseAt - now) / 1000);
+  }
+
+  releaseBayDevice(bayId, key) {
+    return this.deviceLocks.delete(`${Number(bayId)}:${key}`);
   }
 
   setAllBays(key, value) {
@@ -91,7 +121,7 @@ export class GreenhouseControlSystem {
     return changed;
   }
 
-  /** Legacy helper used by the F-key fan shortcut. */
+  /** Bulk helper used by the equipment API and the headless smoke test. */
   setFansEnabled(enabled) {
     this.setAllBays('fansOn', enabled);
     return Boolean(enabled);

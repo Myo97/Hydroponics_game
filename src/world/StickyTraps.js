@@ -7,9 +7,10 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 /**
  * Yellow sticky traps clipped to the structural columns (Version 3).
  *
- * Each card is double-sided, carries an inspection label, and holds a
- * deterministic scatter of caught insects. Press E on a card to record an
- * inspection; the card brightens briefly and the caught count is reported.
+ * Each card is double-sided and holds a deterministic scatter of caught insects.
+ * There is no printed label on the card: colour alone identifies the monitor.
+ * Press E on a card to record an inspection; the card brightens briefly and the
+ * caught count is reported.
  */
 export class StickyTraps {
   constructor({ materials }) {
@@ -28,9 +29,13 @@ export class StickyTraps {
     this.group = group;
     parent.add(group);
 
-    const cardMaterial = this.materials.createLabelMaterial('STICKY TRAP', 'PEST MONITOR · WEEK 12', {
-      background: '#f2c737',
-      foreground: '#3a2c05',
+    // Plain yellow card stock — no printed text or numbering.
+    const cardMaterial = new THREE.MeshStandardMaterial({
+      name: 'sticky-trap-yellow',
+      color: '#f2c737',
+      roughness: 0.74,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
     });
     this.labelMaterials.push(cardMaterial);
     const edgeMaterial = new THREE.MeshStandardMaterial({
@@ -77,7 +82,7 @@ export class StickyTraps {
       wire.rotation.z = Math.PI * 0.18;
       trap.add(wire);
 
-      // Caught insects: a deterministic scatter that never sits on the label.
+      // Caught insects: a deterministic scatter kept clear of the card centre.
       const caught = 4 + ((index * 7 + 3) % 9);
       const insectMaterial = this.materials.steelDark;
       for (let insect = 0; insect < caught; insect += 1) {
@@ -92,18 +97,6 @@ export class StickyTraps {
         );
         trap.add(speck);
       }
-
-      // Small numbered tag at the foot of the column.
-      const tag = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.16, 0.055),
-        this.materials.createLabelMaterial(`TRAP ${String(index + 1).padStart(2, '0')}`, 'STICKY', {
-          background: '#f7e9a6',
-          foreground: '#4a3708',
-        }),
-      );
-      this.labelMaterials.push(tag.material);
-      tag.position.set(0, 0.72, 0.004);
-      trap.add(tag);
 
       const info = {
         id: `sticky-trap-${index + 1}`,

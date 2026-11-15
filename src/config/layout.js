@@ -199,12 +199,18 @@ export const LAYOUT = {
     insetZ: 0.22,
     bayGap: 0.06,
     retractedFraction: 0.12,
+    // Rack-and-pinion travel time for a full extend / retract stroke.
+    shadeTravelSeconds: 2.4,
+    energyTravelSeconds: 2.4,
   },
   vents: {
-    openingAngle: 0.64,
+    // 28 degrees of lift at the outer edge; hinges stay on the ridge.
+    openingAngle: 0.4887,
     slopeLength: 1.34,
     lengthInset: 0.22,
     frameThickness: 0.05,
+    // Linear actuator stroke time from closed to fully open.
+    travelSeconds: 2.4,
   },
 
   /** Yellow sticky traps clipped to structural columns (pest monitoring). */
@@ -228,11 +234,27 @@ export const LAYOUT = {
     offset: 0.24,
   },
 
-  topView: {
-    centerZ: -13.4,
-    width: 27,
-    minDepth: 14.5,
-    height: 26,
+  /**
+   * Free-flying inspection drone. The camera starts outside the ridge looking
+   * down at the crop, then WASD / QE / Shift fly it anywhere in the site bounds.
+   * Walkthrough pose is restored untouched when the drone lands.
+   */
+  droneView: {
+    position: [0, 17, 27],
+    yaw: 0,
+    pitch: -0.5,
+    speed: 9,
+    boost: 2.2,
+    verticalSpeed: 5.5,
+    lookSensitivity: 0.0026,
+    bounds: {
+      minX: -34,
+      maxX: 34,
+      minY: 3.2,
+      maxY: 34,
+      minZ: -42,
+      maxZ: 44,
+    },
   },
 
   pumps: {
@@ -250,6 +272,16 @@ export const LAYOUT = {
     size: [0.46, 1.78, 0.9],
     footHeight: 0.11,
     doorOpenAngle: 1.94,
+    /**
+     * Actuator interlock per switch circuit. A bay switch cannot be reversed
+     * until the screen or vent has completed its stroke; fans are near-instant.
+     */
+    switchLockMs: {
+      fansOn: 500,
+      shadeNetExtended: 2400,
+      energyScreenExtended: 2400,
+      roofVentOpen: 2400,
+    },
   },
 
   /**

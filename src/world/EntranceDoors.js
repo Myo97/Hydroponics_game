@@ -167,7 +167,9 @@ export class EntranceDoors {
       }
 
       const closedX = sign * (width / 4);
-      leaf.position.set(closedX, 0, sign * 0.029);
+      // Both leaves ride the same head track, offset onto their own runners so
+      // they meet on the centreline instead of stacking at the world origin.
+      leaf.position.set(closedX, 0, panelZ + sign * 0.029);
       leaf.userData.closedX = closedX;
       leaf.userData.travel = openTravel;
       leaf.userData.panelWidth = panelWidth;

@@ -4,17 +4,41 @@ import { BeamBatch, CylinderBatch, boxMesh } from './Batches.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
+/** Symmetric ease used by every actuator so starts and stops feel mechanical. */
+const easeInOutCubic = (t) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
 /**
- * Per-bay climate hardware (Version 3).
+ * Advance one eased actuator tween toward `target`.
+ * `tween.value` is the current position, `duration` the full stroke time.
+ */
+function advanceTween(tween, target, dt, duration) {
+  if (target !== tween.target) {
+    tween.from = tween.value;
+    tween.target = target;
+    tween.elapsed = 0;
+  }
+  if (tween.value === tween.target) return tween.value;
+
+  const stroke = Math.max(0.0001, duration);
+  tween.elapsed = Math.min(tween.elapsed + Math.max(0, dt), stroke);
+  const t = tween.elapsed / stroke;
+  tween.value =
+    t >= 1 ? tween.target : tween.from + (tween.target - tween.from) * easeInOutCubic(t);
+  return tween.value;
+}
+
+/**
+ * Per-bay climate hardware (Version 4).
  *
  * Six independent 4 m bays each carry:
  *   - a horizontal shade cloth that retracts north into a compact bundle,
  *   - a reflective energy screen on its own carriage below the shade,
  *   - a pair of continuous ridge vents hinged along the roof ridge.
  *
- * Every panel is driven by `GreenhouseControlSystem.bays[]`, so a cabinet
- * switch only moves the hardware in that bay while the other bays keep their
- * current position.
+ * Every panel is driven by `GreenhouseControlSystem.bays[]` and moves with an
+ * eased 2.4 s stroke, so a cabinet switch only moves the hardware in that bay
+ * while the other bays keep their current position.
  */
 export class BayScreens {
   constructor({ materials, control = null }) {
@@ -118,6 +142,7 @@ export class BayScreens {
         depth,
         northEdgeZ,
         coverage: 1,
+        tween: { value: 1, from: 1, target: 1, elapsed: 0 },
       });
       this.energyPanels.push({
         bay,
@@ -125,7 +150,13 @@ export class BayScreens {
         bar: energyBar,
         depth,
         northEdgeZ,
-        coverage: 0,
+        coverage: LAYOUT.screens.retractedFraction,
+        tween: {
+          value: LAYOUT.screens.retractedFraction,
+          from: LAYOUT.screens.retractedFraction,
+          target: LAYOUT.screens.retractedFraction,
+          elapsed: 0,
+        },
       });
 
       // Screen drive motor and gearbox at the north head rail.
@@ -213,15 +244,22 @@ export class BayScreens {
           );
         }
 
-        // Dark insect-mesh panel becomes visible as the leaf lifts.
+        // Fixed insect mesh closes the roof aperture; the glazed leaf overlays
+        // it when closed and lifts clear when the vent opens.
+        const aperture = new THREE.Group();
+        aperture.name = `roof-vent-mesh-${bay}-${sign > 0 ? 'east' : 'west'}`;
+        aperture.position.set(ridgeX, DIM.ridgeY - 0.05, 0);
+        aperture.rotation.z = -sign * slopeDown;
+        ventGroup.add(aperture);
+
         const mesh = new THREE.Mesh(
-          new THREE.PlaneGeometry(slopeLength - 0.1, length - 0.1),
+          new THREE.PlaneGeometry(slopeLength - 0.04, length - 0.04),
           this.ventMeshMaterial,
         );
         mesh.rotation.x = -Math.PI / 2;
-        mesh.position.set((sign * slopeLength) / 2, -0.085, 0);
+        mesh.position.set((sign * slopeLength) / 2, 0, 0);
         mesh.visible = false;
-        pivot.add(mesh);
+        aperture.add(mesh);
 
         this.vents.push({
           bay,
@@ -230,6 +268,9 @@ export class BayScreens {
           mesh,
           slopeDown,
           openAmount: 0,
+          /** 0..1 opening requested by the cabinet (partial ventilation). */
+          partial: 1,
+          tween: { value: 0, from: 0, target: 0, elapsed: 0 },
         });
       }
     }
@@ -241,7 +282,7 @@ export class BayScreens {
       category: 'Climate control',
       title: 'Per-bay retractable shade screens',
       description:
-        'Six independent 58 % shade cloths, one per roof bay. Each deck retracts north into a compact bundle on its own drive motor, so shade can be pulled from one bay without darkening its neighbours. The cabinet group labelled SHADE NET selects a bay and extends or retracts that bay only.',
+        'Six independent 58 % shade cloths, one per roof bay. Each deck retracts north into a compact bundle on its own drive motor, so shade can be pulled from one bay without darkening its neighbours. The SHADE NET switch for a bay in the climate cabinet drives that bay only, with a smooth 2.4 s rack-and-pinion stroke.',
       specs: [
         ['Bays', '6 independent decks'],
         [
@@ -253,6 +294,7 @@ export class BayScreens {
         ],
         ['Height', `${LAYOUT.screens.shadeY.toFixed(2)} m · truss chord`],
         ['Retraction', `${Math.round(LAYOUT.screens.retractedFraction * 100)} % stored bundle`],
+        ['Stroke time', `${LAYOUT.screens.shadeTravelSeconds.toFixed(1)} s · eased`],
         ['Drive', '24 V gear motor per bay'],
       ],
     };
@@ -264,12 +306,13 @@ export class BayScreens {
       category: 'Climate control',
       title: 'Per-bay reflective energy screens',
       description:
-        'A reflective woven screen below the shade deck holds heat in at night and reflects excess solar gain at midday. It retracts bay by bay, independently of the shade cloth, on a second carriage in the same head rail.',
+        'A reflective woven screen below the shade deck holds heat in at night and reflects excess solar gain at midday. It retracts bay by bay, independently of the shade cloth, on a second carriage in the same head rail, with its own smooth stroke.',
       specs: [
         ['Bays', '6 independent decks'],
         ['Height', `${LAYOUT.screens.energyY.toFixed(2)} m`],
         ['Material', 'Aluminised woven polyester'],
         ['Reflection', 'about 72 % short-wave'],
+        ['Stroke time', `${LAYOUT.screens.energyTravelSeconds.toFixed(1)} s · eased`],
         ['Drive', 'Independent 24 V carriage'],
       ],
     };
@@ -281,11 +324,16 @@ export class BayScreens {
       category: 'Climate control',
       title: 'Hinged ridge vents',
       description:
-        'Twelve continuous ridge vents, one pair per 4 m roof bay. Each glazed leaf hinges on the ridge and lifts under a linear actuator, letting buoyant air escape at the highest point of the house. Vents are controlled per bay from the climate cabinet.',
+        'Twelve continuous ridge vents, one pair per 4 m roof bay. Each glazed leaf hinges on the ridge and lifts under a linear actuator, revealing a fixed insect-mesh aperture without letting the leaf foul the ridge cap. Vents are switched per bay from the climate cabinet and travel smoothly to 28 degrees.',
       specs: [
         ['Leaves', '12 · two per bay'],
-        ['Opening', `${Math.round(THREE.MathUtils.radToDeg(LAYOUT.vents.openingAngle))} degrees maximum`],
+        [
+          'Opening',
+          `${Math.round(THREE.MathUtils.radToDeg(LAYOUT.vents.openingAngle))} degrees maximum · partial opening supported`,
+        ],
         ['Actuation', '24 V linear actuator · 2 per leaf'],
+        ['Stroke time', `${LAYOUT.vents.travelSeconds.toFixed(1)} s · eased`],
+        ['Aperture', 'Fixed insect mesh under the leaf'],
         ['Glazing', 'Toughened 4 mm glass'],
       ],
     };
@@ -299,23 +347,51 @@ export class BayScreens {
     return panel ? panel.coverage > 0.98 : false;
   }
 
+  /**
+   * Set a bay's target vent opening as a fraction (0..1) of the 28 deg stroke.
+   * The cabinet switch opens to the last value set here; useful for staged or
+   * partial ventilation while keeping the glazed leaf on its hinge.
+   */
+  setVentOpening(bayId, amount) {
+    const value = THREE.MathUtils.clamp(Number(amount), 0, 1);
+    let applied = false;
+    for (const vent of this.vents) {
+      if (vent.bay !== Number(bayId)) continue;
+      vent.partial = value;
+      applied = true;
+    }
+    return applied;
+  }
+
+  /** Current fraction of maximum vent lift for a bay (0 closed, 1 at 28 deg). */
+  getVentOpening(bayId) {
+    return this.vents.find((vent) => vent.bay === Number(bayId))?.openAmount ?? 0;
+  }
+
+  /** Current glazed-leaf angle in radians for a bay's west leaf. */
+  getVentAngle(bayId) {
+    return this.vents.find((vent) => vent.bay === Number(bayId))?.pivot.rotation.z ?? 0;
+  }
+
   update(dt) {
-    const blend = dt > 0 ? 1 - Math.exp(-dt * 3.2) : 1;
     const retracted = LAYOUT.screens.retractedFraction;
+    const shadeDuration = LAYOUT.screens.shadeTravelSeconds;
+    const energyDuration = LAYOUT.screens.energyTravelSeconds;
+    const ventDuration = LAYOUT.vents.travelSeconds;
 
     for (const panel of this.shadePanels) {
       const bay = this.control?.getBay(panel.bay);
       const target = bay ? (bay.shadeNetExtended ? 1 : retracted) : 1;
-      panel.coverage += (target - panel.coverage) * blend;
-      panel.mesh.scale.y = panel.coverage;
+      panel.coverage = advanceTween(panel.tween, target, dt, shadeDuration);
+      panel.mesh.scale.y = Math.max(panel.coverage, 0.001);
       panel.bar.position.z = panel.northEdgeZ + panel.coverage * panel.depth;
     }
 
     for (const panel of this.energyPanels) {
       const bay = this.control?.getBay(panel.bay);
-      const target = bay ? (bay.energyScreenExtended ? 1 : retracted) : 0;
-      panel.coverage += (target - panel.coverage) * blend;
-      panel.mesh.visible = panel.coverage > 0.02;
+      const target = bay ? (bay.energyScreenExtended ? 1 : retracted) : retracted;
+      panel.coverage = advanceTween(panel.tween, target, dt, energyDuration);
+      panel.mesh.visible = panel.coverage > 0.015;
       panel.bar.visible = panel.mesh.visible;
       panel.mesh.scale.y = Math.max(panel.coverage, 0.001);
       panel.bar.position.z = panel.northEdgeZ + panel.coverage * panel.depth;
@@ -323,11 +399,12 @@ export class BayScreens {
 
     for (const vent of this.vents) {
       const bay = this.control?.getBay(vent.bay);
-      const target = bay?.roofVentOpen ? 1 : 0;
-      vent.openAmount += (target - vent.openAmount) * blend;
+      const target = bay?.roofVentOpen ? vent.partial : 0;
+      vent.openAmount = advanceTween(vent.tween, target, dt, ventDuration);
+      // Hinge stays on the ridge: subtract the roof pitch, then add the lift.
       vent.pivot.rotation.z =
         vent.sign * (vent.openAmount * LAYOUT.vents.openingAngle - vent.slopeDown);
-      vent.mesh.visible = vent.openAmount > 0.08;
+      vent.mesh.visible = vent.openAmount > 0.001;
     }
   }
 

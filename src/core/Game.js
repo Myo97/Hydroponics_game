@@ -7,6 +7,7 @@ import { Greenhouse } from '../world/Greenhouse.js';
 import { Equipment } from '../world/Equipment.js';
 import { CollisionWorld } from '../player/CollisionWorld.js';
 import { FirstPersonController } from '../player/FirstPersonController.js';
+import { DroneController } from '../player/DroneController.js';
 import { InteractionSystem } from '../interaction/InteractionSystem.js';
 import { GameUI } from '../ui/GameUI.js';
 import { PlantSimulation } from '../simulation/PlantSimulation.js';
@@ -34,7 +35,7 @@ export class Game {
     this.inspecting = false;
     this.running = false;
     this.pointerLockWarned = false;
-    this.topView = false;
+    this.droneView = false;
 
     this.fpsAccumulator = 0;
     this.fpsFrames = 0;
@@ -121,6 +122,11 @@ export class Game {
       collisionWorld: this.collisionWorld,
     });
     this.player.setSensitivity(this.settings.sensitivity);
+
+    this.drone = new DroneController({
+      camera: this.droneCamera,
+      domElement: this.renderer.domElement,
+    });
 
     this.interaction = new InteractionSystem({
       camera: this.camera,
@@ -210,6 +216,16 @@ export class Game {
       240,
     );
     this.camera.name = 'player-camera';
+
+    // Drone inspection camera stays independent of the walkthrough camera so
+    // entering and leaving drone view never disturbs the first-person pose.
+    this.droneCamera = new THREE.PerspectiveCamera(
+      this.settings.fov,
+      clientWidth / Math.max(1, clientHeight),
+      0.06,
+      240,
+    );
+    this.droneCamera.name = 'drone-camera';
   }
 
   nextTick() {
@@ -221,6 +237,10 @@ export class Game {
   setFov(fov) {
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
+    if (this.droneCamera) {
+      this.droneCamera.fov = fov;
+      this.droneCamera.updateProjectionMatrix();
+    }
   }
 
   /* ---------------------------------------------------------------- lifecycle */
@@ -242,15 +262,8 @@ export class Game {
   pause() {
     if (!this.started || this.paused) return;
     this.paused = true;
-    if (this.topView) {
-      this.topView = false;
-      this.camera.near = 0.06;
-      this.camera.up.set(0, 1, 0);
-      this.camera.updateProjectionMatrix();
-      this.greenhouse?.setTopView(false);
-      this.storage?.setTopView(false);
-      this.environment?.setTopView(false);
-    }
+    // Drone mode survives the pause; only flight input is suspended.
+    this.drone?.deactivate();
     // Drop out of inspect first so the panel state cannot outlive the pause.
     this.inspecting = false;
     this.ui.closeInspect();
@@ -265,13 +278,20 @@ export class Game {
     this.paused = false;
     this.inspecting = false;
     this.ui.setPaused(false);
-    this.player.setEnabled(true);
-    this.player.requestPointerLock();
-    this.interaction.setEnabled(true);
+    if (this.droneView) {
+      this.drone.activate({ reset: false });
+      this.player.setEnabled(false);
+      this.interaction.setEnabled(false);
+    } else {
+      this.player.setEnabled(true);
+      this.player.requestPointerLock();
+      this.interaction.setEnabled(true);
+    }
     this.clock.getDelta();
   }
 
   respawn() {
+    if (this.droneView) this.exitDroneView({ silent: true });
     this.player.teleport(LAYOUT.player.spawnX, LAYOUT.player.spawnZ, LAYOUT.player.spawnYaw);
     this.ui.toast('Returned to the entrance');
     if (this.paused) this.resume();
@@ -296,7 +316,7 @@ export class Game {
   }
 
   /**
-   * Central dispatch for every Version 3 interaction. Returns true when the
+   * Central dispatch for every Version 4 interaction. Returns true when the
    * action was handled, so E never falls through to the generic inspect panel.
    */
   handleInteraction(data) {
@@ -311,20 +331,34 @@ export class Game {
         const open = this.equipment.toggleCabinetDoor();
         this.ui.toast(
           open
-            ? 'Climate cabinet open — master switches and bay status live'
+            ? 'Climate cabinet open — 24 bay switches live'
             : 'Climate cabinet closed and latched',
         );
         return true;
       }
-      case 'toggle-all-bays': {
-        const on = this.equipment.toggleMasterBayDevice(data.bayKey);
-        this.ui.toast(
-          `${data.bayKey.replace('On', '').replace('Extended', '').replace('Open', '')} all bays: ${on ? 'ON' : 'OFF'}`,
-        );
+      case 'toggle-bay-device': {
+        if (this.control.isBayDeviceLocked(data.bayId, data.deviceKey)) {
+          const remaining = this.control.bayDeviceLockRemaining(data.bayId, data.deviceKey);
+          this.ui.toast(
+            `Bay ${data.bayId} ${data.deviceLabel?.toLowerCase() ?? 'actuator'} still travelling (${remaining.toFixed(1)} s)`,
+            'warn',
+          );
+          return true;
+        }
+        const on = this.control.toggleBayDevice(data.bayId, data.deviceKey, {
+          lockMs: data.lockMs ?? 0,
+        });
+        data.state = on;
+        data.specs[2][1] = on ? 'ON' : 'OFF';
+        this.ui.toast(`Bay ${data.bayId} ${data.deviceLabel ?? ''}: ${on ? 'ON' : 'OFF'}`);
         return true;
       }
       case 'toggle-fan-bay': {
-        const enabled = this.equipment.fanSystem?.toggleBay(data.bayId) ?? false;
+        if (this.control.isBayDeviceLocked(data.bayId, 'fansOn')) {
+          this.ui.toast(`HAF fans bay ${data.bayId} are still spinning up`, 'warn');
+          return true;
+        }
+        const enabled = this.control.toggleBayDevice(data.bayId, 'fansOn', { lockMs: 500 });
         this.ui.toast(`HAF fans bay ${data.bayId}: ${enabled ? 'running' : 'stopped'}`);
         return true;
       }
@@ -374,34 +408,56 @@ export class Game {
   }
 
   /**
-   * Cut-away top view. The camera is raised above the ridge and the near plane
-   * is pushed below roof height, so glazing and trusses are clipped away while
-   * the crop, machinery and underground tanks stay visible.
+   * Free-flying drone view. A dedicated camera is flown with WASD/QE and the
+   * walkthrough pose is left untouched, so landing returns exactly where the
+   * player was standing.
    */
-  toggleTopView() {
-    if (!this.started || this.inspecting) return;
-    this.topView = !this.topView;
-    this.player.setEnabled(!this.topView);
-    this.interaction.setEnabled(!this.topView && !this.paused);
+  enterDroneView() {
+    if (!this.started || this.inspecting || this.droneView) return;
+    this.droneView = true;
     this.ui.setTarget(null);
-    this.greenhouse?.setTopView(this.topView);
-    this.storage?.setTopView(this.topView);
-    this.environment?.setTopView(this.topView);
+    this.player.setEnabled(false);
+    this.player.exitPointerLock();
+    this.interaction.setEnabled(false);
+    this.drone.activate();
+    this.setCutaway(true);
+    this.ui.toast(
+      'Drone view — WASD fly · Q/E altitude · Shift boost · drag to look · V to land',
+    );
+    return this;
+  }
 
-    if (this.topView) {
-      this.camera.position.set(0, 28, 0);
-      this.camera.up.set(0, 0, -1);
-      this.camera.near = 22.2;
-      this.camera.lookAt(0, 0, 0);
-      this.camera.updateProjectionMatrix();
-      this.ui.toast('Top view — roof cut away. Press V to return');
-    } else {
-      this.camera.near = 0.06;
-      this.camera.up.set(0, 1, 0);
-      this.camera.updateProjectionMatrix();
-      this.player.syncCamera();
-      this.ui.toast('Walkthrough view');
+  exitDroneView({ silent = false } = {}) {
+    if (!this.droneView) return;
+    this.droneView = false;
+    this.drone.deactivate();
+    this.setCutaway(false);
+    this.player.syncCamera();
+    this.ui.setTarget(null);
+    if (!this.paused) {
+      this.player.setEnabled(true);
+      this.interaction.setEnabled(true);
+      this.player.requestPointerLock();
     }
+    if (!silent) this.ui.toast('Walkthrough view');
+  }
+
+  toggleDroneView() {
+    if (this.droneView) this.exitDroneView();
+    else this.enterDroneView();
+  }
+
+  /**
+   * Drone view doubles as the cutaway inspection: the floor slab, overhead
+   * screens and yard shell are hidden so the buried water store and equipment
+   * layout stay readable from above. Restored when the drone lands.
+   */
+  setCutaway(active) {
+    this.environment?.setTopView(active);
+    this.greenhouse?.setTopView(active);
+    this.storage?.setTopView(active);
+    this.equipment?.hydraulicNetwork?.setTopView(active);
+    this.bluelab?.setTopView(active);
   }
 
   /* ------------------------------------------------------------------- events */
@@ -409,7 +465,7 @@ export class Game {
   onPointerLockChange() {
     const locked = this.player.isPointerLocked();
     this.interaction.setLockState(locked);
-    if (!locked && this.started && !this.ui.isModalOpen()) {
+    if (!locked && this.started && !this.ui.isModalOpen() && !this.droneView) {
       this.pause();
     }
   }
@@ -431,11 +487,20 @@ export class Game {
 
     if (event.code === 'KeyV' && !this.ui.isModalOpen()) {
       event.preventDefault();
-      this.toggleTopView();
+      this.toggleDroneView();
       return;
     }
 
-    if (event.code === 'Tab' && !this.ui.isModalOpen() && !this.inspecting && !this.topView) {
+    // While flying, the drone controller owns WASD/QE/Shift; only pause keys
+    // are handled here so flight cannot trigger world interactions.
+    if (this.droneView) {
+      if (event.code === 'Escape' && !this.ui.settingsOpen && !this.paused) {
+        this.pause();
+      }
+      return;
+    }
+
+    if (event.code === 'Tab' && !this.ui.isModalOpen() && !this.inspecting) {
       event.preventDefault();
       this.bluelab.cycleTank();
       const tank = this.water.selectedTank;
@@ -459,13 +524,6 @@ export class Game {
       return;
     }
 
-    if (event.code === 'KeyF' && !this.ui.isModalOpen() && !this.inspecting) {
-      event.preventDefault();
-      const running = this.equipment.toggleFans();
-      this.ui.toast(running ? 'HAF fans running' : 'HAF fans paused for testing');
-      return;
-    }
-
     if (event.code === 'Escape') {
       if (this.ui.settingsOpen) this.ui.closeSettings();
       else if (this.inspecting) this.closeInspect();
@@ -485,6 +543,10 @@ export class Game {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    if (this.droneCamera) {
+      this.droneCamera.aspect = width / height;
+      this.droneCamera.updateProjectionMatrix();
+    }
   }
 
   applyQuality(id) {
@@ -554,7 +616,10 @@ export class Game {
     }
 
     if (interactive) {
-      if (!this.inspecting && !this.topView) this.player.update(dt);
+      if (!this.inspecting) {
+        if (this.droneView) this.drone.update(dt);
+        else this.player.update(dt);
+      }
       this.climate.update(dt);
       this.water.update(dt);
       const waterSnapshot = this.water.snapshot();
@@ -564,20 +629,29 @@ export class Game {
       this.bluelab.update(dt, waterSnapshot);
       this.plants.update(dt);
 
-      if (!this.topView) {
+      if (!this.droneView) {
         const target = this.interaction.update();
         if (!this.inspecting) this.ui.setTarget(target);
       }
       this.ui.setClimate(this.climate.snapshot());
-      this.ui.setPlayerState({
-        x: this.player.position.x,
-        z: this.player.position.z,
-        speed: this.topView ? 0 : this.player.currentSpeed,
-        zone: this.topView ? 'Top view' : this.player.getZone(),
-      });
+      this.ui.setPlayerState(
+        this.droneView
+          ? {
+              x: this.drone.position.x,
+              z: this.drone.position.z,
+              speed: this.drone.horizontalSpeed,
+              zone: `Drone view · ${this.drone.altitude.toFixed(1)} m`,
+            }
+          : {
+              x: this.player.position.x,
+              z: this.player.position.z,
+              speed: this.player.currentSpeed,
+              zone: this.player.getZone(),
+            },
+      );
     }
 
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, this.droneView ? this.droneCamera : this.camera);
   }
 
   dispose() {
@@ -587,6 +661,7 @@ export class Game {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     this.player?.dispose();
+    this.drone?.dispose();
     this.interaction?.dispose();
     this.equipment?.dispose();
     this.bluelab?.dispose();

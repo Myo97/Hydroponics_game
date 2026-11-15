@@ -34,8 +34,7 @@ export class Equipment {
     this.cabinetDoor = null;
     this.doorAmount = 0;
     this.doorTarget = 0;
-    this.bayIndicators = [];
-    this.masterSwitches = [];
+    this.cabinetSwitches = [];
     this.waterSnapshot = null;
   }
 
@@ -583,113 +582,168 @@ export class Equipment {
       );
     }
 
-    // Wire ducts frame the HMI and keep the interior reading as a real panel.
-    for (const ductY of [1.46, 0.96, 0.62]) {
-      cabinet.add(
-        boxMesh(
-          0.055,
-          0.065,
-          width - 0.09,
-          this.materials.pvcGrey,
-          V(railX, ductY, 0),
-          'cabinet-wire-duct',
-        ),
-      );
-    }
+    // Vertical wire ducts at the cabinet edges keep the interior reading as a
+    // real panel without crossing the 6 × 4 switch matrix.
     for (const ductZ of [-width / 2 + 0.095, width / 2 - 0.095]) {
       cabinet.add(
-        boxMesh(0.045, 0.88, 0.055, this.materials.pvcGrey, V(railX, 1.16, ductZ)),
+        boxMesh(0.045, 1.42, 0.055, this.materials.pvcGrey, V(railX, 1.12, ductZ)),
       );
     }
 
-    // HMI screen: the seven live metrics are rendered onto this surface.
+    // HMI screen: the seven live metrics are rendered onto this surface. It sits
+    // above the switch matrix so all 24 circuits stay reachable and readable.
     const screenX = depth / 2 - 0.122;
     cabinet.add(
       boxMesh(
         0.028,
-        0.38,
-        0.68,
+        0.32,
+        0.62,
         this.materials.steelDark,
-        V(depth / 2 - 0.105, 1.22, 0),
+        V(depth / 2 - 0.105, 1.635, 0),
         'dashboard-bezel',
       ),
     );
     this.dashboard = new DashboardDisplay({ materials: this.materials });
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.31), this.dashboard.material);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.29), this.dashboard.material);
     screen.name = 'climate-dashboard';
     screen.rotation.y = -Math.PI / 2;
-    screen.position.set(screenX, 1.22, 0);
+    screen.position.set(screenX, 1.635, 0);
     cabinet.add(screen);
 
-    // Four grouped master switches beside the HMI: fans, shade, energy screen
-    // and roof vents. Each one drives every bay through the shared control
-    // state, so the cabinet and the physical devices cannot disagree.
-    const masterDefs = [
-      { key: 'fansOn', label: 'FANS' },
-      { key: 'shadeNetExtended', label: 'SHADE' },
-      { key: 'energyScreenExtended', label: 'ENERGY' },
-      { key: 'roofVentOpen', label: 'VENTS' },
+    // Bay switch matrix. Six rows — one per bay — and four labelled circuits
+    // give exactly 24 switches. Every switch writes straight into the shared
+    // per-bay control state, so the cabinets are the only fan / screen / vent
+    // controls and a green cap can never disagree with the hardware.
+    const panelX = depth / 2 - 0.125;
+    cabinet.add(
+      boxMesh(
+        0.014,
+        0.62,
+        0.8,
+        this.materials.cabinetInterior,
+        V(depth / 2 - 0.09, 1.14, 0),
+        'cabinet-switch-backboard',
+      ),
+    );
+
+    const columnDefs = [
+      { key: 'fansOn', label: 'FAN', short: 'FAN' },
+      { key: 'shadeNetExtended', label: 'SHADE NET', short: 'SHADE' },
+      { key: 'energyScreenExtended', label: 'ENERGY SCREEN', short: 'ENERGY' },
+      { key: 'roofVentOpen', label: 'ROOF VENT', short: 'VENT' },
     ];
-    masterDefs.forEach((entry, index) => {
-      const buttonY = 1.31 - index * 0.075;
-      const button = new THREE.Group();
-      button.position.set(depth / 2 - 0.135, buttonY, 0.375);
-      cabinet.add(button);
-
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.024, 0.024, 0.028, 14),
-        this.materials.steelDark,
-      );
-      body.rotation.z = Math.PI / 2;
-      button.add(body);
-      const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.019, 0.019, 0.014, 14),
-        this.materials.ledGreen,
-      );
-      cap.rotation.z = Math.PI / 2;
-      cap.position.x = -0.016;
-      button.add(cap);
-
-      const info = {
-        id: `cabinet-master-${entry.key}`,
-        category: 'Climate control',
-        title: `Master ${entry.label.toLowerCase()} switch`,
-        description:
-          'Grouped master switch on the climate cabinet. It writes to every bay at once through the shared control system, overriding individual bay switches. The LED shows whether all six bays are currently on.',
-        specs: [
-          ['Group', entry.label],
-          ['Bays', '1 – 6 · all'],
-          ['Action', 'E to toggle all bays'],
-        ],
-        interactionHint: `Toggle ${entry.label.toLowerCase()}`,
-        interaction: 'toggle-all-bays',
-        bayKey: entry.key,
-      };
-      button.userData.interactable = info;
-      this.interactables.push({ object: button, data: info });
-      this.masterSwitches.push({ key: entry.key, cap, label: entry.label });
-    });
-
-    // One status LED per bay above the HMI, grouped left to right.
-    const indicatorTitle = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.34, 0.055),
-      this.materials.createLabelMaterial('BAY STATUS', '1 · 2 · 3 · 4 · 5 · 6', {
-        background: '#dfe5df',
-        foreground: '#172d3a',
+    const columnZ = [-0.245, -0.075, 0.095, 0.265];
+    const columnPlateMaterials = columnDefs.map((entry) =>
+      this.materials.createLabelMaterial(entry.short, '', {
+        width: 256,
+        height: 96,
+        background: '#26373e',
+        foreground: '#cfe5de',
       }),
     );
-    indicatorTitle.rotation.y = -Math.PI / 2;
-    indicatorTitle.position.set(depth / 2 - 0.128, 1.51, -0.1);
-    cabinet.add(indicatorTitle);
+    const bayLabelZ = -0.365;
+    const headerY = 1.425;
 
-    for (let bay = 0; bay < 6; bay += 1) {
-      const led = new THREE.Mesh(
-        new THREE.SphereGeometry(0.014, 10, 8),
-        this.control?.getBay(bay + 1)?.fansOn ? this.materials.ledGreen : this.materials.steelDark,
+    const cornerLabel = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.105, 0.032),
+      this.materials.createLabelMaterial('BAY', 'SWITCHES', {
+        background: '#22343b',
+        foreground: '#d7eee7',
+      }),
+    );
+    cornerLabel.rotation.y = -Math.PI / 2;
+    cornerLabel.position.set(panelX - 0.017, headerY, bayLabelZ);
+    cabinet.add(cornerLabel);
+
+    columnDefs.forEach((entry, index) => {
+      const header = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.15, 0.042),
+        this.materials.createLabelMaterial(entry.label, '', {
+          background: '#22343b',
+          foreground: '#d7eee7',
+        }),
       );
-      led.position.set(depth / 2 - 0.135, 1.455, 0.03 + bay * 0.085);
-      cabinet.add(led);
-      this.bayIndicators.push({ bay: bay + 1, led });
+      header.rotation.y = -Math.PI / 2;
+      header.position.set(panelX - 0.017, headerY, columnZ[index]);
+      cabinet.add(header);
+    });
+
+    for (let bayIndex = 0; bayIndex < 6; bayIndex += 1) {
+      const bayId = bayIndex + 1;
+      const rowY = 1.355 - bayIndex * 0.092;
+
+      const bayLabel = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.115, 0.032),
+        this.materials.createLabelMaterial(`BAY ${bayId}`, '', {
+          background: '#22343b',
+          foreground: '#d7eee7',
+        }),
+      );
+      bayLabel.rotation.y = -Math.PI / 2;
+      bayLabel.position.set(panelX - 0.017, rowY, bayLabelZ);
+      cabinet.add(bayLabel);
+
+      columnDefs.forEach((entry, index) => {
+        const button = new THREE.Group();
+        button.name = `cabinet-switch-bay${bayId}-${entry.key}`;
+        button.position.set(panelX, rowY, columnZ[index]);
+        cabinet.add(button);
+
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.017, 0.017, 0.03, 12),
+          this.materials.steelDark,
+        );
+        body.rotation.z = Math.PI / 2;
+        button.add(body);
+
+        const on = Boolean(this.control?.getBay(bayId)?.[entry.key]);
+        const cap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.013, 0.013, 0.012, 12),
+          on ? this.materials.ledGreen : this.materials.ledRed,
+        );
+        cap.rotation.z = Math.PI / 2;
+        cap.position.x = -0.019;
+        button.add(cap);
+
+        const plate = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.062, 0.018),
+          columnPlateMaterials[index],
+        );
+        plate.rotation.y = -Math.PI / 2;
+        plate.position.set(-0.03, -0.027, 0);
+        button.add(plate);
+
+        const lockMs = LAYOUT.cabinet.switchLockMs?.[entry.key] ?? 0;
+        const info = {
+          id: `cabinet-bay-${bayId}-${entry.key}`,
+          category: 'Climate control',
+          title: `Bay ${bayId} ${entry.label.toLowerCase()} switch`,
+          description:
+            'Per-bay switch on the climate cabinet. Each row belongs to one roof bay; the four columns are the fan, shade-net, energy-screen and roof-vent circuits. The cap glows green when the circuit is on and red when it is off. Screens and vents are interlocked while travelling so a stroke cannot be reversed mid-way.',
+          specs: [
+            ['Bay', `Bay ${bayId} of 6`],
+            ['Circuit', entry.label],
+            ['State', on ? 'ON' : 'OFF'],
+            ['Interlock', lockMs ? `${(lockMs / 1000).toFixed(1)} s travel` : 'Instant'],
+            ['Action', 'E to toggle this circuit'],
+          ],
+          interactionHint: `Turn ${entry.label.toLowerCase()} ${on ? 'off' : 'on'}`,
+          interaction: 'toggle-bay-device',
+          bayId,
+          deviceKey: entry.key,
+          deviceLabel: entry.label,
+          lockMs,
+          state: on,
+        };
+        this.register(button, info);
+        this.cabinetSwitches.push({
+          bay: bayId,
+          key: entry.key,
+          label: entry.label,
+          cap,
+          info,
+        });
+      });
     }
 
     this.cabinetLight = new THREE.PointLight(0xa8ecda, 0, 1.1, 2);
@@ -946,13 +1000,13 @@ export class Equipment {
   }
 
   setFansEnabled(enabled) {
+    this.control?.setAllBays('fansOn', Boolean(enabled));
     this.fansEnabled = this.fanSystem ? this.fanSystem.setEnabled(enabled) : Boolean(enabled);
     return this.fansEnabled;
   }
 
   toggleFans() {
-    this.fansEnabled = this.fanSystem ? this.fanSystem.toggle() : !this.fansEnabled;
-    return this.fansEnabled;
+    return this.setFansEnabled(!(this.control?.fansEnabled ?? this.fansEnabled));
   }
 
 
@@ -972,13 +1026,6 @@ export class Equipment {
 
   /* ------------------------------------------------------------- lifecycle */
 
-  toggleMasterBayDevice(key) {
-    if (!this.control) return false;
-    const allOn = this.control.bays.every((bay) => Boolean(bay[key]));
-    this.control.setAllBays(key, !allOn);
-    return !allOn;
-  }
-
   update(dt, waterSnapshot = null) {
     this.waterSnapshot = waterSnapshot ?? this.waterSnapshot;
     this.fanSystem?.update(dt);
@@ -995,13 +1042,22 @@ export class Equipment {
     }
 
     if (this.control) {
-      for (const entry of this.masterSwitches) {
-        const on = this.control.bays.every((bay) => Boolean(bay[entry.key]));
-        entry.cap.material = on ? this.materials.ledGreen : this.materials.steelDark;
-      }
-      for (const indicator of this.bayIndicators) {
-        const bay = this.control.getBay(indicator.bay);
-        indicator.led.material = bay?.fansOn ? this.materials.ledGreen : this.materials.steelDark;
+      for (const entry of this.cabinetSwitches) {
+        const bay = this.control.getBay(entry.bay);
+        const on = Boolean(bay?.[entry.key]);
+        entry.cap.material = on ? this.materials.ledGreen : this.materials.ledRed;
+        if (entry.info.state !== on) {
+          entry.info.state = on;
+          entry.info.specs[2][1] = on ? 'ON' : 'OFF';
+          entry.info.interactionHint = `Turn ${entry.label.toLowerCase()} ${on ? 'off' : 'on'}`;
+        }
+        const locked = this.control.isBayDeviceLocked(entry.bay, entry.key);
+        const interlock = locked
+          ? 'Travelling · locked'
+          : entry.lockMs
+            ? `${(entry.lockMs / 1000).toFixed(1)} s travel`
+            : 'Instant';
+        if (entry.info.specs[3][1] !== interlock) entry.info.specs[3][1] = interlock;
       }
     }
 
@@ -1025,8 +1081,7 @@ export class Equipment {
     this.dashboard = null;
     this.cabinetDoor = null;
     this.cabinetLight = null;
-    this.bayIndicators.length = 0;
-    this.masterSwitches.length = 0;
+    this.cabinetSwitches.length = 0;
   }
 }
 

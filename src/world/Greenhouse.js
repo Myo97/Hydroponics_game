@@ -269,23 +269,27 @@ export class Greenhouse {
       }
     }
 
-    // Roof glazing: one pane per bay on each side of every ridge.
+    // Roof glazing: one pane per bay on each side of every ridge. The upper
+    // section of each slope is left open for the hinged vent leaf, so opening a
+    // vent exposes sky and mesh instead of a second layer of glass.
     const slopeLength = Math.hypot(DIM.bayWidth / 2, DIM.ridgeY - DIM.gutterY);
+    const ventSlopeLength = Math.min(LAYOUT.vents.slopeLength, slopeLength - 0.1);
+    const glazedLength = slopeLength - ventSlopeLength;
+    const glazedDistance = ventSlopeLength + glazedLength / 2;
     for (const ridge of RIDGE_X) {
       for (const side of [-1, 1]) {
-        const gutter = ridge + side * (DIM.bayWidth / 2);
         const right = new THREE.Vector3(
           side * (DIM.bayWidth / 2),
           DIM.gutterY - DIM.ridgeY,
           0,
         ).normalize();
-        const centreX = (ridge + gutter) / 2;
-        const centreY = (DIM.ridgeY + DIM.gutterY) / 2;
+        const centreX = ridge + side * (glazedDistance / slopeLength) * (DIM.bayWidth / 2);
+        const centreY = DIM.ridgeY - (glazedDistance / slopeLength) * (DIM.ridgeY - DIM.gutterY);
         for (let i = 0; i < FRAME_Z.length - 1; i += 1) {
           const z = (FRAME_Z[i] + FRAME_Z[i + 1]) / 2;
           panes.add(
             new THREE.Vector3(centreX, centreY, z),
-            slopeLength,
+            glazedLength,
             DIM.bayLength,
             right,
             rightZ,
@@ -484,7 +488,7 @@ export class Greenhouse {
     this.stickyTraps?.update(dt);
   }
 
-  /** Top view hides overhead screens/vents and the floor slab for a cutaway. */
+  /** Drone view hides overhead screens/vents and the floor slab for a cutaway. */
   setTopView(active) {
     if (this.floorSlab) this.floorSlab.visible = !active;
     this.bayScreens?.setTopView(active);

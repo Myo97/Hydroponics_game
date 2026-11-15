@@ -10,7 +10,7 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  *   - Two RO storage tanks buried in separate concrete vaults, each with a
  *     sealed manhole cover, level sight gauge and floor-mounted fill/suction
  *     risers. From the walkthrough only the covers and gauges are visible; in
- *     top view the floor is cut away so the tanks themselves can be inspected.
+ *     drone view the floor is cut away so the tanks themselves can be inspected.
  *   - A completely separate nutrient-return tank in its own vault. It receives
  *     NFT drainage and never shares a compartment, pipe or vent with clean RO.
  *   - An above-ground rainwater harvester fed by the roof collector, with a
@@ -228,7 +228,7 @@ export class WaterStorage {
     fillStub.position.set(x - 0.95, 0.39, z + 0.36);
     assembly.add(fillStub);
 
-    // Cutaway ring, only shown in top view.
+    // Cutaway ring, only shown in drone view.
     const ringMaterial = new THREE.MeshBasicMaterial({
       name: 'storage-cutaway-ring',
       color: 0x63d8c6,
@@ -263,7 +263,7 @@ export class WaterStorage {
       id: tank.id,
       category: 'Water storage',
       title: `${tank.label} · ${tank.code}`,
-      description: `Buried ${config.tankHeight.toFixed(2)} m HDPE storage tank in an independent concrete vault under the headhouse. The clean-water fill main enters through the floor beside the sealed manhole and the suction riser leaves for the circulation pump. The tank itself is only visible in top view, where the floor is cut away.`,
+      description: `Buried ${config.tankHeight.toFixed(2)} m HDPE storage tank in an independent concrete vault under the headhouse. The clean-water fill main enters through the floor beside the sealed manhole and the suction riser leaves for the circulation pump. The tank itself is only visible in drone view, where the floor is cut away.`,
       specs: [
         ['Service', tank.subtitle],
         ['Capacity', `${tank.capacity.toLocaleString('en-GB')} L`],

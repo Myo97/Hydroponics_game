@@ -1,8 +1,9 @@
 /**
- * Headless smoke test for the greenhouse, NFT tables, hydraulics and fans.
- * Node has no DOM, so the small canvas/material surface used by the cabinet HMI
- * and procedural textures is mocked. Geometry, interaction metadata, collision
- * volumes, door animation, fan rotation, climate data and disposal are real.
+ * Headless smoke test for the greenhouse, NFT tables, hydraulics, 24-switch
+ * climate cabinet, drone view and fans. Node has no DOM, so the small canvas/
+ * material surface used by the cabinet HMI and procedural textures is mocked.
+ * Geometry, interaction metadata, collision volumes, door animation, fan
+ * rotation, climate data and disposal are real.
  */
 import * as THREE from 'three';
 
@@ -38,6 +39,7 @@ const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
 const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION } = await import('../src/config/layout.js');
 
 const material = () => new THREE.MeshBasicMaterial();
+const sharedMaterials = new Map();
 const materials = new Proxy(
   {
     createLabelMaterial: () => material(),
@@ -47,7 +49,10 @@ const materials = new Proxy(
   {
     get(target, property) {
       if (property in target) return target[property];
-      return material();
+      // Real MaterialLibrary properties are stable singletons; cache the mock so
+      // identity checks (for example the cabinet LED caps) stay meaningful.
+      if (!sharedMaterials.has(property)) sharedMaterials.set(property, material());
+      return sharedMaterials.get(property);
     },
   },
 );
@@ -384,21 +389,66 @@ bluelab.update(1 / 60, v3Snapshot);
 check('Bluelab HMI renders a water snapshot', Boolean(bluelab.screen?.material));
 check('tank selection cycles to RO-02', control.cycleTank() === 1 && water.selectedTank.code === 'RO-02');
 
-greenhouse.setTopView(true);
-storage.setTopView(true);
-equipment.hydraulicNetwork.setTopView(true);
+/* ------------------------------------------------ Version 4 bay cabinet */
+const baySwitches = equipment.cabinetSwitches;
+check('cabinet has exactly 24 per-bay switches', baySwitches.length === 24, baySwitches.length);
 check(
-  'top view opens the floor cutaway',
-  greenhouse.floorSlab.visible === false &&
-    greenhouse.bayScreens.group.visible === false &&
-    storage.cutawayGroup.visible === true &&
-    storage.coverGroup.visible === false,
+  'six bays x four circuits are unique',
+  new Set(baySwitches.map((entry) => `${entry.bay}:${entry.key}`)).size === 24,
 );
-greenhouse.setTopView(false);
-storage.setTopView(false);
-equipment.hydraulicNetwork.setTopView(false);
-check('top view restores the walkthrough', greenhouse.floorSlab.visible === true && storage.coverGroup.visible === true);
-
+check(
+  'each bay row carries exactly four switches',
+  [1, 2, 3, 4, 5, 6].every((bay) => baySwitches.filter((entry) => entry.bay === bay).length === 4),
+);
+check(
+  'every bay exposes FAN / SHADE NET / ENERGY SCREEN / ROOF VENT',
+  [1, 2, 3, 4, 5, 6].every((bay) =>
+    ['fansOn', 'shadeNetExtended', 'energyScreenExtended', 'roofVentOpen'].every((key) =>
+      baySwitches.some((entry) => entry.bay === bay && entry.key === key),
+    ),
+  ),
+);
+check(
+  'all cabinet switches use the bay-device interaction',
+  baySwitches.every((entry) => entry.info.interaction === 'toggle-bay-device'),
+);
+check(
+  'no master or global bay switches remain',
+  !equipment.interactables.some(
+    (entry) =>
+      entry.data.interaction === 'toggle-all-bays' || String(entry.data.id).startsWith('cabinet-master'),
+  ),
+);
+const ventSwitch = baySwitches.find((entry) => entry.bay === 6 && entry.key === 'roofVentOpen');
+check(
+  'roof-vent switch metadata targets its bay',
+  ventSwitch?.info.bayId === 6 && ventSwitch?.info.lockMs === 2400,
+);
+const ventBefore = control.getBay(6).roofVentOpen;
+const ventAfter = control.toggleBayDevice(6, 'roofVentOpen', { lockMs: 2400 });
+check('cabinet switch writes the shared bay state', ventAfter !== ventBefore);
+equipment.update(0.016);
+check(
+  'green cap follows the live bay state',
+  ventSwitch.cap.material === (ventAfter ? equipment.materials.ledGreen : equipment.materials.ledRed),
+);
+check('vent switch engages the actuator interlock', control.isBayDeviceLocked(6, 'roofVentOpen'));
+check(
+  'interlock rejects a mid-stroke reversal',
+  control.toggleBayDevice(6, 'roofVentOpen') === ventAfter,
+);
+control.releaseBayDevice(6, 'roofVentOpen');
+check('released interlock frees the switch', !control.isBayDeviceLocked(6, 'roofVentOpen'));
+check(
+  'roof vents open to the 28 degree partial position',
+  Math.abs(THREE.MathUtils.radToDeg(LAYOUT.vents.openingAngle) - 28) < 0.01,
+  THREE.MathUtils.radToDeg(LAYOUT.vents.openingAngle).toFixed(1),
+);
+check('drone view replaces the fixed top view', Boolean(LAYOUT.droneView) && !('topView' in LAYOUT));
+check(
+  'sticky traps carry no numbered labels',
+  greenhouse.stickyTraps.traps.every((trap) => trap.card?.material?.userData?.isLabel !== true),
+);
 equipment.dispose();
 check('equipment disposed', equipment.group === null, equipment.group);
 check('tables disposed', equipment.tables.length === 0);
