@@ -27,23 +27,26 @@ export class Environment {
   }
 
   buildSky() {
+    const sunConfig = LAYOUT.sun ?? {};
     const sky = new Sky();
     sky.scale.setScalar(45000);
     sky.name = 'sky';
 
     const uniforms = sky.material.uniforms;
-    uniforms.turbidity.value = 5.5;
-    uniforms.rayleigh.value = 1.35;
-    uniforms.mieCoefficient.value = 0.004;
-    uniforms.mieDirectionalG.value = 0.82;
+    uniforms.turbidity.value = 4.4;
+    uniforms.rayleigh.value = 1.55;
+    uniforms.mieCoefficient.value = 0.0035;
+    uniforms.mieDirectionalG.value = 0.84;
 
-    // Late-morning sun: 38° elevation, south-east.
-    const elevation = THREE.MathUtils.degToRad(38);
-    const azimuth = THREE.MathUtils.degToRad(132);
-    this.sunDirection.setFromSphericalCoords(1, Math.PI / 2 - elevation, azimuth);
+    // Physical sun position. Elevation and compass azimuth are configured in
+    // LAYOUT.sun so the sky, the directional light and the visible disc agree.
+    this.sunDirection.copy(
+      this.directionFromAngles(sunConfig.elevationDeg ?? 36, sunConfig.azimuthDeg ?? 135),
+    );
     uniforms.sunPosition.value.copy(this.sunDirection);
     this.scene.add(sky);
     this.sky = sky;
+    this.skyUniforms = uniforms;
 
     // Pre-filter the sky into an environment map for glass and metal reflections.
     const envScene = new THREE.Scene();
@@ -70,22 +73,36 @@ export class Environment {
     envSky.material.dispose();
   }
 
+  /**
+   * Unit vector pointing from the site toward the sun.
+   * `azimuthDeg` is a compass bearing (0 = north, 90 = east, 180 = south).
+   */
+  directionFromAngles(elevationDeg, azimuthDeg) {
+    const elevation = THREE.MathUtils.degToRad(elevationDeg);
+    const theta = Math.PI - THREE.MathUtils.degToRad(azimuthDeg);
+    return new THREE.Vector3().setFromSphericalCoords(1, Math.PI / 2 - elevation, theta);
+  }
+
   buildSun() {
-    const sun = new THREE.DirectionalLight(0xfff2df, 1.9);
+    const config = LAYOUT.sun ?? {};
+    const distance = config.distance ?? 120;
+
+    const sun = new THREE.DirectionalLight(config.color ?? 0xfff1d8, config.intensity ?? 2.35);
     sun.name = 'sun';
-    sun.position.copy(this.sunDirection).multiplyScalar(70);
+    sun.position.copy(this.sunDirection).multiplyScalar(distance);
     sun.target.position.set(0, 1.2, 0);
     sun.castShadow = true;
 
     const shadow = sun.shadow;
-    shadow.camera.left = -40;
-    shadow.camera.right = 40;
-    shadow.camera.top = 40;
-    shadow.camera.bottom = -40;
-    shadow.camera.near = 1;
-    shadow.camera.far = 180;
-    shadow.bias = -0.00035;
-    shadow.normalBias = 0.028;
+    const extent = config.shadowExtent ?? 27;
+    shadow.camera.left = -extent;
+    shadow.camera.right = extent;
+    shadow.camera.top = extent;
+    shadow.camera.bottom = -extent;
+    shadow.camera.near = config.shadowNear ?? 1;
+    shadow.camera.far = config.shadowFar ?? 220;
+    shadow.bias = config.shadowBias ?? -0.0004;
+    shadow.normalBias = config.shadowNormalBias ?? 0.03;
     shadow.camera.updateProjectionMatrix();
 
     this.scene.add(sun);
@@ -94,13 +111,82 @@ export class Environment {
     this.lights.push(sun);
 
     // Sky bounce / skylight fill. Keeps the shaded interior readable without
-    // looking like artificial studio lighting.
-    const hemisphere = new THREE.HemisphereLight(0xc4d8e2, 0x6d6759, 0.32);
+    // flattening the direct sun contrast.
+    const hemisphere = new THREE.HemisphereLight(
+      config.skylightColor ?? 0xd8e8ef,
+      config.groundColor ?? 0x6c675a,
+      config.skylightIntensity ?? 0.36,
+    );
+    hemisphere.name = 'skylight';
     hemisphere.position.set(0, 12, 0);
     this.scene.add(hemisphere);
     this.lights.push(hemisphere);
 
-    this.scene.fog = new THREE.Fog(0xc2cdcd, 62, 260);
+    this.buildSunDisc();
+
+    this.scene.fog = new THREE.Fog(0xc6d2d2, 62, 260);
+  }
+
+  /**
+   * Visible sun: a warm opaque core with two additive halos, kept at the same
+   * bearing and elevation as the directional light. The core uses normal
+   * blending so it stays a readable disc against the bright sky glare;
+   * `depthWrite` is off so the disc never punches a hole in the sky dome.
+   */
+  buildSunDisc() {
+    const config = LAYOUT.sun ?? {};
+    const radius = config.discRadius ?? 2.9;
+    const group = new THREE.Group();
+    group.name = 'sun-disc';
+
+    const layers = [
+      { scale: 3.6, opacity: 0.045, color: 0xffd9a0, blending: THREE.AdditiveBlending },
+      { scale: 2.1, opacity: 0.09, color: 0xffe6bd, blending: THREE.AdditiveBlending },
+      {
+        scale: 1.45,
+        opacity: 0.97,
+        color: config.discCoreColor ?? 0xffd9a0,
+        blending: THREE.NormalBlending,
+      },
+    ];
+    layers.forEach((layer, index) => {
+      const material = new THREE.MeshBasicMaterial({
+        color: layer.color,
+        transparent: true,
+        opacity: layer.opacity,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+        blending: layer.blending,
+      });
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(radius * layer.scale, 48), material);
+      disc.renderOrder = index;
+      group.add(disc);
+    });
+
+    group.position.copy(this.sunDirection).multiplyScalar(config.discDistance ?? 190);
+    group.lookAt(0, 0, 0);
+    this.scene.add(group);
+    this.sunDisc = group;
+  }
+
+  /**
+   * Move the sun at runtime. Everything that depends on the sun (sky shader,
+   * directional light, shadow direction and the visible disc) follows.
+   */
+  setSunPosition(elevationDeg, azimuthDeg) {
+    this.sunDirection.copy(this.directionFromAngles(elevationDeg, azimuthDeg));
+    this.skyUniforms?.sunPosition.value.copy(this.sunDirection);
+
+    if (this.sun) {
+      this.sun.position.copy(this.sunDirection).multiplyScalar(LAYOUT.sun?.distance ?? 120);
+      this.sun.target.updateMatrixWorld();
+    }
+    if (this.sunDisc) {
+      this.sunDisc.position.copy(this.sunDirection).multiplyScalar(LAYOUT.sun?.discDistance ?? 190);
+      this.sunDisc.lookAt(0, 0, 0);
+    }
   }
 
   buildExterior() {
@@ -209,6 +295,16 @@ export class Environment {
 
   dispose() {
     for (const light of this.lights) light.parent?.remove(light);
+    if (this.sunDisc) {
+      this.sunDisc.traverse((child) => {
+        if (child.isMesh) {
+          child.geometry.dispose();
+          child.material.dispose();
+        }
+      });
+      this.scene.remove(this.sunDisc);
+      this.sunDisc = null;
+    }
     if (this.exteriorGroup) {
       this.exteriorGroup.traverse((child) => {
         if (child.isMesh) child.geometry?.dispose();

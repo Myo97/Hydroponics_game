@@ -35,7 +35,7 @@ export class GreenhouseControlSystem {
       c: { id: 'c', label: 'pH Down', enabled: true, output: 0.18 },
     };
 
-    /** Isolation valves on the clean-water distribution drops to each RO tank. */
+    /** Isolation valves on the clean-water distribution drops to each reservoir. */
     this.storageValves = {
       'ro-tank-1': true,
       'ro-tank-2': true,

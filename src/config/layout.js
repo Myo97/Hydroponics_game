@@ -16,6 +16,10 @@ export const LAYOUT = {
     bayWidth: 4,
     bayLength: 4,
     wallThickness: 0.18,
+    // Structural column sections: perimeter posts are heavier than the gutter-
+    // line columns inside the house. Sticky traps read these to sit flush.
+    perimeterColumnSize: 0.18,
+    columnSize: 0.15,
     floorY: 0.0,
   },
 
@@ -28,6 +32,32 @@ export const LAYOUT = {
     trackOverrun: 1.05,
     interlockDelay: 0.18,
     // Located in the south gable wall (Z = +length / 2).
+  },
+
+  /**
+   * Physical sun and skylight.
+   *
+   * `azimuthDeg` is a compass bearing: 0 = north, 90 = east, 180 = south.
+   * Change these two angles (or call Environment.setSunPosition) to move the
+   * sun; the sky, shadows and sun disc all follow the same direction.
+   */
+  sun: {
+    elevationDeg: 36,
+    azimuthDeg: 135,
+    color: 0xfff1d8,
+    intensity: 2.35,
+    distance: 120,
+    discDistance: 190,
+    discRadius: 2.9,
+    discCoreColor: 0xffd9a0,
+    skylightColor: 0xd8e8ef,
+    groundColor: 0x6c675a,
+    skylightIntensity: 0.36,
+    shadowExtent: 27,
+    shadowNear: 1,
+    shadowFar: 220,
+    shadowBias: -0.0004,
+    shadowNormalBias: 0.03,
   },
 
   /**
@@ -78,11 +108,11 @@ export const LAYOUT = {
   /**
    * Below-ground water infrastructure (Version 3).
    *
-   * The two RO storage tanks are buried in a twin concrete vault under the
+   * The two clean-water reservoirs are buried in a twin concrete vault under the
    * headhouse. A separate nutrient-return tank receives all NFT drainage: it
-   * never shares a compartment with the clean RO store. The above-ground
-   * rainwater harvester is fed by the north roof collector and tops the RO
-   * tanks through a dedicated transfer pump and distribution manifold.
+   * never shares a compartment with Reservoir 1 or Reservoir 2. The above-ground
+   * rainwater harvester is fed by the north roof collector and tops both
+   * reservoirs through a dedicated transfer pump and distribution manifold.
    */
   storage: {
     vaultRadius: 1.76,
@@ -95,8 +125,9 @@ export const LAYOUT = {
     roTanks: [
       {
         id: 'ro-tank-1',
-        code: 'RO-01',
-        label: 'RO STORAGE 01',
+        code: 'RES-1',
+        name: 'Reservoir 1',
+        label: 'RESERVOIR 1',
         subtitle: 'PERMEATE · 12,000 L',
         position: [-9.8, -14.9],
         capacity: 12000,
@@ -109,8 +140,9 @@ export const LAYOUT = {
       },
       {
         id: 'ro-tank-2',
-        code: 'RO-02',
-        label: 'RO STORAGE 02',
+        code: 'RES-2',
+        name: 'Reservoir 2',
+        label: 'RESERVOIR 2',
         subtitle: 'MIXED FEED · 12,000 L',
         position: [-6.2, -14.9],
         capacity: 12000,
@@ -215,6 +247,8 @@ export const LAYOUT = {
 
   /** Yellow sticky traps clipped to structural columns (pest monitoring). */
   traps: {
+    // Each entry is an anchor on the structural column grid. StickyTraps snaps
+    // it to the nearest column and mounts the card on its inward face.
     positions: [
       [-8, -10],
       [4, -10],
@@ -231,7 +265,6 @@ export const LAYOUT = {
     ],
     width: 0.22,
     height: 0.3,
-    offset: 0.24,
   },
 
   /**

@@ -7,15 +7,15 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 /**
  * Version 3 water storage infrastructure.
  *
- *   - Two RO storage tanks buried in separate concrete vaults, each with a
+ *   - Two clean-water reservoirs buried in separate concrete vaults, each with a
  *     sealed manhole cover, level sight gauge and floor-mounted fill/suction
  *     risers. From the walkthrough only the covers and gauges are visible; in
  *     drone view the floor is cut away so the tanks themselves can be inspected.
  *   - A completely separate nutrient-return tank in its own vault. It receives
- *     NFT drainage and never shares a compartment, pipe or vent with clean RO.
+ *     NFT drainage and never shares a compartment, pipe or vent with clean water.
  *   - An above-ground rainwater harvester fed by the roof collector, with a
  *     first-flush diverter, inlet strainer, overflow and a rain transfer pump.
- *   - A clean-water distribution manifold with one isolation valve per RO tank.
+ *   - A clean-water distribution manifold with one isolation valve per reservoir.
  */
 export class WaterStorage {
   constructor({ materials, control = null, collisionWorld = null }) {
@@ -79,7 +79,7 @@ export class WaterStorage {
     const index = this.roVisuals.length;
 
     const assembly = new THREE.Group();
-    assembly.name = `underground-${tank.code.toLowerCase()}`;
+    assembly.name = `underground-${tank.id}`;
     parent.add(assembly);
 
     // Concrete vault, open at the top so the cutaway sees straight in.
@@ -139,7 +139,7 @@ export class WaterStorage {
       ),
       this.materials.tankHDPEBlue,
     );
-    shell.name = `${tank.code}-shell`;
+    shell.name = `${tank.id}-shell`;
     shell.position.set(x, config.tankTopY - config.tankHeight / 2, z);
     shell.castShadow = true;
     shell.receiveShadow = true;
@@ -167,7 +167,7 @@ export class WaterStorage {
       this.materials.water,
     );
     liquid.rotation.x = -Math.PI / 2;
-    liquid.name = `${tank.code}-surface`;
+    liquid.name = `${tank.id}-surface`;
     liquid.position.set(x, this.levelY(tank.initialLevel, tank), z);
     assembly.add(liquid);
 
@@ -180,7 +180,7 @@ export class WaterStorage {
 
     // Manhole cover assembly at grade.
     const cover = new THREE.Group();
-    cover.name = `${tank.code}-manhole`;
+    cover.name = `${tank.id}-manhole`;
     cover.position.set(x, 0, z);
     this.coverGroup.add(cover);
 
@@ -206,7 +206,7 @@ export class WaterStorage {
       boxMesh(0.3, 0.02, 0.26, this.materials.ledAmber, V(0.22, 0.087, 0.18), 'manhole-warning-tab'),
     );
 
-    const floorLabel = this.label(tank.code, 'RO STORAGE · CONFINED SPACE', 0.78, 0.2, {
+    const floorLabel = this.label(tank.name, 'CLEAN WATER · CONFINED SPACE', 0.78, 0.2, {
       background: '#e7ebdf',
     });
     floorLabel.rotation.x = -Math.PI / 2;
@@ -219,7 +219,7 @@ export class WaterStorage {
     risers.addJoint(V(x - 0.95, 0.36, z), 0.062);
     risers.add(V(x - 0.95, 0.36, z), V(x - 0.95, 0.36, z + 0.36), 0.055);
     risers.addJoint(V(x - 0.95, 0.36, z + 0.36), 0.062);
-    risers.build(assembly, `${tank.code}-risers`);
+    risers.build(assembly, `${tank.id}-risers`);
 
     const fillStub = new THREE.Mesh(
       new THREE.CylinderGeometry(0.075, 0.075, 0.08, 16),
@@ -262,8 +262,8 @@ export class WaterStorage {
     const info = {
       id: tank.id,
       category: 'Water storage',
-      title: `${tank.label} · ${tank.code}`,
-      description: `Buried ${config.tankHeight.toFixed(2)} m HDPE storage tank in an independent concrete vault under the headhouse. The clean-water fill main enters through the floor beside the sealed manhole and the suction riser leaves for the circulation pump. The tank itself is only visible in drone view, where the floor is cut away.`,
+      title: tank.name,
+      description: `Buried ${config.tankHeight.toFixed(2)} m HDPE clean-water reservoir in an independent concrete vault under the headhouse. The clean-water fill main enters through the floor beside the sealed manhole and the suction riser leaves for the circulation pump. The tank itself is only visible in drone view, where the floor is cut away.`,
       specs: [
         ['Service', tank.subtitle],
         ['Capacity', `${tank.capacity.toLocaleString('en-GB')} L`],
@@ -319,7 +319,7 @@ export class WaterStorage {
       parent.add(cap);
     }
 
-    const plate = this.label(tank.code, 'LEVEL 0 — 100 %', 0.62, 0.18, {
+    const plate = this.label(tank.name, 'LEVEL 0 — 100 %', 0.62, 0.18, {
       background: '#eef2e9',
     });
     plate.position.set(gaugeX + 0.02, 1.1, gaugeZ);
@@ -506,7 +506,7 @@ export class WaterStorage {
       category: 'Water storage',
       title: `${config.label} · ${config.code}`,
       description:
-        'A dedicated buried tank for all NFT drainage. Every table drain discharges here through its own return inlet; the tank is mechanically and hydraulically separate from the clean RO store, with its own vault, cover, vent and high-level beacon. Water from this tank is never drawn by the irrigation pump.',
+        'A dedicated buried tank for all NFT drainage. Every table drain discharges here through its own return inlet; the tank is mechanically and hydraulically separate from Reservoir 1 and Reservoir 2, with its own vault, cover, vent and high-level beacon. Water from this tank is never drawn by the irrigation pump.',
       specs: [
         ['Service', 'Nutrient drainage · dirty side'],
         ['Capacity', `${config.capacity.toLocaleString('en-GB')} L`],
@@ -744,13 +744,13 @@ export class WaterStorage {
       category: 'Water storage',
       title: config.label,
       description:
-        'Above-ground 5,000 L harvester collecting every litre of roof run-off. Water arrives from the north gutter collector through a leaf strainer; a first-flush chamber diverts the dirty initial flow before it reaches the tank. The rain transfer pump sends stored water through the clean distribution manifold to either RO tank.',
+        'Above-ground 5,000 L harvester collecting every litre of roof run-off. Water arrives from the north gutter collector through a leaf strainer; a first-flush chamber diverts the dirty initial flow before it reaches the tank. The rain transfer pump sends stored water through the clean distribution manifold to either reservoir.',
       specs: [
         ['Capacity', `${config.capacity.toLocaleString('en-GB')} L`],
         ['Collection', 'North roof collector · 3 downpipes'],
         ['Pre-treatment', 'Leaf strainer + first-flush diverter'],
         ['Overflow', 'Gravity soakaway'],
-        ['Transfer', 'Dedicated rain pump → manifold → RO-01 / RO-02'],
+        ['Transfer', 'Dedicated rain pump → manifold → Reservoir 1 / Reservoir 2'],
       ],
       interactionHint: 'Inspect harvester',
       interaction: 'inspect',
@@ -892,7 +892,7 @@ export class WaterStorage {
     starter.add(starterLabel);
     assembly.add(starter);
 
-    const plate = this.label('RAIN TRANSFER PUMP', 'HARVESTER → RO DISTRIBUTION', 0.94, 0.34, {
+    const plate = this.label('RAIN TRANSFER PUMP', 'HARVESTER → RESERVOIR DISTRIBUTION', 0.94, 0.34, {
       background: '#e8eee4',
       foreground: '#173a49',
     });
@@ -914,12 +914,12 @@ export class WaterStorage {
       category: 'Water storage',
       title: 'Rainwater transfer pump',
       description:
-        'Booster set that lifts stored roof water from the harvester into the clean distribution manifold. The pump discharge runs to a tee that feeds one isolation valve per RO tank, so a tank can be isolated for maintenance without stopping the other fill. Press E at the starter to toggle the pump.',
+        'Booster set that lifts stored roof water from the harvester into the clean distribution manifold. The pump discharge runs to a tee that feeds one isolation valve per reservoir, so a tank can be isolated for maintenance without stopping the other fill. Press E at the starter to toggle the pump.',
       specs: [
         ['Duty', '6.0 m³ h⁻¹ at 2.4 bar'],
         ['Motor', '0.75 kW · 230 V single phase'],
         ['Suction', 'Harvester bottom outlet'],
-        ['Discharge', 'RO-01 / RO-02 isolation manifold'],
+        ['Discharge', 'Reservoir 1 / Reservoir 2 isolation manifold'],
         ['Interlock', 'Low-level cut-out in harvester'],
       ],
       interactionHint: 'Toggle rain pump',
@@ -999,7 +999,7 @@ export class WaterStorage {
       );
       valve.add(handle);
 
-      const tag = this.label(tank.code, 'FILL ISOLATION', 0.42, 0.14, {
+      const tag = this.label(tank.name, 'FILL ISOLATION', 0.42, 0.14, {
         background: '#e9efe6',
       });
       tag.position.set(0, 0.11, 0.092);
@@ -1017,14 +1017,14 @@ export class WaterStorage {
       const info = {
         id: `ro-isolation-${index + 1}`,
         category: 'Water storage',
-        title: `${tank.code} fill isolation valve`,
-        description: `Full-bore stainless ball valve on the clean-water branch to ${tank.label}. Closing it isolates that tank from the rain transfer pump while the other tank continues to fill. The lever rotates through 90 degrees and the position is mirrored on the storage status panel.`,
+        title: `${tank.name} fill isolation valve`,
+        description: `Full-bore stainless ball valve on the clean-water branch to ${tank.name}. Closing it isolates that reservoir from the rain transfer pump while the other reservoir continues to fill. The lever rotates through 90 degrees and the position is mirrored on the storage status panel.`,
         specs: [
-          ['Service', 'Clean RO fill'],
+          ['Service', 'Clean water fill'],
           ['Size', 'DN 50 · full bore'],
           ['Operator', 'Lockable lever'],
-          ['Tank', `${tank.code} · ${tank.capacity.toLocaleString('en-GB')} L`],
-          ['Interlock', 'None · independent per tank'],
+          ['Reservoir', `${tank.name} · ${tank.capacity.toLocaleString('en-GB')} L`],
+          ['Interlock', 'None · independent per reservoir'],
         ],
         interactionHint: 'Close valve',
         interaction: 'toggle-storage-valve',
@@ -1069,11 +1069,11 @@ export class WaterStorage {
       category: 'Water storage',
       title: 'Clean-water distribution manifold',
       description:
-        'The only place where harvested rainwater is split between the two RO tanks. A DN 50 header runs above the slab with one lockable isolation valve per tank; closing either branch lets that tank be serviced while the other keeps filling. The dirty return network is physically separate and never connects here.',
+        'The only place where harvested rainwater is split between the two clean-water reservoirs. A DN 50 header runs above the slab with one lockable isolation valve per reservoir; closing either branch lets that reservoir be serviced while the other keeps filling. The dirty return network is physically separate and never connects here.',
       specs: [
         ['Header', 'DN 50 PVC · 2.4 bar'],
-        ['Branches', '2 × RO storage'],
-        ['Isolation', 'One lockable ball valve per tank'],
+        ['Branches', '2 × reservoir storage'],
+        ['Isolation', 'One lockable ball valve per reservoir'],
         ['Source', 'Rain transfer pump'],
         ['Cross-connection', 'None · clean side only'],
       ],
@@ -1181,13 +1181,19 @@ export class WaterStorage {
       );
       clean.children[clean.children.length - 1].position.set(sx, 0.75, 0);
     }
-    const cleanBoard = this.label('CLEAN WATER', 'RO-01 · RO-02 · PERMEATE ONLY', 1.24, 0.32, {
-      background: '#e6efea',
-      foreground: '#124a44',
-    });
+    const cleanBoard = this.label(
+      'CLEAN WATER',
+      'RESERVOIR 1 · RESERVOIR 2 · PERMEATE ONLY',
+      1.24,
+      0.32,
+      {
+        background: '#e6efea',
+        foreground: '#124a44',
+      },
+    );
     cleanBoard.position.set(0, 1.34, 0.035);
     clean.add(cleanBoard);
-    const cleanBack = this.label('CLEAN WATER', 'ROOF HARVEST → RO', 1.24, 0.32, {
+    const cleanBack = this.label('CLEAN WATER', 'ROOF HARVEST → RESERVOIRS', 1.24, 0.32, {
       background: '#cddbd4',
       foreground: '#124a44',
     });

@@ -201,7 +201,7 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.58;
     this.renderer.shadowMap.enabled = this.preset.shadows;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.tabIndex = 0;
     this.container.appendChild(this.renderer.domElement);
 
@@ -393,7 +393,7 @@ export class Game {
       case 'cycle-tank': {
         this.bluelab.cycleTank();
         const tank = this.water.selectedTank;
-        this.ui.toast(`Monitoring ${tank?.code ?? 'tank'} · press E to cycle`);
+        this.ui.toast(`Monitoring ${tank?.name ?? 'Reservoir 1'} · press E to cycle`);
         return true;
       }
       case 'inspect-trap': {
@@ -504,7 +504,7 @@ export class Game {
       event.preventDefault();
       this.bluelab.cycleTank();
       const tank = this.water.selectedTank;
-      this.ui.toast(`Monitoring ${tank?.code ?? 'tank'} · E on the Bluelab HMI cycles tanks`);
+      this.ui.toast(`Monitoring ${tank?.name ?? 'Reservoir 1'} · Tab cycles reservoirs`);
       return;
     }
 

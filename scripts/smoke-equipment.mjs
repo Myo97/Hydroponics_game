@@ -36,7 +36,8 @@ const { GreenhouseClimate } = await import('../src/simulation/GreenhouseClimate.
 const { WaterNutrientSimulation } = await import('../src/simulation/WaterNutrientSimulation.js');
 const { GreenhouseControlSystem } = await import('../src/systems/GreenhouseControlSystem.js');
 const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
-const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION } = await import('../src/config/layout.js');
+const { Environment } = await import('../src/world/Environment.js');
+const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION, GUTTER_X, FRAME_Z } = await import('../src/config/layout.js');
 
 const material = () => new THREE.MeshBasicMaterial();
 const sharedMaterials = new Map();
@@ -297,19 +298,99 @@ check('cabinet closes', equipment.isCabinetOpen === false);
 /* ------------------------------------------------ Version 3 sub-systems */
 
 check('control registers every NFT table', control.tables.size === 18, control.tables.size);
-check('storage built two RO tanks and return tank', storage.roVisuals.length === 2 && Boolean(storage.returnVisuals));
+check('storage built two reservoirs and return tank', storage.roVisuals.length === 2 && Boolean(storage.returnVisuals));
+check(
+  'storage tanks are named Reservoir 1 and Reservoir 2',
+  storage.roVisuals.map((visual) => visual.data.name).join(' / ') === 'Reservoir 1 / Reservoir 2',
+  storage.roVisuals.map((visual) => visual.data.name).join(' / '),
+);
+check('no wall-mounted sensor signs', !greenhouse.group.getObjectByName('wall-sensor'));
 check(
   'no above-ground bulk reservoir duplicates',
   !scene.getObjectByName('bulk-reservoirs') && !scene.getObjectByName('reservoir-1'),
 );
 check('rainwater collector reaches harvester', Boolean(greenhouse.group.getObjectByName('rainwater-collector-runs')));
 check('sticky traps clipped to columns', greenhouse.stickyTraps?.traps.length === 12, greenhouse.stickyTraps?.traps.length);
+const trapMounts = greenhouse.stickyTraps.traps;
+check(
+  'sticky traps snap to the structural column grid',
+  trapMounts.every((trap) => GUTTER_X.includes(trap.mount.columnX) && FRAME_Z.includes(trap.mount.columnZ)),
+  trapMounts.map((trap) => `${trap.mount.columnX},${trap.mount.columnZ}`).join(' '),
+);
+check(
+  'sticky traps sit flush on a column face',
+  trapMounts.every((trap) => {
+    const section =
+      Math.abs(trap.mount.columnX) === LAYOUT.greenhouse.width / 2
+        ? LAYOUT.greenhouse.perimeterColumnSize
+        : LAYOUT.greenhouse.columnSize;
+    const gap = Math.abs(trap.group.position.x - trap.mount.columnX) - section / 2;
+    return Math.abs(trap.group.position.z - trap.mount.columnZ) < 1e-9 && gap > 0.005 && gap < 0.03;
+  }),
+);
 const trapInspection = greenhouse.stickyTraps.inspect(2);
 check(
   'sticky trap inspection reports a count',
   trapInspection?.caught > 0 && trapInspection.threshold === 25,
   `${trapInspection?.caught} caught`,
 );
+
+/* ------------------------------------------------ Version 5 physical sun */
+
+const environment = new Environment({});
+const sunEast = environment.directionFromAngles(0, 90);
+const sunSouth = environment.directionFromAngles(0, 180);
+const sunNorth = environment.directionFromAngles(0, 0);
+check(
+  'sun bearing maps compass east',
+  Math.abs(sunEast.x - 1) < 1e-6 && Math.abs(sunEast.z) < 1e-6,
+  `${sunEast.x.toFixed(3)}, ${sunEast.z.toFixed(3)}`,
+);
+check(
+  'sun bearing maps compass south',
+  Math.abs(sunSouth.z - 1) < 1e-6 && Math.abs(sunSouth.x) < 1e-6,
+  `${sunSouth.x.toFixed(3)}, ${sunSouth.z.toFixed(3)}`,
+);
+check(
+  'sun bearing maps compass north',
+  Math.abs(sunNorth.z + 1) < 1e-6 && Math.abs(sunNorth.x) < 1e-6,
+  `${sunNorth.x.toFixed(3)}, ${sunNorth.z.toFixed(3)}`,
+);
+const configuredSun = environment.directionFromAngles(
+  LAYOUT.sun.elevationDeg,
+  LAYOUT.sun.azimuthDeg,
+);
+check(
+  'configured sun sits south-east and above the horizon',
+  configuredSun.x > 0 && configuredSun.z > 0 && configuredSun.y > 0,
+  `${configuredSun.x.toFixed(2)}, ${configuredSun.y.toFixed(2)}, ${configuredSun.z.toFixed(2)}`,
+);
+check(
+  'sun exposes intensity and shadow tuning',
+  LAYOUT.sun.intensity > 0 && LAYOUT.sun.shadowExtent > 0 && LAYOUT.sun.shadowFar > 0,
+);
+environment.scene = new THREE.Scene();
+environment.sunDirection.copy(configuredSun);
+environment.buildSunDisc();
+const discLayers = environment.sunDisc?.children ?? [];
+const discCore = discLayers[discLayers.length - 1];
+check(
+  'sun disc sits on the configured sun vector',
+  Math.abs(environment.sunDisc.position.length() - LAYOUT.sun.discDistance) < 1e-6 &&
+    environment.sunDisc.position.clone().normalize().distanceTo(configuredSun) < 1e-6,
+);
+check(
+  'sun disc has a warm opaque core',
+  discLayers.length === 3 &&
+    discCore.material.blending === THREE.NormalBlending &&
+    discCore.material.opacity > 0.9,
+);
+environment.sunDisc.traverse((child) => {
+  if (!child.isMesh) return;
+  child.geometry.dispose();
+  child.material.dispose();
+});
+environment.sunDisc = null;
 
 control.setBayDevice(1, 'shadeNetExtended', false);
 for (let frame = 0; frame < 120; frame += 1) greenhouse.update(1 / 60);
@@ -376,7 +457,7 @@ control.togglePump('irrigationOn');
 for (let frame = 0; frame < 120; frame += 1) water.update(1 / 60);
 const v3Snapshot = water.snapshot();
 check(
-  'water model reports both RO tanks, return and rain',
+  'water model reports both reservoirs, return and rain',
   v3Snapshot.tanks.length === 2 &&
     Number.isFinite(v3Snapshot.returnTank.level) &&
     Number.isFinite(v3Snapshot.harvester.level) &&
@@ -387,7 +468,7 @@ check(
 storage.update(1 / 60, v3Snapshot);
 bluelab.update(1 / 60, v3Snapshot);
 check('Bluelab HMI renders a water snapshot', Boolean(bluelab.screen?.material));
-check('tank selection cycles to RO-02', control.cycleTank() === 1 && water.selectedTank.code === 'RO-02');
+check('tank selection cycles to Reservoir 2', control.cycleTank() === 1 && water.selectedTank.code === 'RES-2');
 
 /* ------------------------------------------------ Version 4 bay cabinet */
 const baySwitches = equipment.cabinetSwitches;

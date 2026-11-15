@@ -5,10 +5,11 @@ const clamp01 = (value) => Math.max(0, Math.min(1, value));
 /**
  * Version 3 water + nutrient model.
  *
- * Mirrors the physical storage layout: two buried RO tanks (RO-01 permeate,
- * RO-02 mixed feed), the dirty nutrient-return tank (DR-01) and the above-ground
- * rainwater harvester. The shared GreenhouseControlSystem drives which tank is
- * monitored, which dosing channels run and which transfer pumps are enabled.
+ * Mirrors the physical storage layout: two buried clean-water reservoirs
+ * (Reservoir 1 permeate, Reservoir 2 mixed feed), the dirty nutrient-return
+ * tank (DR-01) and the above-ground rainwater harvester. The shared
+ * GreenhouseControlSystem drives which tank is monitored, which dosing channels
+ * run and which transfer pumps are enabled.
  */
 export class WaterNutrientSimulation {
   constructor({ equipment, layout = LAYOUT, control = null } = {}) {
@@ -22,6 +23,7 @@ export class WaterNutrientSimulation {
     this.tanks = roConfig.map((tank) => ({
       id: tank.id,
       code: tank.code,
+      name: tank.name,
       label: tank.label,
       subtitle: tank.subtitle,
       capacity: tank.capacity ?? 12000,
@@ -31,7 +33,7 @@ export class WaterNutrientSimulation {
       temp: tank.temp ?? 19,
       targetEc: tank.targetEc ?? tank.ec ?? 0.02,
       targetPh: tank.targetPh ?? tank.ph ?? 6.9,
-      role: tank.code === 'RO-01' ? 'RO permeate' : 'Mixed feed',
+      role: tank.code === 'RES-1' ? 'Clean water' : 'Mixed feed',
     }));
 
     const returnConfig = storage.returnTank ?? {};
@@ -91,13 +93,14 @@ export class WaterNutrientSimulation {
     const alarms = [];
     for (const tank of this.tanks) {
       const fertilised = (tank.targetEc ?? 0) >= 1;
+      const alarmName = tank.name ?? tank.code;
       if (fertilised && (tank.ec < 1.2 || tank.ec > 2.6)) {
-        alarms.push(`${tank.code} EC ${tank.ec.toFixed(2)}`);
+        alarms.push(`${alarmName} EC ${tank.ec.toFixed(2)}`);
       }
       if (fertilised && (tank.ph < 5.4 || tank.ph > 6.4)) {
-        alarms.push(`${tank.code} pH ${tank.ph.toFixed(2)}`);
+        alarms.push(`${alarmName} pH ${tank.ph.toFixed(2)}`);
       }
-      if (tank.level < 0.12) alarms.push(`${tank.code} level ${Math.round(tank.level * 100)} %`);
+      if (tank.level < 0.12) alarms.push(`${alarmName} level ${Math.round(tank.level * 100)} %`);
     }
     if (this.returnTank.level > 0.88) alarms.push('DR-01 return tank high');
     if (this.harvester.level < 0.08) alarms.push('Rainwater harvester low');
@@ -111,7 +114,7 @@ export class WaterNutrientSimulation {
   get summary() {
     const tank = this.selectedTank;
     return {
-      tank: tank?.code ?? 'RO-01',
+      tank: tank?.code ?? 'RES-1',
       level: Number((tank?.level ?? 0).toFixed(2)),
       ec: Number((tank?.ec ?? this.solution.ec).toFixed(2)),
       ph: Number((tank?.ph ?? this.solution.ph).toFixed(2)),
@@ -181,7 +184,7 @@ export class WaterNutrientSimulation {
       mixed.temp += (19.3 - mixed.temp) * Math.min(1, dt * 0.02);
     }
 
-    // RO-01 permeate is slowly consumed while the mixed feed is irrigated.
+    // Reservoir 1 (permeate) is slowly consumed while the mixed feed is irrigated.
     const permeate = this.tanks[0];
     if (permeate) {
       const draw = irrigating ? 0.0000105 : 0;
@@ -189,7 +192,7 @@ export class WaterNutrientSimulation {
       permeate.temp += (18.6 - permeate.temp) * Math.min(1, dt * 0.02);
     }
 
-    // Rainwater transfer tops RO-01 through the distribution manifold.
+    // Rainwater transfer tops Reservoir 1 through the distribution manifold.
     this.rainAccumulator += dt;
     if (transferOn) {
       const inflow = Math.min(this.harvester.level, dt * 0.0000185);

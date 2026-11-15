@@ -185,8 +185,8 @@ export class DashboardDisplay {
           monitoredFeed && Number.isFinite(tankEc) && (tankEc < 1.2 || tankEc > 2.6)
             ? '#f2b24b'
             : '#7fc6f0',
-        sub: tank?.code
-          ? `${tank.code} SET ${Number(tank.targetEc ?? 1.8).toFixed(2)}`
+        sub: tank?.name
+          ? `${tank.name} SET ${Number(tank.targetEc ?? 1.8).toFixed(2)}`
           : 'SET 1.80',
       },
       {
@@ -207,12 +207,12 @@ export class DashboardDisplay {
         sub: `FLOW ${Math.round(water?.flowRate ?? 0)} L/MIN`,
       },
       {
-        label: 'TANK',
-        value: tank?.code ?? 'RO-01',
+        label: 'RESERVOIR',
+        value: tank?.name ?? tank?.code ?? 'Reservoir 1',
         unit: '',
         tone: '#65e0bc',
         sub: `LEVEL ${Math.round(tankLevel * 100)} % \u00B7 E SELECT`,
-        valueSize: 42,
+        valueSize: 30,
         bar: tankLevel,
       },
     ];
@@ -349,11 +349,11 @@ export class DashboardDisplay {
     ctx.textAlign = 'right';
     ctx.fillStyle = '#7fb5b0';
     ctx.font = '600 13px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('MONITORED TANK', stripX + stripW - 16, stripY + 15);
+    ctx.fillText('MONITORED RESERVOIR', stripX + stripW - 16, stripY + 15);
     ctx.fillStyle = alarm ? '#f2b24b' : '#65e0bc';
     ctx.font = '700 18px Consolas, "Courier New", monospace';
     ctx.fillText(
-      `${tank?.code ?? 'RO-01'} \u00B7 E CYCLE`,
+      `${tank?.name ?? 'Reservoir 1'} \u00B7 E CYCLE`,
       stripX + stripW - 16,
       stripY + 33,
     );
@@ -367,7 +367,7 @@ export class DashboardDisplay {
     ctx.fillText('ZONE 4 \u00B7 NFT LETTUCE', 30, HEIGHT - 21);
     ctx.textAlign = 'center';
     const statusLine = alarm
-      ? 'CHECK TANK EC / pH / LEVEL'
+      ? 'CHECK RESERVOIR EC / pH / LEVEL'
       : (data?.status?.[0] ?? 'ALL ZONES NOMINAL');
     ctx.fillStyle = alarm ? '#f2b24b' : '#5d8e89';
     ctx.fillText(statusLine, WIDTH / 2, HEIGHT - 21);

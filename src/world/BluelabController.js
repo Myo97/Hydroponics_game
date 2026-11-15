@@ -125,15 +125,15 @@ export class BluelabController {
       category: 'Nutrient dosing',
       title: 'Bluelab Pro Controller HMI',
       description:
-        'Live controller face for the selected storage tank. It shows EC, pH, solution temperature and level, and the status of all three dosing channels. Press E to cycle the monitored tank between RO-01 and RO-02; the same selection is mirrored on the climate cabinet.',
+        'Live controller face for the selected clean-water reservoir. It shows EC, pH, solution temperature and level, and the status of all three dosing channels. Press E to cycle the monitored reservoir between Reservoir 1 and Reservoir 2; the same selection is mirrored on the climate cabinet.',
       specs: [
         ['Controller', 'Bluelab Pro · 2 probe sets'],
         ['Dosing', '3 × peristaltic · A / B / pH Down'],
         ['Selectors', '6 table isolation valves'],
         ['Setpoint', 'EC 1.80 · pH 5.90'],
-        ['Selection', 'E cycles RO-01 / RO-02'],
+        ['Selection', 'E cycles Reservoir 1 / Reservoir 2'],
       ],
-      interactionHint: 'Select tank',
+      interactionHint: 'Select reservoir',
       interaction: 'cycle-tank',
     };
     this.screen.userData.interactable = screenInfo;
@@ -395,7 +395,7 @@ export class BluelabController {
     return this.control.dosing[key]?.enabled ?? false;
   }
 
-  /** Cycle the tank monitored by the HMI and the climate cabinet. */
+  /** Cycle the reservoir monitored by the HMI and the climate cabinet. */
   cycleTank() {
     if (!this.control) return 0;
     this.control.cycleTank();
@@ -497,7 +497,7 @@ export class BluelabController {
     const ph = Number.isFinite(tank?.ph) ? tank.ph : 5.9;
     const temp = Number.isFinite(tank?.temp) ? tank.temp : 20.4;
     const level = THREE.MathUtils.clamp(tank?.level ?? 0.72, 0, 1);
-    const code = tank?.code ?? (selectedIndex === 0 ? 'RO-01' : 'RO-02');
+    const label = tank?.name ?? (selectedIndex === 0 ? 'Reservoir 1' : 'Reservoir 2');
 
     const background = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     background.addColorStop(0, '#0b2430');
@@ -524,7 +524,7 @@ export class BluelabController {
     ctx.textAlign = 'right';
     ctx.fillStyle = '#e8f7f3';
     ctx.font = '700 30px Consolas, "Courier New", monospace';
-    ctx.fillText(code, WIDTH - 22, 25);
+    ctx.fillText(label, WIDTH - 22, 25);
     ctx.fillStyle = alarm ? '#f0b04a' : '#5ce1a9';
     ctx.beginPath();
     ctx.arc(WIDTH - 182, 47, 6, 0, Math.PI * 2);

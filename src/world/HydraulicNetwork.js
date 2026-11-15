@@ -8,7 +8,7 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  * Complete NFT hydraulic network.
  *
  * Supply path:
- *   buried RO-02 tank → pump suction manifold → duty/standby pumps → pump discharge
+ *   buried Reservoir 2 tank → pump suction manifold → duty/standby pumps → pump discharge
  *   → main supply header → one dedicated branch and valve per table → 8 gullies.
  *
  * Return path:
@@ -58,7 +58,7 @@ export class HydraulicNetwork {
     };
     returnLine.add(returnMain.start, returnMain.end, pipes.returnRadius);
 
-    // Suction manifold from the buried RO-02 storage tank to both pump inlets.
+    // Suction manifold from the buried Reservoir 2 tank to both pump inlets.
     // The tank riser comes up through the slab at x - 0.95, then turns toward
     // the pump skid; this is the only route from clean storage into the NFT
     // supply network.
@@ -147,7 +147,7 @@ export class HydraulicNetwork {
       pumpSuctionConnected: true,
       pumpDischargeConnected: true,
       returnsToReservoir: false,
-      supplySource: 'RO-02',
+      supplySource: 'Reservoir 2',
       returnSource: 'DR-01',
       tableSupplies: this.tableSupplies,
       tableReturns: this.tableReturns,
@@ -308,7 +308,7 @@ export class HydraulicNetwork {
     const inlet = LAYOUT.storage.returnInlet;
 
     // Perimeter gravity main: east aisle → north cross aisle → return tank
-    // inlet (DR-01). The return network never connects to the clean RO store.
+    // inlet (DR-01). The return network never connects to Reservoir 1 or 2.
     returnLine.addPath(
       [
         V(pipes.returnMainEndX, pipes.returnY, pipes.returnMainZ),
@@ -358,7 +358,7 @@ export class HydraulicNetwork {
       }
     };
 
-    addSign('NFT SUPPLY', 'RO-02 → PUMP → TABLE VALVES', 1.8, LAYOUT.pipework.crossMainZ, 1);
+    addSign('NFT SUPPLY', 'RESERVOIR 2 → PUMP → TABLE VALVES', 1.8, LAYOUT.pipework.crossMainZ, 1);
     addSign('NFT RETURN', 'TABLE DRAINS → DR-01 RETURN TANK', 1.8, LAYOUT.pipework.returnMainZ, -1);
   }
 

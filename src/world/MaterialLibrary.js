@@ -254,7 +254,7 @@ export class MaterialLibrary {
       }),
     );
 
-    /** Dark green return-tank shell, deliberately different from RO blue. */
+    /** Dark green return-tank shell, deliberately different from the clean-water blue. */
     this.returnTank = this.track(
       new THREE.MeshStandardMaterial({
         name: 'return-tank',

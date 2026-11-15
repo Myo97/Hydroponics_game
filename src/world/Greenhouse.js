@@ -107,8 +107,10 @@ export class Greenhouse {
       mesh.castShadow = false;
       this.group.add(mesh);
     };
+    // The north plinth is flashed in one run. The south plinth is only flashed
+    // in the two segments either side of the entrance; a full-width run would
+    // leave a horizontal bar straight across the doorway.
     flashing(DIM.halfWidth * 2 + thickness * 2 + 0.06, thickness + 0.06, 0, -hl);
-    flashing(DIM.halfWidth * 2 + thickness * 2 + 0.06, thickness + 0.06, 0, hl);
     flashing(frontSegmentWidth + 0.06, thickness + 0.06, -frontSegmentCentre, hl);
     flashing(frontSegmentWidth + 0.06, thickness + 0.06, frontSegmentCentre, hl);
     flashing(thickness + 0.06, DIM.halfLength * 2 + 0.06, -hw, 0);
@@ -128,7 +130,10 @@ export class Greenhouse {
     for (const x of GUTTER_X) {
       for (const z of FRAME_Z) {
         if (z === halfLength && Math.abs(x) < doorHalf + 0.05) continue;
-        const thickness = Math.abs(x) === halfWidth ? 0.18 : 0.15;
+        const thickness =
+          Math.abs(x) === halfWidth
+            ? LAYOUT.greenhouse.perimeterColumnSize
+            : LAYOUT.greenhouse.columnSize;
         steel.add(V(x, 0, z), V(x, gutterHeight - 0.06, z), thickness, thickness);
       }
     }
@@ -541,24 +546,6 @@ export class Greenhouse {
     }
     const barMesh = bars.build(detail, 'drain-grate');
     barMesh.receiveShadow = true;
-
-    // Wall-mounted temperature sensors clipped to two columns.
-    for (const [x, z, dir] of [[-4, -10, 1], [4, 8, -1]]) {
-      const plate = boxMesh(
-        0.035,
-        0.24,
-        0.16,
-        this.materials.cabinetPaint,
-        V(x + dir * 0.093, 1.55, z),
-        'wall-sensor',
-      );
-      plate.castShadow = false;
-      detail.add(plate);
-      const dial = new THREE.Mesh(new THREE.CircleGeometry(0.052, 16), this.materials.screen);
-      dial.position.set(x + dir * 0.112, 1.56, z);
-      dial.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      detail.add(dial);
-    }
   }
 
   /** Static walls and columns for the collision world. */
