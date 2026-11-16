@@ -22,6 +22,7 @@ export class Environment {
     this.buildSky();
     this.buildSun();
     this.buildExterior();
+    this.buildWeather();
     this.applyQuality(this.preset);
     return this;
   }
@@ -60,13 +61,15 @@ export class Environment {
     envUniforms.sunPosition.value.copy(this.sunDirection);
     envScene.add(envSky);
 
-    try {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      this.envRenderTarget = pmrem.fromScene(envScene, 0.02, 1, 100000);
-      this.scene.environment = this.envRenderTarget.texture;
-      pmrem.dispose();
-    } catch (error) {
-      console.warn('Environment map generation failed, using lights only.', error);
+    if (this.renderer) {
+      try {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.envRenderTarget = pmrem.fromScene(envScene, 0.02, 1, 100000);
+        this.scene.environment = this.envRenderTarget.texture;
+        pmrem.dispose();
+      } catch (error) {
+        console.warn('Environment map generation failed, using lights only.', error);
+      }
     }
 
     envSky.geometry.dispose();
@@ -108,6 +111,7 @@ export class Environment {
     this.scene.add(sun);
     this.scene.add(sun.target);
     this.sun = sun;
+    this.sunBaseIntensity = config.intensity ?? 2.35;
     this.lights.push(sun);
 
     // Sky bounce / skylight fill. Keeps the shaded interior readable without
@@ -120,7 +124,19 @@ export class Environment {
     hemisphere.name = 'skylight';
     hemisphere.position.set(0, 12, 0);
     this.scene.add(hemisphere);
+    this.hemisphere = hemisphere;
+    this.hemisphereBaseIntensity = config.skylightIntensity ?? 0.36;
     this.lights.push(hemisphere);
+
+    // Low blue night fill so the glasshouse remains inspectable after sunset.
+    const moon = new THREE.DirectionalLight(0x9cb9d8, 0);
+    moon.name = 'moonlight';
+    moon.position.set(-28, 42, 22);
+    moon.target.position.set(0, 1.2, 0);
+    this.scene.add(moon);
+    this.scene.add(moon.target);
+    this.moon = moon;
+    this.lights.push(moon);
 
     this.buildSunDisc();
 
@@ -169,6 +185,212 @@ export class Environment {
     group.lookAt(0, 0, 0);
     this.scene.add(group);
     this.sunDisc = group;
+  }
+
+  /** Stars, a drifting cloud deck and an exterior rain particle field. */
+  buildWeather() {
+    const starCount = this.preset?.id === 'low' ? 280 : 620;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i += 1) {
+      const theta = Math.random() * Math.PI * 2;
+      const elevation = 0.12 + Math.random() * 1.36;
+      const radius = 330;
+      starPositions[i * 3] = Math.cos(theta) * Math.cos(elevation) * radius;
+      starPositions[i * 3 + 1] = Math.sin(elevation) * radius;
+      starPositions[i * 3 + 2] = Math.sin(theta) * Math.cos(elevation) * radius;
+    }
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMaterial = new THREE.PointsMaterial({
+      color: 0xdbe8ff,
+      size: 1.35,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    });
+    const stars = new THREE.Points(starGeometry, starMaterial);
+    stars.name = 'night-stars';
+    stars.visible = false;
+    this.scene.add(stars);
+    this.stars = stars;
+
+    const cloudMaterial = new THREE.MeshStandardMaterial({
+      name: 'cloud-deck',
+      color: 0xdde5e8,
+      roughness: 1,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.14,
+      depthWrite: false,
+    });
+    const clouds = new THREE.Group();
+    clouds.name = 'cloud-deck';
+    for (let i = 0; i < 12; i += 1) {
+      const cloud = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 10, 6),
+        cloudMaterial,
+      );
+      const angle = (i / 12) * Math.PI * 2;
+      const radius = 22 + (i % 4) * 9;
+      cloud.position.set(
+        Math.cos(angle) * radius,
+        30 + (i % 3) * 2.4,
+        Math.sin(angle) * radius,
+      );
+      cloud.scale.set(5.4 + (i % 3) * 1.8, 1.1, 2.4 + (i % 4) * 0.8);
+      cloud.userData.drift = 0.16 + (i % 5) * 0.035;
+      clouds.add(cloud);
+    }
+    clouds.visible = false;
+    this.scene.add(clouds);
+    this.clouds = clouds;
+    this.cloudMaterial = cloudMaterial;
+
+    const rainCount = this.preset?.id === 'low' ? 700 : 1500;
+    const rainPositions = new Float32Array(rainCount * 3);
+    const rainSpeeds = new Float32Array(rainCount);
+    for (let i = 0; i < rainCount; i += 1) {
+      const x = (Math.random() - 0.5) * 58;
+      const z = -26 + Math.random() * 54;
+      const insideRoof = Math.abs(x) < LAYOUT.greenhouse.width / 2 + 0.5 &&
+        Math.abs(z) < LAYOUT.greenhouse.length / 2 + 0.5;
+      rainPositions[i * 3] = x;
+      rainPositions[i * 3 + 1] = insideRoof ? 6 + Math.random() * 19 : Math.random() * 26;
+      rainPositions[i * 3 + 2] = z;
+      rainSpeeds[i] = 13 + Math.random() * 8;
+    }
+    const rainGeometry = new THREE.BufferGeometry();
+    rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    const rainMaterial = new THREE.PointsMaterial({
+      color: 0xb7d6e2,
+      size: 0.075,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: true,
+    });
+    const rain = new THREE.Points(rainGeometry, rainMaterial);
+    rain.name = 'rain-field';
+    rain.visible = false;
+    this.scene.add(rain);
+    this.rain = rain;
+    this.rainPositions = rainPositions;
+    this.rainSpeeds = rainSpeeds;
+    this.rainMaterial = rainMaterial;
+  }
+
+  /**
+   * Drive sky, sun, fill light, stars, clouds and rain from the climate clock.
+   * Lighting and visible sky elements always derive from the same snapshot.
+   */
+  update(dt, climate) {
+    if (!climate) return;
+    const config = LAYOUT.sun ?? {};
+    const elevation = climate.sunElevationDeg;
+    const azimuth = climate.sunAzimuthDeg;
+    const dayAmount = THREE.MathUtils.clamp((elevation + 2) / 8, 0, 1);
+    const directAmount = THREE.MathUtils.clamp(elevation / 14, 0, 1);
+    const weatherFactor = climate.weatherState.ppfdFactor;
+    const raining = (climate.rainIntensity ?? 0) > 0;
+    const night = 1 - dayAmount;
+
+    // Climate azimuth is 0=east / 90=south / 180=west; the sky helper expects
+    // a compass bearing where 0=north / 90=east / 180=south.
+    this.setSunPosition(
+      THREE.MathUtils.clamp(elevation, -18, 90),
+      (azimuth + 90) % 360,
+    );
+
+    this.sun.visible = elevation > -1;
+    this.sun.intensity = this.sunBaseIntensity * directAmount * weatherFactor;
+    this.sun.color.setHSL(
+      0.105 - night * 0.04,
+      0.46 - night * 0.15,
+      0.94 - night * 0.25,
+    );
+
+    this.hemisphere.intensity =
+      0.11 +
+      dayAmount *
+        Math.max(0, this.hemisphereBaseIntensity - 0.11) *
+        weatherFactor;
+    this.hemisphere.color.setHex(
+      night > 0.6 ? 0x607a9a : config.skylightColor ?? 0xd8e8ef,
+    );
+    this.moon.intensity = night * 0.26;
+
+    this.skyUniforms.turbidity.value = 3.2 + (1 - weatherFactor) * 8;
+    this.skyUniforms.rayleigh.value =
+      1.7 + night * 0.5 - (1 - weatherFactor) * 0.35;
+    this.skyUniforms.mieCoefficient.value = 0.003 + (1 - weatherFactor) * 0.006;
+
+    if (this.sunDisc) {
+      this.sunDisc.visible = elevation > 0.4;
+      this.sunDisc.traverse((child) => {
+        if (child.isMesh) {
+          const base = child.userData.baseOpacity ?? child.material.opacity;
+          child.userData.baseOpacity = base;
+          child.material.opacity = base * (1 - (1 - weatherFactor) * 0.7);
+        }
+      });
+    }
+
+    this.stars.visible = night > 0.55;
+    this.stars.material.opacity = THREE.MathUtils.clamp(
+      (night - 0.35) * 1.6,
+      0,
+      0.9,
+    );
+    this.stars.rotation.y += dt * 0.003;
+
+    const cloudCover =
+      climate.weatherState?.cloudCover ??
+      (climate.rainIntensity > 0.5 ? 0.95 : climate.rainIntensity > 0 ? 0.7 : 0.1);
+    this.clouds.visible = cloudCover > 0.18;
+    this.cloudMaterial.opacity = cloudCover * 0.46;
+    this.cloudMaterial.color.setHex(
+      cloudCover > 0.9 ? 0x9fabb0 : cloudCover > 0.65 ? 0xb9c2c5 : 0xdde5e8,
+    );
+    for (const cloud of this.clouds.children) {
+      cloud.position.x += dt * cloud.userData.drift * (cloudCover > 0.65 ? 2.2 : 1);
+      if (cloud.position.x > 42) cloud.position.x = -42;
+    }
+
+    const rainIntensity = climate.rainIntensity;
+    this.rain.visible = rainIntensity > 0.02 && !this.topView;
+    this.rainMaterial.opacity = 0.22 + rainIntensity * 0.5;
+    if (this.rain.visible && dt > 0) {
+      for (let i = 0; i < this.rainSpeeds.length; i += 1) {
+        const offset = i * 3;
+        this.rainPositions[offset + 1] -= this.rainSpeeds[i] * dt;
+        this.rainPositions[offset] += dt * 0.7;
+        const insideRoof =
+          Math.abs(this.rainPositions[offset]) < LAYOUT.greenhouse.width / 2 + 0.5 &&
+          Math.abs(this.rainPositions[offset + 2]) < LAYOUT.greenhouse.length / 2 + 0.5;
+        if (this.rainPositions[offset + 1] < (insideRoof ? 5.2 : 0)) {
+          this.rainPositions[offset + 1] = 24 + Math.random() * 4;
+          this.rainPositions[offset] = (Math.random() - 0.5) * 58;
+          this.rainPositions[offset + 2] = -26 + Math.random() * 54;
+        }
+      }
+      this.rain.geometry.attributes.position.needsUpdate = true;
+    }
+
+    const fogColor = this.scene.fog?.color;
+    if (fogColor) {
+      fogColor.setHex(0xc6d2d2).lerp(new THREE.Color(0x0b1420), night * 0.88);
+      if (raining) {
+        fogColor.lerp(new THREE.Color(0x87969b), 0.35);
+      }
+    }
+    if (this.scene.fog) {
+      this.scene.fog.near = raining ? 38 : this.preset?.id === 'low' ? 48 : 62;
+      this.scene.fog.far = raining ? 190 : 260;
+    }
   }
 
   /**
@@ -290,11 +512,43 @@ export class Environment {
 
   /** Drone cutaway hides the exterior yard so buried storage reads as a plan. */
   setTopView(active) {
+    this.topView = active;
     if (this.exteriorGroup) this.exteriorGroup.visible = !active;
+    if (this.rain) this.rain.visible = false;
   }
 
   dispose() {
-    for (const light of this.lights) light.parent?.remove(light);
+    for (const light of this.lights) {
+      light.target?.removeFromParent?.();
+      light.parent?.remove(light);
+    }
+    if (this.sky) {
+      this.scene.remove(this.sky);
+      this.sky.geometry.dispose();
+      this.sky.material.dispose();
+      this.sky = null;
+    }
+    this.skyUniforms = null;
+    if (this.stars) {
+      this.stars.geometry.dispose();
+      this.stars.material.dispose();
+      this.scene.remove(this.stars);
+      this.stars = null;
+    }
+    if (this.clouds) {
+      this.clouds.traverse((child) => {
+        if (child.isMesh) child.geometry.dispose();
+      });
+      this.cloudMaterial?.dispose();
+      this.scene.remove(this.clouds);
+      this.clouds = null;
+    }
+    if (this.rain) {
+      this.rain.geometry.dispose();
+      this.rainMaterial.dispose();
+      this.scene.remove(this.rain);
+      this.rain = null;
+    }
     if (this.sunDisc) {
       this.sunDisc.traverse((child) => {
         if (child.isMesh) {
@@ -313,7 +567,5 @@ export class Environment {
       this.exteriorGroup = null;
     }
     this.envRenderTarget?.dispose();
-    this.sky?.geometry.dispose();
-    this.sky?.material.dispose();
   }
 }

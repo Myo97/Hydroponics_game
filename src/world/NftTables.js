@@ -13,11 +13,14 @@ const DEG = THREE.MathUtils.degToRad;
  * frame, and metadata for its dedicated supply and drainage connections.
  */
 export class NftTables {
-  constructor({ materials, collisionWorld }) {
+  constructor({ materials, collisionWorld, control = null }) {
     this.materials = materials;
     this.collisionWorld = collisionWorld;
+    this.control = control;
     this.tables = [];
     this.interactables = [];
+    this.gullyWaterMeshes = [];
+    this.gullyWaterGeometry = null;
     this.group = null;
   }
 
@@ -36,6 +39,11 @@ export class NftTables {
     const endCaps = new BeamBatch(this.materials.pvcGrey, { castShadow: false });
     const topGeometry = this.createGullyTopGeometry(beds);
     const topMatrices = [];
+    const waterDepth = beds.gullyWaterDepth ?? 0.016;
+    const waterWidth = beds.gullyWidth - 0.032;
+    const waterLength = beds.gullyLength - 0.09;
+    const waterGeometry = new THREE.BoxGeometry(1, 1, 1);
+    this.gullyWaterGeometry = waterGeometry;
 
     const slope = Math.tan(DEG(beds.slopeDegrees));
     const halfWidth = install.tableHalfWidth;
@@ -159,6 +167,42 @@ export class NftTables {
         });
       }
 
+      // Eight static solution films confined inside the hollow channels. Each
+      // table owns one instanced mesh, so flow gating is a single visibility
+      // switch per table rather than a per-frame animation. The film stops
+      // short of both end caps and stays below the perforated top plate.
+      const gullyWater = new THREE.InstancedMesh(
+        waterGeometry,
+        this.materials.gullyWater,
+        beds.gulliesPerTable,
+      );
+      gullyWater.name = `nft-gully-water-${row}-${bay}`;
+      gullyWater.userData.sharedGeometry = true;
+      gullyWater.castShadow = false;
+      gullyWater.receiveShadow = false;
+      gullyWater.frustumCulled = false;
+      const waterMatrix = new THREE.Matrix4();
+      const waterQuaternion = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(slope, 0, 0),
+      );
+      const waterScale = V(waterWidth, waterDepth, waterLength);
+      const waterCentreY =
+        surfaceY(centerZ) + 0.028 + 0.009 + waterDepth / 2;
+      gullies.forEach((gully, index) => {
+        waterMatrix.compose(
+          V(gully.x, waterCentreY, centerZ),
+          waterQuaternion,
+          waterScale,
+        );
+        gullyWater.setMatrixAt(index, waterMatrix);
+      });
+      gullyWater.instanceMatrix.needsUpdate = true;
+      gullyWater.visible = this.control
+        ? this.control.isTableFlowing(plan.id)
+        : true;
+      tableGroup.add(gullyWater);
+      this.gullyWaterMeshes.push(gullyWater);
+
       const supplyX = cx - halfWidth - pipework.tableSupplyOffset;
       const returnX = cx + halfWidth + pipework.tableReturnOffset;
       const supplyZ = startZ - 0.26;
@@ -188,6 +232,7 @@ export class NftTables {
         drainageOutlet: V(returnX, pipework.tableDrainY, returnZ),
         supplyValve: null,
         drainUnion: null,
+        gullyWater,
       };
       this.tables.push(table);
 
@@ -199,14 +244,20 @@ export class NftTables {
         label: 'NFT table',
       });
 
+      const group = LAYOUT.irrigation.groups.find(
+        (entry) => entry.id === plan.groupId,
+      );
       const data = {
         id: `nft-${row}-${bay}`,
         category: 'Growing system',
         title: `NFT table — Row ${row}, bay ${bay}`,
         description:
-          'An eight-gully nutrient film table on the structural column grid. Solution enters through a dedicated table valve and distribution manifold, runs as a shallow film along each hollow PVC gully and drains by gravity through a table-specific return. Every planting hole is a real circular cut-out at 150 mm centres.',
+          `An eight-gully nutrient film table on the structural column grid. Solution is pumped from ${group?.reservoirName ?? 'its group reservoir'} through the ${group?.name ?? 'group'} supply header, then a dedicated table valve and distribution manifold. Each hollow PVC gully carries a shallow film to a table-specific gravity return. Every planting hole is a real circular cut-out at 150 mm centres.`,
         interactionHint: 'Inspect table',
         specs: [
+          ['Irrigation group', group?.name ?? 'Group 1'],
+          ['Supply source', group?.reservoirName ?? 'Reservoir 1'],
+          ['Group pump', group?.pumpKey ?? 'group1PumpOn'],
           ['Gullies', `${beds.gulliesPerTable} × ${beds.gullyLength.toFixed(2)} m`],
           ['Planting holes', `${beds.holesPerGully} / gully · ${beds.gulliesPerTable * beds.holesPerGully} / table`],
           ['Hole spacing', `${(beds.holeSpacing * 100).toFixed(0)} cm`],
@@ -216,6 +267,8 @@ export class NftTables {
           ['Supply valve', 'Dedicated PVC ball valve - E to isolate'],
           ['Supply / return', 'Dedicated DN50 / DN80'],
         ],
+        groupId: group?.id ?? null,
+        reservoirId: group?.reservoirId ?? null,
       };
       tableGroup.userData.interactable = data;
       tableGroup.userData.tableId = table.id;
@@ -247,6 +300,20 @@ export class NftTables {
     bottoms.build(rows, 'nft-gully-interiors');
     endCaps.build(rows, 'nft-gully-end-caps');
     return this;
+  }
+
+  /**
+   * Show the confined solution film only on tables that are actually flowing.
+   * There is no surface animation: the water is visible through the inspection
+   * holes but cannot leave the gully envelope.
+   */
+  update() {
+    for (const table of this.tables) {
+      if (!table.gullyWater) continue;
+      table.gullyWater.visible = this.control
+        ? this.control.isTableFlowing(table.id)
+        : true;
+    }
   }
 
   /**

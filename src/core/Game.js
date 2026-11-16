@@ -16,6 +16,8 @@ import { GreenhouseClimate } from '../simulation/GreenhouseClimate.js';
 import { GreenhouseControlSystem } from '../systems/GreenhouseControlSystem.js';
 import { WaterStorage } from '../world/WaterStorage.js';
 import { BluelabController } from '../world/BluelabController.js';
+import { IrrigationPanel } from '../world/IrrigationPanel.js';
+import { WeatherControlPanel } from '../world/WeatherControlPanel.js';
 import { SaveSystem } from '../save/SaveSystem.js';
 
 const SETTINGS_KEY = 'verde-block4:settings';
@@ -106,12 +108,34 @@ export class Game {
       materials: this.materials,
       control: this.control,
     }).build(this.scene);
+    this.irrigationPanel = new IrrigationPanel({
+      materials: this.materials,
+      control: this.control,
+    }).build(this.scene);
+    this.weatherPanel = new WeatherControlPanel({
+      materials: this.materials,
+      climate: this.climate,
+    }).build(this.scene);
     this.collisionWorld.addBox({
       x: LAYOUT.bluelab.position[0],
       z: LAYOUT.bluelab.position[1],
       width: 0.72,
       depth: 1.18,
       label: 'Bluelab controller',
+    });
+    this.collisionWorld.addBox({
+      x: LAYOUT.irrigationPanel.position[0],
+      z: LAYOUT.irrigationPanel.position[1],
+      width: 0.98,
+      depth: 0.58,
+      label: 'main irrigation panel',
+    });
+    this.collisionWorld.addBox({
+      x: LAYOUT.weatherPanel.position[0],
+      z: LAYOUT.weatherPanel.position[1],
+      width: 0.82,
+      depth: 0.44,
+      label: 'weather control panel',
     });
 
     this.report(0.86, 'Calibrating sensors and player…');
@@ -136,6 +160,8 @@ export class Game {
         ...this.equipment.getInteractables(),
         ...this.storage.interactables,
         ...this.bluelab.interactables,
+        ...this.irrigationPanel.interactables,
+        ...this.weatherPanel.interactables,
       ],
     });
 
@@ -172,6 +198,7 @@ export class Game {
       equipment: this.equipment,
       layout: LAYOUT,
       control: this.control,
+      climate: this.climate,
     });
     this.saveSystem = new SaveSystem({ key: 'verde-block4:save' });
 
@@ -366,6 +393,7 @@ export class Game {
         const open = this.equipment.hydraulicNetwork?.toggleTableValve(data.tableId) ?? false;
         this.ui.toast(`${data.title}: ${open ? 'open' : 'isolated'}`);
         this.bluelab.hmiAccumulator = 1;
+        this.irrigationPanel.hmiAccumulator = 1;
         return true;
       }
       case 'toggle-selector': {
@@ -381,7 +409,42 @@ export class Game {
       }
       case 'toggle-rain-transfer': {
         const on = this.control.togglePump('rainwaterTransferOn');
+        this.irrigationPanel.hmiAccumulator = 1;
         this.ui.toast(`Rain transfer pump: ${on ? 'running' : 'stopped'}`);
+        return true;
+      }
+      case 'toggle-pump': {
+        if (!data.pumpKey) return false;
+        const on = this.control.togglePump(data.pumpKey);
+        this.irrigationPanel.hmiAccumulator = 1;
+        this.bluelab.hmiAccumulator = 1;
+        this.ui.toast(`${data.title ?? 'Pump switch'}: ${on ? 'ON' : 'OFF'}`);
+        return true;
+      }
+      case 'cycle-weather': {
+        const state = this.climate.cycleWeather();
+        const label = LAYOUT.weather?.states?.[state]?.label ?? state;
+        this.weatherPanel.hmiAccumulator = 1;
+        this.ui.toast(`Weather selector: ${label} (manual hold)`);
+        return true;
+      }
+      case 'set-weather': {
+        if (!data.weatherId) return false;
+        const state = this.climate.setWeather(data.weatherId, { manual: true });
+        const label = LAYOUT.weather?.states?.[state]?.label ?? state;
+        this.weatherPanel.hmiAccumulator = 1;
+        this.ui.toast(`Weather held at ${label}`);
+        return true;
+      }
+      case 'toggle-weather-auto': {
+        if (this.climate.weatherManual) {
+          const state = this.climate.setWeatherAuto();
+          const label = LAYOUT.weather?.states?.[state]?.label ?? state;
+          this.ui.toast(`AUTO weather resumed: ${label}`);
+        } else {
+          this.ui.toast('AUTO weather schedule already running');
+        }
+        this.weatherPanel.hmiAccumulator = 1;
         return true;
       }
       case 'toggle-dosing': {
@@ -422,7 +485,7 @@ export class Game {
     this.drone.activate();
     this.setCutaway(true);
     this.ui.toast(
-      'Drone view — WASD fly · Q/E altitude · Shift boost · drag to look · V to land',
+      'Drone view — WASD fly · arrows orbit 360° · Q/E altitude · Shift boost · V to land',
     );
     return this;
   }
@@ -458,6 +521,8 @@ export class Game {
     this.storage?.setTopView(active);
     this.equipment?.hydraulicNetwork?.setTopView(active);
     this.bluelab?.setTopView(active);
+    this.irrigationPanel?.setTopView(active);
+    this.weatherPanel?.setTopView(active);
   }
 
   /* ------------------------------------------------------------------- events */
@@ -621,12 +686,15 @@ export class Game {
         else this.player.update(dt);
       }
       this.climate.update(dt);
+      this.environment.update(dt, this.climate);
       this.water.update(dt);
       const waterSnapshot = this.water.snapshot();
       this.greenhouse.update(dt);
       this.equipment.update(dt, waterSnapshot);
       this.storage.update(dt, waterSnapshot);
       this.bluelab.update(dt, waterSnapshot);
+      this.irrigationPanel.update(dt, waterSnapshot);
+      this.weatherPanel.update(dt, this.climate);
       this.plants.update(dt);
 
       if (!this.droneView) {
@@ -665,6 +733,8 @@ export class Game {
     this.interaction?.dispose();
     this.equipment?.dispose();
     this.bluelab?.dispose();
+    this.irrigationPanel?.dispose();
+    this.weatherPanel?.dispose();
     this.storage?.dispose();
     this.greenhouse?.dispose();
     this.environment?.dispose();

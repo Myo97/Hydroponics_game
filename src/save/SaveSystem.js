@@ -1,11 +1,13 @@
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 
 /**
- * Save system scaffold.
+ * Versioned save payload.
  *
- * The payload is versioned and namespaced so player pose, settings, crop and
- * water state can be stored together. Version 3 does not auto-save a pose from
- * the walkthrough; only UI settings are persisted today.
+ * Version 7 stores the game clock, four-state weather selector with its manual
+ * hold flag, both irrigation groups, the panel switches and the water levels in
+ * addition to the original session metadata. The payload version stays at 2 so
+ * saves written before the selector existed still load; the climate restore
+ * maps the legacy single rain state onto heavy rain.
  */
 export class SaveSystem {
   constructor({ key = 'verde-block4:save', storage = window.localStorage } = {}) {
@@ -21,7 +23,7 @@ export class SaveSystem {
     }
   }
 
-  save({ player, settings, plants, water } = {}) {
+  save({ player, settings, plants, water, climate, control } = {}) {
     const payload = {
       version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
@@ -30,7 +32,30 @@ export class SaveSystem {
         : null,
       settings: settings ?? null,
       plants: plants ? { elapsedSeconds: plants.elapsedSeconds } : null,
-      water: water ? { elapsedSeconds: water.elapsedSeconds } : null,
+      water: water
+        ? {
+            elapsedSeconds: water.elapsedSeconds,
+            tanks: Array.isArray(water.tanks)
+              ? water.tanks.map((tank) => ({ id: tank.id, level: tank.level }))
+              : [],
+            returnLevel: water.returnTank?.level ?? null,
+            harvesterLevel: water.harvester?.level ?? null,
+            rainAccumulator: water.rainAccumulator ?? 0,
+          }
+        : null,
+      climate: climate
+        ? {
+            hour: climate.hour,
+            dayIndex: climate.dayIndex,
+            randomSeed: climate.randomSeed,
+            weather: climate.weather,
+            weatherManual: Boolean(climate.weatherManual),
+            rainIntensity: climate.rainIntensity,
+            rainMmPerHour: climate.rainMmPerHour,
+            weatherRemainingHours: climate.weatherRemainingHours,
+          }
+        : null,
+      control: control?.snapshot?.() ?? null,
     };
     try {
       this.storage.setItem(this.key, JSON.stringify(payload));

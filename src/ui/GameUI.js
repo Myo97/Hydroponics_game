@@ -11,6 +11,8 @@ const HUD_MARKUP = `
     <div class="hud-block panel hud-block--tl">
       <div class="hud-title">Verde Block 4</div>
       <div class="hud-row"><span>Zone</span><strong data-zone>Entrance</strong></div>
+      <div class="hud-row"><span>Time</span><strong class="accent" data-clock>Day 1 &middot; 10:42</strong></div>
+      <div class="hud-row"><span>Weather</span><strong data-weather>Sunny</strong></div>
       <div class="hud-divider"></div>
       <div class="hud-row"><span>Air temp</span><strong class="accent" data-air>21.4 &deg;C</strong></div>
       <div class="hud-row"><span>Humidity</span><strong data-rh>64 %</strong></div>
@@ -46,6 +48,8 @@ const HUD_MARKUP = `
       <span class="sep"></span>
       <span><kbd>V</kbd> Drone view</span>
       <span class="sep"></span>
+      <span><kbd>←</kbd><kbd>→</kbd> Orbit 360&deg;</span>
+      <span class="sep"></span>
       <span><kbd>Q</kbd><kbd>E</kbd> Drone altitude</span>
       <span class="sep"></span>
       <span><kbd>Esc</kbd> Menu</span>
@@ -78,7 +82,7 @@ const HUD_MARKUP = `
         <h2>Walkthrough</h2>
       </div>
       <div class="modal-body">
-        <div class="hud-row"><span>Build</span><strong>Version 5 &middot; Physical sun &amp; reservoirs</strong></div>
+        <div class="hud-row"><span>Build</span><strong>Version 6 &middot; Two-group irrigation &amp; weather</strong></div>
         <div class="hud-row"><span>Pointer</span><strong>Released</strong></div>
         <p class="hint">Resume to re-lock the mouse and continue walking the house.</p>
       </div>
@@ -144,6 +148,8 @@ export class GameUI {
       hintRange: $('[data-hint-range]'),
       air: $('[data-air]'),
       rh: $('[data-rh]'),
+      clock: $('[data-clock]'),
+      weather: $('[data-weather]'),
       solution: $('[data-solution]'),
       status: $('[data-status]'),
       zone: $('[data-zone]'),
@@ -228,9 +234,18 @@ export class GameUI {
     const humidity = `${Math.round(data.humidity)} %`;
     const solution = `EC ${data.ec.toFixed(2)} \u00b7 pH ${data.ph.toFixed(2)}`;
     const status = data.isAlarm ? data.status[0] : 'Nominal';
+    const clock = `${data.dayLabel ?? 'Day 1'} \u00b7 ${data.clock ?? '10:42'}`;
+    const rainRate = data.rainMmPerHour ?? 0;
+    const weatherMode = data.weatherManual ? 'HOLD' : 'AUTO';
+    const weather =
+      rainRate > 0.02
+        ? `${data.weatherLabel ?? 'Rain'} \u00b7 ${rainRate.toFixed(1)} mm/h \u00b7 ${weatherMode}`
+        : `${data.weatherLabel ?? 'Sunny'} \u00b7 ${weatherMode}`;
 
     if (this.el.air.textContent !== air) this.el.air.textContent = air;
     if (this.el.rh.textContent !== humidity) this.el.rh.textContent = humidity;
+    if (this.el.clock.textContent !== clock) this.el.clock.textContent = clock;
+    if (this.el.weather.textContent !== weather) this.el.weather.textContent = weather;
     if (this.el.solution.textContent !== solution) this.el.solution.textContent = solution;
     if (this.el.status.textContent !== status) this.el.status.textContent = status;
     this.el.status.classList.toggle('accent', !data.isAlarm);

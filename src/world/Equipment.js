@@ -35,6 +35,7 @@ export class Equipment {
     this.doorAmount = 0;
     this.doorTarget = 0;
     this.cabinetSwitches = [];
+    this.pumpLamps = [];
     this.waterSnapshot = null;
   }
 
@@ -69,6 +70,7 @@ export class Equipment {
     this.tableSystem = new NftTables({
       materials: this.materials,
       collisionWorld: this.collisionWorld,
+      control: this.control,
     }).build(this.group);
     this.tables = this.tableSystem.tables;
     this.interactables.push(...this.tableSystem.interactables);
@@ -269,10 +271,14 @@ export class Equipment {
     group.name = 'pump-skid';
     this.group.add(group);
 
-    config.positions.forEach(([x, z, yaw], index) => {
-      const duty = index === config.dutyIndex;
+    config.circuits.forEach((circuit, index) => {
+      const [x, z, yaw = 0] = circuit.position;
+      const groupEntry = LAYOUT.irrigation.groups.find(
+        (entry) => entry.id === circuit.groupId,
+      );
+      const onKey = circuit.key;
       const pump = new THREE.Group();
-      pump.name = `pump-${index + 1}`;
+      pump.name = circuit.id;
       pump.position.set(x, 0, z);
       pump.rotation.y = yaw;
       group.add(pump);
@@ -441,7 +447,7 @@ export class Equipment {
         new THREE.PlaneGeometry(0.5, 0.16),
         this.materials.createLabelMaterial(
           `P-0${index + 1}`,
-          duty ? 'DUTY · NFT SUPPLY' : 'STANDBY · AUTO START',
+          `${groupEntry?.name ?? `GROUP ${index + 1}`} · ${circuit.reservoirId === 'ro-tank-1' ? 'RESERVOIR 1' : 'RESERVOIR 2'}`,
           { background: '#e9ece3', foreground: '#16324a' },
         ),
       );
@@ -450,10 +456,12 @@ export class Equipment {
 
       const lamp = new THREE.Mesh(
         new THREE.SphereGeometry(0.028, 12, 8),
-        duty ? this.materials.ledGreen : this.materials.ledAmber,
+        this.materials.ledGreen,
       );
+      lamp.name = `${onKey}-lamp`;
       lamp.position.set(0.36, 0.35, 0.312);
       pump.add(lamp);
+      this.pumpLamps.push({ key: onKey, lamp });
 
       const warning = new THREE.Mesh(
         new THREE.PlaneGeometry(0.18, 0.09),
@@ -471,18 +479,19 @@ export class Equipment {
       });
 
       this.register(pump, {
-        id: `pump-${index + 1}`,
+        id: circuit.id,
         category: 'Irrigation',
-        title: `Circulation pump P-0${index + 1}`,
-        description: duty
-          ? 'Duty pump for the NFT supply main. Variable-speed control holds the manifold pressure at 1.4 bar, and the controller rotates duty weekly to equalise wear. A dry-run relay protects the mechanical seal if the buffer tank empties.'
-          : 'Standby pump on automatic changeover. It starts on a pressure drop or duty-pump fault, with a soft starter to avoid water hammer in the floor main.',
+        title: `${circuit.label} · ${groupEntry?.name ?? `Group ${index + 1}`}`,
+        description:
+          `Dedicated duty pump for ${groupEntry?.name ?? `Group ${index + 1}`}. It draws from ${groupEntry?.reservoirName ?? 'its reservoir'} and pressurises the ${circuit.groupId === 'group-1' ? 'west' : 'east'} supply header. Flow only reaches a table when its local valve is open; with every valve closed the pump deadheads at 1.62 bar.`,
         specs: [
-          ['Duty', duty ? 'Lead / duty' : 'Standby / auto'],
+          ['Group', groupEntry?.name ?? `Group ${index + 1}`],
+          ['Source', groupEntry?.reservoirName ?? 'Reservoir'],
           ['Motor', '1.1 kW · 400 V · 2,900 rpm'],
-          ['Flow', '18 m³/h at 3.5 m head'],
-          ['Discharge pressure', duty ? '1.4 bar' : 'set to 1.4 bar'],
+          ['Flow', `${(9 * LAYOUT.irrigation.nominalBranchFlow).toFixed(1)} L/min across 9 tables`],
+          ['Discharge pressure', '1.4 bar · 1.62 bar deadhead'],
           ['Protection', 'Dry-run + thermal overload'],
+          ['Panel switch', circuit.key],
         ],
       });
     });
@@ -1030,6 +1039,7 @@ export class Equipment {
     this.waterSnapshot = waterSnapshot ?? this.waterSnapshot;
     this.fanSystem?.update(dt);
     this.hydraulicNetwork?.update(dt);
+    this.tableSystem?.update();
 
     if (this.cabinetDoor) {
       const blend = 1 - Math.exp(-dt * 7);
@@ -1042,6 +1052,10 @@ export class Equipment {
     }
 
     if (this.control) {
+      for (const entry of this.pumpLamps) {
+        const on = Boolean(this.control.pumps[entry.key]);
+        entry.lamp.material = on ? this.materials.ledGreen : this.materials.ledRed;
+      }
       for (const entry of this.cabinetSwitches) {
         const bay = this.control.getBay(entry.bay);
         const on = Boolean(bay?.[entry.key]);
@@ -1079,6 +1093,7 @@ export class Equipment {
     this.hydraulicNetwork = null;
     this.fanSystem = null;
     this.dashboard = null;
+    this.pumpLamps.length = 0;
     this.cabinetDoor = null;
     this.cabinetLight = null;
     this.cabinetSwitches.length = 0;

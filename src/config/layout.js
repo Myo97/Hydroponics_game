@@ -61,6 +61,79 @@ export const LAYOUT = {
   },
 
   /**
+   * Game clock. The greenhouse runs a complete 24 hour day in one real hour,
+   * so a real second advances 0.4 game minutes. Sunrise and sunset drive the
+   * physical sun, the sky shader and the visible solar disc.
+   */
+  time: {
+    realSecondsPerGameDay: 3600,
+    startHour: 10.7,
+    sunriseHour: 6,
+    sunsetHour: 18,
+    maxSunElevationDeg: 62,
+    civilTwilightHours: 0.75,
+  },
+
+  /**
+   * Weather state machine. Durations are in game hours; the weighted sequence
+   * is deterministic from the persisted random seed so a save restores the
+   * same outlook. The four weather states are also exposed by the manual
+   * selector in Verde Block 4. `rainMmPerHour` is the effective rate used by
+   * the roof catchment model, while `rainIntensity` drives the visual effects.
+   */
+  weather: {
+    initial: 'sunny',
+    order: ['sunny', 'cloudy', 'lightRain', 'heavyRain'],
+    minDurationHours: 2,
+    maxDurationHours: 5,
+    states: {
+      sunny: {
+        label: 'Sunny',
+        ppfdFactor: 1,
+        humidityBias: 0,
+        tempBias: 0,
+        rainIntensity: 0,
+        rainMmPerHour: 0,
+        cloudCover: 0.08,
+        weight: 0.5,
+      },
+      cloudy: {
+        label: 'Cloudy',
+        ppfdFactor: 0.56,
+        humidityBias: 4,
+        tempBias: -1.2,
+        rainIntensity: 0,
+        rainMmPerHour: 0,
+        cloudCover: 0.6,
+        weight: 0.3,
+      },
+      lightRain: {
+        label: 'Light Rain',
+        ppfdFactor: 0.46,
+        humidityBias: 8,
+        tempBias: -1.8,
+        rainIntensity: 0.32,
+        rainMmPerHour: 2.4,
+        cloudCover: 0.76,
+        weight: 0.13,
+      },
+      heavyRain: {
+        label: 'Heavy Rain',
+        ppfdFactor: 0.24,
+        humidityBias: 12,
+        tempBias: -2.8,
+        rainIntensity: 0.95,
+        rainMmPerHour: 11.8,
+        cloudCover: 1,
+        weight: 0.07,
+      },
+    },
+    rainMmPerHour: 7.2,
+    roofAreaM2: 24 * 36,
+    runoffCoefficient: 0.9,
+  },
+
+  /**
    * NFT production area.
    * Six rows, one per 4 m roof bay, with centres on the column-grid mid-lines.
    * Each row is split into three independent 6 m tables with a 1.4 m cross
@@ -83,12 +156,47 @@ export const LAYOUT = {
     holesPerGully: 40,
     holeSpacing: 0.15,
     holeDiameter: 0.052,
+    // Static solution film inside each hollow gully. The film sits below the
+    // opaque perforated top plate, so it is only visible through the planting /
+    // inspection holes and cannot spill onto the table or floor.
+    gullyWaterDepth: 0.016,
     // Legacy aliases kept for systems that still read the original names.
     channelsPerBed: 8,
     channelSpacing: 0.19,
     channelWidth: 0.11,
     channelHeight: 0.095,
     channelLength: 5.94,
+  },
+
+  /**
+   * Two independently pumped NFT irrigation groups. Reservoir 1 serves the
+   * three west rows, Reservoir 2 serves the three east rows. The physical
+   * supply header is split at x = 0 so the two sources never mix.
+   */
+  irrigation: {
+    groups: [
+      {
+        id: 'group-1',
+        name: 'Group 1',
+        label: 'RESERVOIR 1 · WEST ROWS',
+        reservoirId: 'ro-tank-1',
+        reservoirName: 'Reservoir 1',
+        pumpKey: 'group1PumpOn',
+        tableCenterXs: [-10, -6, -2],
+      },
+      {
+        id: 'group-2',
+        name: 'Group 2',
+        label: 'RESERVOIR 2 · EAST ROWS',
+        reservoirId: 'ro-tank-2',
+        reservoirName: 'Reservoir 2',
+        pumpKey: 'group2PumpOn',
+        tableCenterXs: [2, 6, 10],
+      },
+    ],
+    pumpKeys: ['group1PumpOn', 'group2PumpOn', 'rainwaterTransferOn'],
+    nominalBranchFlow: 4.6,
+    deadheadPressure: 1.62,
   },
 
   tanks: {
@@ -170,17 +278,24 @@ export const LAYOUT = {
       id: 'rainwater-harvester',
       label: 'RAINWATER HARVESTER',
       subtitle: 'ROOF RUN-OFF · 5,000 L',
-      position: [-2.15, -15.35],
+      position: [-2.15, -14.9],
       radius: 1.02,
-      height: 2.35,
+      height: 2.45,
       capacity: 5000,
       initialLevel: 0.46,
+      vaultRadius: 1.44,
+      vaultDepth: 3.15,
+      topY: -0.52,
+      coverRadius: 0.46,
+      hatchRadius: 0.58,
+      firstFlush: [-2.15, -16.4],
     },
     transferPump: {
       id: 'rain-transfer-pump',
       label: 'RAIN TRANSFER PUMP',
-      position: [-3.05, -17.0],
+      position: [-4.25, -15.8],
       yaw: 0,
+      flowLps: 1.7,
     },
     distribution: {
       y: 0.62,
@@ -279,6 +394,9 @@ export const LAYOUT = {
     speed: 9,
     boost: 2.2,
     verticalSpeed: 5.5,
+    yawRate: 2.1,
+    pitchRate: 1.35,
+    maxPitch: 1.48,
     lookSensitivity: 0.0026,
     bounds: {
       minX: -34,
@@ -290,13 +408,30 @@ export const LAYOUT = {
     },
   },
 
+  /**
+   * Two duty pumps, one per irrigation group. Pump 1 draws from Reservoir 1
+   * and feeds the west header; Pump 2 draws from Reservoir 2 and feeds the
+   * east header. Each circuit is switched independently from the main panel.
+   */
   pumps: {
-    // Duty + standby skid immediately south of the mixed-feed reservoir.
-    positions: [
-      [-4.9, -12.7, 0],
-      [-3.4, -12.7, 0],
+    circuits: [
+      {
+        id: 'pump-1',
+        label: 'PUMP 1',
+        key: 'group1PumpOn',
+        groupId: 'group-1',
+        reservoirId: 'ro-tank-1',
+        position: [-9.8, -12.7, 0],
+      },
+      {
+        id: 'pump-2',
+        label: 'PUMP 2',
+        key: 'group2PumpOn',
+        groupId: 'group-2',
+        reservoirId: 'ro-tank-2',
+        position: [-6.2, -12.7, 0],
+      },
     ],
-    dutyIndex: 0,
   },
 
   cabinet: {
@@ -346,6 +481,7 @@ export const LAYOUT = {
     returnMainZ: 11.4,
     supplyMainStartX: -11.05,
     supplyMainEndX: 11.05,
+    supplySplitX: 0,
     returnMainStartX: -10.9,
     returnMainEndX: 10.9,
     tableSupplyOffset: 0.12,
@@ -355,6 +491,28 @@ export const LAYOUT = {
     branchRadius: 0.024,
     drainBranchRadius: 0.038,
     bracketSpacing: 1.5,
+  },
+
+  /** Main Irrigation Controller Panel: three illuminated pump switches. */
+  irrigationPanel: {
+    position: [3.8, -16.85],
+    size: [0.46, 1.42, 0.88],
+    footHeight: 0.07,
+    screenSize: [0.6, 0.32],
+    switches: 3,
+  },
+
+  /**
+   * Four-position manual weather selector in Verde Block 4.
+   * The enclosure and rotary selector sit on the north headhouse wall beside
+   * the irrigation panel; the HMI also exposes an AUTO key.
+   */
+  weatherPanel: {
+    position: [-0.6, -16.85],
+    // depth (X) × height (Y) × width (Z)
+    size: [0.30, 1.02, 0.72],
+    footHeight: 0.06,
+    screenSize: [0.54, 0.25],
   },
 
   player: {
@@ -445,6 +603,9 @@ export const NFT_INSTALLATION = (() => {
   const tablePitch = beds.gullyLength + beds.tableGap;
 
   beds.centersX.forEach((centerX, rowIndex) => {
+    const group = LAYOUT.irrigation.groups.find((entry) =>
+      entry.tableCenterXs.includes(centerX),
+    );
     for (let bay = 0; bay < beds.tablesPerRow; bay += 1) {
       const startZ = beds.channelStartZ + bay * tablePitch;
       tables.push({
@@ -455,6 +616,10 @@ export const NFT_INSTALLATION = (() => {
         startZ,
         endZ: startZ + beds.gullyLength,
         centerZ: startZ + beds.gullyLength / 2,
+        groupId: group?.id ?? null,
+        pumpKey: group?.pumpKey ?? null,
+        reservoirId: group?.reservoirId ?? null,
+        reservoirName: group?.reservoirName ?? null,
       });
     }
   });

@@ -5,7 +5,7 @@ import { CylinderBatch, BeamBatch, boxMesh } from './Batches.js';
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 /**
- * Version 3 water storage infrastructure.
+ * Version 6 water storage infrastructure.
  *
  *   - Two clean-water reservoirs buried in separate concrete vaults, each with a
  *     sealed manhole cover, level sight gauge and floor-mounted fill/suction
@@ -13,8 +13,8 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  *     drone view the floor is cut away so the tanks themselves can be inspected.
  *   - A completely separate nutrient-return tank in its own vault. It receives
  *     NFT drainage and never shares a compartment, pipe or vent with clean water.
- *   - An above-ground rainwater harvester fed by the roof collector, with a
- *     first-flush diverter, inlet strainer, overflow and a rain transfer pump.
+ *   - A buried rainwater harvester fed by the roof collector, with a grade hatch,
+ *     vent, first-flush diverter and a live water surface visible in drone view.
  *   - A clean-water distribution manifold with one isolation valve per reservoir.
  */
 export class WaterStorage {
@@ -52,8 +52,8 @@ export class WaterStorage {
 
     for (const tank of LAYOUT.storage.roTanks) this.buildRoTank(group, tank);
     this.buildReturnTank(group);
-    this.buildHarvester(group);
-    this.buildTransferPump(group);
+    this.buildUndergroundHarvester(group);
+    this.buildRelocatedTransferPump(group);
     this.buildDistributionManifold(group);
     this.buildReturnInlet(group);
     this.buildSigns(group);
@@ -521,212 +521,143 @@ export class WaterStorage {
     this.interactables.push({ object: cover, data: info });
   }
 
-  buildHarvester(parent) {
+  /**
+   * V6 underground rainwater harvester. The 5,000 L HDPE tank sits in a concrete
+   * vault below the headhouse slab; at grade only the sealed hatch, vent and
+   * first-flush chamber are visible. Drone topology view shows the tank and the
+   * live rain-fed water surface through the cutaway ring.
+   */
+  buildUndergroundHarvester(parent) {
     const config = LAYOUT.storage.harvester;
     const [x, z] = config.position;
-    const baseY = 0.08;
-    const topY = baseY + config.height;
-    const inletZ = z - config.radius - 0.02;
+    const vaultRadius = config.vaultRadius ?? 1.44;
+    const vaultDepth = config.vaultDepth ?? 3.15;
+    const radius = config.radius ?? 1.02;
+    const height = config.height ?? 2.45;
+    const topY = config.topY ?? -0.52;
+    const [flushX, flushZ] = config.firstFlush ?? [x - 0.7, z - 1.5];
 
     const assembly = new THREE.Group();
-    assembly.name = 'rainwater-harvester';
+    assembly.name = 'underground-rainwater-harvester';
     parent.add(assembly);
 
-    const pad = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.radius + 0.18, config.radius + 0.22, 0.08, 32),
-      this.materials.concretePlinth,
+    const vaultMaterial = new THREE.MeshStandardMaterial({
+      name: 'harvester-vault-concrete',
+      color: 0x858b84,
+      roughness: 0.95,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    this.labelMaterials.push(vaultMaterial);
+    const wall = new THREE.Mesh(
+      new THREE.CylinderGeometry(vaultRadius, vaultRadius, vaultDepth, 40, 1, true),
+      vaultMaterial,
     );
-    pad.position.set(x, 0.04, z);
-    pad.receiveShadow = true;
-    assembly.add(pad);
+    wall.position.set(x, -vaultDepth / 2, z);
+    wall.receiveShadow = true;
+    assembly.add(wall);
 
+    const floorSlab = new THREE.Mesh(
+      new THREE.CylinderGeometry(vaultRadius, vaultRadius, 0.12, 40),
+      vaultMaterial,
+    );
+    floorSlab.position.set(x, -vaultDepth + 0.06, z);
+    floorSlab.receiveShadow = true;
+    assembly.add(floorSlab);
+
+    // HDPE storage tank, open at the top so the cutaway shows the water plane.
     const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.radius, config.radius * 1.01, config.height, 40, 1),
-      this.materials.tankHDPE,
+      new THREE.CylinderGeometry(radius, radius * 1.012, height, 44, 1, true),
+      this.materials.tankHDPEBlue,
     );
     shell.name = 'rainwater-harvester-shell';
-    shell.position.set(x, baseY + config.height / 2, z);
+    shell.position.set(x, topY - height / 2, z);
     shell.castShadow = true;
     shell.receiveShadow = true;
     assembly.add(shell);
 
-    for (let rib = 0; rib < 6; rib += 1) {
+    for (let rib = 0; rib < 5; rib += 1) {
       const hoop = new THREE.Mesh(
-        new THREE.TorusGeometry(config.radius + 0.014, 0.024, 8, 40),
-        this.materials.tankHDPEBlue,
+        new THREE.TorusGeometry(radius + 0.014, 0.026, 8, 42),
+        this.materials.tankHDPE,
       );
       hoop.rotation.x = Math.PI / 2;
-      hoop.position.set(x, baseY + 0.35 + rib * 0.38, z);
+      hoop.position.set(x, topY - 0.22 - rib * (height - 0.4) / 4, z);
       assembly.add(hoop);
     }
 
-    const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.radius + 0.015, config.radius + 0.015, 0.09, 40),
-      this.materials.tankHDPE,
-    );
-    lid.position.set(x, topY + 0.045, z);
-    assembly.add(lid);
-
-    const neck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.32, 0.36, 0.22, 24),
-      this.materials.tankHDPE,
-    );
-    neck.position.set(x, topY + 0.2, z);
-    assembly.add(neck);
-    const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.38, 0.38, 0.06, 24),
+    const tankRim = new THREE.Mesh(
+      new THREE.TorusGeometry(radius + 0.01, 0.04, 8, 42),
       this.materials.tankHDPEBlue,
     );
-    cap.position.set(x, topY + 0.34, z);
-    assembly.add(cap);
+    tankRim.rotation.x = Math.PI / 2;
+    tankRim.position.set(x, topY, z);
+    assembly.add(tankRim);
 
     const liquid = new THREE.Mesh(
-      new THREE.CircleGeometry(config.radius - 0.05, 40),
+      new THREE.CircleGeometry(radius - 0.04, 40),
       this.materials.water,
     );
     liquid.rotation.x = -Math.PI / 2;
     liquid.name = 'rainwater-surface';
-    liquid.position.set(x, baseY + config.initialLevel * (config.height - 0.1), z);
+    liquid.position.set(
+      x,
+      topY - 0.07 - (1 - config.initialLevel) * (height - 0.16),
+      z,
+    );
     assembly.add(liquid);
 
-    // Roof collector downpipe terminates in a mesh strainer basket on the lid.
-    const strainerMaterial = new THREE.MeshStandardMaterial({
-      name: 'rainwater-strainer',
-      color: 0xa9b4b6,
-      metalness: 0.72,
-      roughness: 0.36,
-      wireframe: true,
-    });
-    this.labelMaterials.push(strainerMaterial);
-    const basket = new THREE.Mesh(
-      new THREE.CylinderGeometry(
-        LAYOUT.rainwater.strainerRadius,
-        LAYOUT.rainwater.strainerRadius * 0.86,
-        0.38,
-        18,
-        2,
-        true,
-      ),
-      strainerMaterial,
-    );
-    basket.position.set(x, LAYOUT.rainwater.harvesterInletY - 0.02, inletZ - 0.2);
-    assembly.add(basket);
-    const basketRim = new THREE.Mesh(
-      new THREE.TorusGeometry(LAYOUT.rainwater.strainerRadius, 0.018, 8, 24),
-      this.materials.stainless,
-    );
-    basketRim.rotation.x = Math.PI / 2;
-    basketRim.position.set(x, LAYOUT.rainwater.harvesterInletY + 0.17, inletZ - 0.2);
-    assembly.add(basketRim);
-
-    const inletPipe = new CylinderBatch(this.materials.pvcWhite);
-    inletPipe.addPath(
-      [
-        V(x, LAYOUT.rainwater.harvesterInletY + 0.34, inletZ),
-        V(x, LAYOUT.rainwater.harvesterInletY + 0.2, inletZ),
-        V(x, LAYOUT.rainwater.harvesterInletY + 0.1, inletZ + 0.08),
-        V(x, topY + 0.02, z - config.radius + 0.25),
-      ],
-      0.085,
-    );
-    inletPipe.build(assembly, 'rainwater-harvester-inlet');
-
-    // First-flush diverter: the first dirty run-off fills this chamber, then a
-    // floating ball seals it and clean water continues to the tank.
-    const flushX = x - 0.62;
-    const flushPipe = new CylinderBatch(this.materials.pvcReturn);
-    flushPipe.addPath(
-      [
-        V(x, 1.92, inletZ),
-        V(flushX, 1.92, inletZ),
-        V(flushX, 0.3, inletZ),
-      ],
-      0.065,
-    );
-    flushPipe.build(assembly, 'first-flush-diverter');
-    const flushCap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.085, 0.085, 0.08, 16),
-      this.materials.pvcReturn,
-    );
-    flushCap.position.set(flushX, 0.24, inletZ);
-    assembly.add(flushCap);
-
-    const flushValveWheel = new THREE.Mesh(
-      new THREE.TorusGeometry(0.075, 0.014, 8, 18),
-      this.materials.ledRed,
-    );
-    flushValveWheel.rotation.x = Math.PI / 2;
-    flushValveWheel.position.set(flushX, 0.55, inletZ);
-    assembly.add(flushValveWheel);
-    this.flushValveWheel = flushValveWheel;
-
-    // Sight tube on the south face.
-    const sightX = x + 0.72;
-    const sightZ = z + 0.74;
-    const sightLow = 0.22;
-    const sightHigh = 2.26;
-    const sightGlass = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.032, 0.032, sightHigh - sightLow, 12),
-      this.materials.glass,
-    );
-    sightGlass.position.set(sightX, (sightHigh + sightLow) / 2, sightZ);
-    assembly.add(sightGlass);
-    const sightWater = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.024, 0.024, 1, 10),
-      this.materials.water,
-    );
-    sightWater.position.set(sightX, sightLow, sightZ);
-    assembly.add(sightWater);
-    for (const y of [sightLow, sightHigh]) {
-      const capRing = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.055, 0.055, 0.045, 12),
-        this.materials.stainless,
+    // Access ladder from the hatch to the vault floor.
+    for (let rung = 0; rung < 7; rung += 1) {
+      assembly.add(
+        boxMesh(
+          0.28,
+          0.025,
+          0.025,
+          this.materials.stainless,
+          V(x - vaultRadius + 0.22, -0.55 - rung * 0.34, z + 0.32),
+          'harvester-ladder-rung',
+        ),
       );
-      capRing.position.set(sightX, y, sightZ);
-      assembly.add(capRing);
+    }
+    for (const side of [-1, 1]) {
+      assembly.add(
+        boxMesh(
+          0.022,
+          vaultDepth - 0.8,
+          0.022,
+          this.materials.stainless,
+          V(
+            x - vaultRadius + 0.22 + side * 0.12,
+            -vaultDepth / 2 - 0.1,
+            z + 0.32,
+          ),
+          'harvester-ladder-rail',
+        ),
+      );
     }
 
-    // Overflow discharges to a gravel soakaway beside the tank.
-    const overflow = new CylinderBatch(this.materials.pvcReturn);
-    overflow.addPath(
+    // Buried fill and overflow connections from the first-flush chamber.
+    const buried = new CylinderBatch(this.materials.pvcReturn);
+    buried.addPath(
       [
-        V(x + config.radius - 0.03, 2.18, z),
-        V(x + config.radius + 0.42, 2.18, z),
-        V(x + config.radius + 0.42, 0.18, z),
-        V(x + config.radius + 0.86, 0.18, z),
-        V(x + config.radius + 0.86, 0.09, z),
+        V(flushX, 0.32, flushZ),
+        V(flushX, -0.42, flushZ),
+        V(flushX, -0.42, z - vaultRadius + 0.18),
+        V(x, -0.42, z - radius + 0.08),
       ],
       0.07,
     );
-    overflow.build(assembly, 'harvester-overflow');
-    const gravel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.46, 0.4, 0.09, 20),
-      this.materials.drainGrate,
-    );
-    gravel.position.set(x + config.radius + 0.86, 0.045, z);
-    gravel.receiveShadow = true;
-    assembly.add(gravel);
+    buried.build(assembly, 'harvester-first-flush-to-tank');
 
-    const plate = this.label(config.label, 'ROOF RUN-OFF · NON-POTABLE', 1.42, 0.52, {
-      background: '#eef1e6',
-      foreground: '#173a49',
-    });
-    plate.position.set(x, 1.58, z + config.radius + 0.018);
-    assembly.add(plate);
-
-    const warning = this.label('NON-POTABLE', 'FILTER BEFORE USE', 0.5, 0.16, {
-      background: '#f3e6c8',
-      foreground: '#6a4210',
-    });
-    warning.position.set(x + config.radius + 0.012, 0.96, z);
-    warning.rotation.y = Math.PI / 2;
-    assembly.add(warning);
+    this.buildHarvesterGradeWorks(parent, config);
+    this.harvesterCutawayRing(parent, x, z, vaultRadius);
 
     this.collisionWorld?.addCircle({
       x,
       z,
-      radius: config.radius + 0.16,
-      label: 'rainwater harvester',
+      radius: config.hatchRadius + 0.22,
+      label: 'rainwater harvester hatch',
     });
 
     this.harvester = {
@@ -734,9 +665,8 @@ export class WaterStorage {
       assembly,
       shell,
       liquid,
-      sightWater,
-      sightRange: [sightLow, sightHigh],
       level: config.initialLevel,
+      rainGain: 0,
     };
 
     const info = {
@@ -744,22 +674,183 @@ export class WaterStorage {
       category: 'Water storage',
       title: config.label,
       description:
-        'Above-ground 5,000 L harvester collecting every litre of roof run-off. Water arrives from the north gutter collector through a leaf strainer; a first-flush chamber diverts the dirty initial flow before it reaches the tank. The rain transfer pump sends stored water through the clean distribution manifold to either reservoir.',
+        'Underground 5,000 L HDPE harvester collecting roof run-off. Water arrives from the north gutter through a first-flush chamber that rejects the dirty initial flow, then drops into the buried tank. Rain intensity controls the live inflow; the transfer pump sends stored water through the clean distribution manifold to both reservoirs.',
       specs: [
         ['Capacity', `${config.capacity.toLocaleString('en-GB')} L`],
-        ['Collection', 'North roof collector · 3 downpipes'],
+        ['Installation', `Buried · tank top ${topY.toFixed(2)} m`],
+        ['Collection', `North roof collector · ${LAYOUT.weather.rainMmPerHour.toFixed(1)} mm/h design`],
         ['Pre-treatment', 'Leaf strainer + first-flush diverter'],
-        ['Overflow', 'Gravity soakaway'],
-        ['Transfer', 'Dedicated rain pump → manifold → Reservoir 1 / Reservoir 2'],
+        ['Access', `Sealed ${Math.round(config.hatchRadius * 2000)} mm hatch`],
+        ['Transfer', 'Rain pump → manifold → Reservoir 1 / Reservoir 2'],
       ],
       interactionHint: 'Inspect harvester',
       interaction: 'inspect',
     };
-    assembly.userData.interactable = info;
-    this.interactables.push({ object: assembly, data: info });
+    this.harvesterHatch.userData.interactable = info;
+    this.interactables.push({ object: this.harvesterHatch, data: info });
   }
 
-  buildTransferPump(parent) {
+  /** Grade-level hatch, vent, first-flush chamber and labels. */
+  buildHarvesterGradeWorks(parent, config) {
+    const [x, z] = config.position;
+    const [flushX, flushZ] = config.firstFlush ?? [x - 0.7, z - 1.5];
+    const hatchRadius = config.hatchRadius ?? 0.58;
+
+    const hatch = new THREE.Group();
+    hatch.name = 'rainwater-harvester-hatch';
+    hatch.position.set(x, 0, z);
+    this.coverGroup.add(hatch);
+    this.harvesterHatch = hatch;
+
+    const collar = new THREE.Mesh(
+      new THREE.CylinderGeometry(hatchRadius + 0.13, hatchRadius + 0.16, 0.09, 36),
+      this.materials.concretePlinth,
+    );
+    collar.position.y = 0.035;
+    collar.receiveShadow = true;
+    hatch.add(collar);
+
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(hatchRadius, hatchRadius, 0.075, 36),
+      this.materials.steelDark,
+    );
+    lid.position.y = 0.115;
+    lid.castShadow = true;
+    lid.receiveShadow = true;
+    hatch.add(lid);
+
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(hatchRadius + 0.035, 0.03, 8, 36),
+      this.materials.stainless,
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.085;
+    hatch.add(rim);
+    hatch.add(
+      boxMesh(0.22, 0.035, 0.05, this.materials.stainless, V(0, 0.165, 0), 'harvester-hatch-handle'),
+    );
+
+    const hatchLabel = this.label('RAINWATER', 'HARVESTER · 5,000 L', 0.64, 0.18, {
+      background: '#e4ece7',
+      foreground: '#173a49',
+    });
+    hatchLabel.rotation.x = -Math.PI / 2;
+    hatchLabel.position.set(0, 0.012, hatchRadius + 0.4);
+    hatch.add(hatchLabel);
+
+    // Vent standpipe prevents the buried tank drawing a vacuum during transfer.
+    const vent = new THREE.Group();
+    vent.name = 'harvester-vault-vent';
+    vent.position.set(x + hatchRadius + 0.24, 0, z + 0.12);
+    const ventPipe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 0.72, 14),
+      this.materials.pvcWhite,
+    );
+    ventPipe.position.y = 0.34;
+    ventPipe.castShadow = true;
+    vent.add(ventPipe);
+    const ventCap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, 0.05, 18),
+      this.materials.pvcGrey,
+    );
+    ventCap.position.y = 0.73;
+    vent.add(ventCap);
+    parent.add(vent);
+
+    // First-flush chamber between the roof downpipe and the buried tank.
+    const flush = new THREE.Group();
+    flush.name = 'harvester-first-flush';
+    flush.position.set(flushX, 0, flushZ);
+    const flushPipe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.095, 0.095, 1.48, 18),
+      this.materials.pvcReturn,
+    );
+    flushPipe.position.y = 0.78;
+    flushPipe.castShadow = true;
+    flush.add(flushPipe);
+    const flushTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.08, 18),
+      this.materials.pvcGrey,
+    );
+    flushTop.position.y = 1.55;
+    flush.add(flushTop);
+    const flushCap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 0.06, 18),
+      this.materials.pvcGrey,
+    );
+    flushCap.position.y = 0.12;
+    flush.add(flushCap);
+    const flushWheel = new THREE.Mesh(
+      new THREE.TorusGeometry(0.075, 0.014, 8, 18),
+      this.materials.ledRed,
+    );
+    flushWheel.rotation.x = Math.PI / 2;
+    flushWheel.position.set(0, 0.34, 0.12);
+    flush.add(flushWheel);
+    this.flushValveWheel = flushWheel;
+    const flushLabel = this.label('FIRST FLUSH', 'DIVERTER · 25 L', 0.46, 0.15, {
+      background: '#f0e2d2',
+      foreground: '#5a2b18',
+    });
+    flushLabel.position.set(0, 0.96, 0.1);
+    flush.add(flushLabel);
+
+    // Roof downpipe connection into the first-flush chamber.
+    const downpipe = new CylinderBatch(this.materials.pvcWhite);
+    downpipe.addPath(
+      [
+        V(x, LAYOUT.rainwater.harvesterInletY, LAYOUT.rainwater.collectorZ),
+        V(x, 1.62, LAYOUT.rainwater.collectorZ),
+        V(flushX, 1.62, LAYOUT.rainwater.collectorZ),
+        V(flushX, 1.48, flushZ),
+      ],
+      0.075,
+    );
+    downpipe.build(parent, 'harvester-downpipe');
+    parent.add(flush);
+
+    this.collisionWorld?.addCircle({
+      x: flushX,
+      z: flushZ,
+      radius: 0.16,
+      label: 'first-flush diverter',
+    });
+    this.collisionWorld?.addCircle({
+      x: x + hatchRadius + 0.24,
+      z: z + 0.12,
+      radius: 0.09,
+      label: 'harvester vent',
+    });
+  }
+
+  harvesterCutawayRing(parent, x, z, vaultRadius) {
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      name: 'harvester-cutaway-ring',
+      color: 0x4fc8e8,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    this.labelMaterials.push(ringMaterial);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(vaultRadius + 0.03, vaultRadius + 0.13, 48),
+      ringMaterial,
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.02, z);
+    this.cutawayGroup.add(ring);
+
+    const floorLabel = this.label('RAINWATER HARVESTER', 'ROOF RUN-OFF · UNDERGROUND 5,000 L', 1.4, 0.26, {
+      background: '#e3edf0',
+      foreground: '#123547',
+    });
+    floorLabel.rotation.x = -Math.PI / 2;
+    floorLabel.position.set(x, 0.014, z + vaultRadius + 0.42);
+    this.cutawayGroup.add(floorLabel);
+  }
+
+  /** Grade-mounted transfer pump west of the harvester hatch. */
+  buildRelocatedTransferPump(parent) {
     const config = LAYOUT.storage.transferPump;
     const [x, z] = config.position;
 
@@ -767,12 +858,19 @@ export class WaterStorage {
     assembly.name = 'rain-transfer-pump';
     parent.add(assembly);
 
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(1.3, 0.09, 0.92),
+      this.materials.concretePlinth,
+    );
+    pad.position.set(x, 0.045, z);
+    pad.receiveShadow = true;
+    assembly.add(pad);
     assembly.add(
-      boxMesh(1.0, 0.08, 0.56, this.materials.steelDark, V(x, 0.04, z), 'rain-pump-skid'),
+      boxMesh(1.02, 0.08, 0.56, this.materials.steelDark, V(x, 0.12, z), 'rain-pump-skid'),
     );
     for (const sx of [-0.38, 0.38]) {
       assembly.add(
-        boxMesh(0.08, 0.3, 0.46, this.materials.steelDark, V(x + sx, 0.18, z), 'rain-pump-foot'),
+        boxMesh(0.08, 0.3, 0.46, this.materials.steelDark, V(x + sx, 0.25, z), 'rain-pump-foot'),
       );
     }
 
@@ -781,7 +879,7 @@ export class WaterStorage {
       this.materials.pumpBlue,
     );
     volute.rotation.z = Math.PI / 2;
-    volute.position.set(x - 0.06, 0.38, z);
+    volute.position.set(x - 0.06, 0.45, z);
     volute.castShadow = true;
     assembly.add(volute);
 
@@ -790,7 +888,7 @@ export class WaterStorage {
       this.materials.pumpBlue,
     );
     motor.rotation.z = Math.PI / 2;
-    motor.position.set(x - 0.4, 0.38, z);
+    motor.position.set(x - 0.4, 0.45, z);
     motor.castShadow = true;
     assembly.add(motor);
 
@@ -799,7 +897,7 @@ export class WaterStorage {
       this.materials.steelDark,
     );
     cowl.rotation.z = Math.PI / 2;
-    cowl.position.set(x - 0.63, 0.38, z);
+    cowl.position.set(x - 0.63, 0.45, z);
     assembly.add(cowl);
 
     for (let fin = 0; fin < 8; fin += 1) {
@@ -809,66 +907,76 @@ export class WaterStorage {
         0.014,
         0.03,
         this.materials.aluminium,
-        V(x - 0.4, 0.38 + Math.cos(angle) * 0.165, z + Math.sin(angle) * 0.165),
+        V(x - 0.4, 0.45 + Math.cos(angle) * 0.165, z + Math.sin(angle) * 0.165),
         'rain-pump-fin',
       );
       finMesh.rotation.x = -angle;
       assembly.add(finMesh);
     }
 
-    // Suction from the harvester lower shell, discharge into the clean manifold.
+    // Suction leaves the buried tank wall and rises to the pump inlet.
     const suction = new CylinderBatch(this.materials.pvcWhite);
+    const harvester = LAYOUT.storage.harvester;
+    const vaultEdgeX = harvester.position[0] - (harvester.vaultRadius ?? 1.44) + 0.16;
     suction.addPath(
       [
-        V(-3.14, 0.52, -16.02),
-        V(-3.75, 0.52, -16.02),
-        V(-3.75, 0.52, z),
-        V(-3.33, 0.52, z),
-        V(-3.33, 0.38, z),
+        V(vaultEdgeX, -0.38, z + 0.24),
+        V(vaultEdgeX, 0.56, z + 0.24),
+        V(x + 0.34, 0.56, z + 0.24),
+        V(x + 0.34, 0.42, z + 0.24),
       ],
       0.058,
     );
-    suction.addJoint(V(-3.14, 0.52, -16.02), 0.09);
+    suction.addJoint(V(vaultEdgeX, 0.56, z + 0.24), 0.085);
     suction.build(assembly, 'rain-pump-suction');
 
+    // Discharge to the clean-water manifold feeding both reservoir valves.
+    const distribution = LAYOUT.storage.distribution;
     const discharge = new CylinderBatch(this.materials.pvcWhite);
     discharge.addPath(
       [
-        V(x, 0.46, z),
-        V(x, 0.74, z),
-        V(-3.64, 0.74, z),
-        V(-3.64, 0.74, LAYOUT.storage.distribution.z),
-        V(-6.2, 0.74, LAYOUT.storage.distribution.z),
-        V(-6.2, LAYOUT.storage.distribution.y, LAYOUT.storage.distribution.z),
+        V(x + 0.3, 0.46, z),
+        V(x + 0.3, 0.78, z),
+        V(x + 0.3, 0.78, distribution.z),
+        V(-9.8, 0.78, distribution.z),
+        V(-9.8, distribution.y, distribution.z),
       ],
+      0.058,
+    );
+    discharge.addJoint(V(-6.2, 0.78, distribution.z), 0.085);
+    discharge.addPath(
+      [V(-6.2, 0.78, distribution.z), V(-6.2, distribution.y, distribution.z)],
       0.058,
     );
     discharge.build(assembly, 'rain-pump-discharge');
 
-    // Discharge gate valve.
     const valveBody = new THREE.Mesh(
       new THREE.CylinderGeometry(0.085, 0.085, 0.13, 16),
       this.materials.stainless,
     );
-    valveBody.position.set(-3.24, 0.74, z);
+    valveBody.position.set(x + 0.3, 0.78, z - 0.22);
     assembly.add(valveBody);
     const valveStem = new THREE.Mesh(
       new THREE.CylinderGeometry(0.016, 0.016, 0.16, 10),
       this.materials.stainless,
     );
-    valveStem.position.set(-3.24, 0.88, z);
+    valveStem.position.set(x + 0.3, 0.92, z - 0.22);
     assembly.add(valveStem);
     const wheel = new THREE.Mesh(
       new THREE.TorusGeometry(0.075, 0.014, 8, 18),
       this.materials.ledRed,
     );
     wheel.rotation.x = Math.PI / 2;
-    wheel.position.set(-3.24, 0.97, z);
+    wheel.position.set(x + 0.3, 1.01, z - 0.22);
     assembly.add(wheel);
 
+    this.buildTransferStarter(assembly, x, z, config);
+  }
+
+  buildTransferStarter(assembly, x, z, config) {
     const starter = new THREE.Group();
     starter.name = 'rain-pump-starter';
-    starter.position.set(x + 0.22, 0.42, z - 0.32);
+    starter.position.set(x + 0.22, 0.49, z - 0.34);
     starter.add(
       boxMesh(0.24, 0.3, 0.12, this.materials.cabinetPaint, V(0, 0, 0), 'rain-pump-starter-box'),
     );
@@ -892,18 +1000,18 @@ export class WaterStorage {
     starter.add(starterLabel);
     assembly.add(starter);
 
-    const plate = this.label('RAIN TRANSFER PUMP', 'HARVESTER → RESERVOIR DISTRIBUTION', 0.94, 0.34, {
+    const plate = this.label('RAIN TRANSFER PUMP', 'HARVESTER → RESERVOIR 1 / 2', 1.02, 0.34, {
       background: '#e8eee4',
       foreground: '#173a49',
     });
-    plate.position.set(x, 0.26, z + 0.342);
+    plate.position.set(x, 0.3, z + 0.35);
     assembly.add(plate);
 
     this.collisionWorld?.addBox({
       x,
       z,
-      width: 1.15,
-      depth: 0.75,
+      width: 1.25,
+      depth: 0.82,
       label: 'rain transfer pump',
     });
 
@@ -914,11 +1022,11 @@ export class WaterStorage {
       category: 'Water storage',
       title: 'Rainwater transfer pump',
       description:
-        'Booster set that lifts stored roof water from the harvester into the clean distribution manifold. The pump discharge runs to a tee that feeds one isolation valve per reservoir, so a tank can be isolated for maintenance without stopping the other fill. Press E at the starter to toggle the pump.',
+        'Booster set lifting stored roof water from the underground harvester into the clean distribution manifold. The discharge tee feeds one isolation valve per reservoir, so either tank can be isolated for maintenance without stopping the other fill. Press E at the starter to toggle the pump.',
       specs: [
         ['Duty', '6.0 m³ h⁻¹ at 2.4 bar'],
         ['Motor', '0.75 kW · 230 V single phase'],
-        ['Suction', 'Harvester bottom outlet'],
+        ['Suction', 'Buried harvester tank'],
         ['Discharge', 'Reservoir 1 / Reservoir 2 isolation manifold'],
         ['Interlock', 'Low-level cut-out in harvester'],
       ],
@@ -1261,13 +1369,10 @@ export class WaterStorage {
       const target = Number.isFinite(reported) ? reported : harvester.level;
       harvester.level += (target - harvester.level) * blend;
       const level = THREE.MathUtils.clamp(harvester.level, 0, 1);
-      const baseY = 0.08;
-      harvester.liquid.position.y = baseY + level * (harvester.height - 0.1);
-
-      const [low, high] = harvester.sightRange;
-      const visible = Math.max(0.02, (high - low) * level);
-      harvester.sightWater.scale.y = visible;
-      harvester.sightWater.position.y = low + visible / 2;
+      const topY = harvester.topY ?? -0.52;
+      harvester.liquid.position.y =
+        topY - 0.07 - (1 - level) * ((harvester.height ?? 2.45) - 0.16);
+      harvester.rainGain = waterSnapshot?.rainInflow ?? 0;
     }
 
     const returned = this.returnVisuals;
@@ -1288,7 +1393,10 @@ export class WaterStorage {
 
     if (this.transferPump) {
       const on = this.control?.pumps?.rainwaterTransferOn ?? true;
-      const pulse = on ? 1 + Math.sin(this.runningTime * 6) * 0.18 : 0.8;
+      const pulse = on ? 1 + Math.sin(this.runningTime * 6) * 0.18 : 0.82;
+      this.transferPump.lamp.material = on
+        ? this.materials.ledGreen
+        : this.materials.ledRed;
       this.transferPump.lamp.scale.setScalar(pulse);
       this.transferPump.lamp.visible = true;
     }

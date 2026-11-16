@@ -26,12 +26,18 @@ globalThis.document = {
     height: 0,
     getContext: () => context,
   }),
+  addEventListener: () => {},
+  removeEventListener: () => {},
 };
 
 const { Equipment } = await import('../src/world/Equipment.js');
 const { Greenhouse } = await import('../src/world/Greenhouse.js');
 const { WaterStorage } = await import('../src/world/WaterStorage.js');
 const { BluelabController } = await import('../src/world/BluelabController.js');
+const { IrrigationPanel } = await import('../src/world/IrrigationPanel.js');
+const { WeatherControlPanel } = await import('../src/world/WeatherControlPanel.js');
+const { DroneController } = await import('../src/player/DroneController.js');
+const { SaveSystem } = await import('../src/save/SaveSystem.js');
 const { GreenhouseClimate } = await import('../src/simulation/GreenhouseClimate.js');
 const { WaterNutrientSimulation } = await import('../src/simulation/WaterNutrientSimulation.js');
 const { GreenhouseControlSystem } = await import('../src/systems/GreenhouseControlSystem.js');
@@ -72,7 +78,10 @@ const greenhouse = new Greenhouse({
 const equipment = new Equipment({ scene, materials, collisionWorld, climate, control }).build();
 const storage = new WaterStorage({ materials, control, collisionWorld }).build(scene);
 const bluelab = new BluelabController({ materials, control }).build(scene);
-const water = new WaterNutrientSimulation({ equipment, layout: LAYOUT, control });
+const irrigationPanel = new IrrigationPanel({ materials, control }).build(scene);
+const weatherPanel = new WeatherControlPanel({ materials, climate }).build(scene);
+weatherPanel.update(1 / 60, climate);
+const water = new WaterNutrientSimulation({ equipment, layout: LAYOUT, control, climate });
 greenhouse.update(0);
 
 const checks = [];
@@ -85,9 +94,87 @@ const allInteractables = [
   ...equipment.getInteractables(),
   ...storage.interactables,
   ...bluelab.interactables,
+  ...irrigationPanel.interactables,
+  ...weatherPanel.interactables,
 ];
 
 check('all interactables registered', allInteractables.length >= 52, allInteractables.length);
+
+/* --------------------------------------- Version 7 weather control panel */
+check(
+  'weather config exposes four ordered states',
+  climate.weatherOrder.join(',') === 'sunny,cloudy,lightRain,heavyRain',
+  climate.weatherOrder.join(','),
+);
+check(
+  'each weather state carries rain rate and cloud cover',
+  climate.weatherOrder.every((stateId) => {
+    const state = LAYOUT.weather.states[stateId];
+    return Number.isFinite(state.rainMmPerHour) && Number.isFinite(state.cloudCover);
+  }),
+);
+check('weather panel builds four state lamps', weatherPanel.stateLights.length === 4, weatherPanel.stateLights.length);
+check('weather panel carries a selector dial', Boolean(weatherPanel.selectorPointer));
+check('weather panel carries an AUTO key', Boolean(weatherPanel.autoKey));
+check('weather panel HMI is mounted', Boolean(weatherPanel.screen?.material));
+check(
+  'weather panel exposes selector, four set-state lamps, AUTO and HMI',
+  weatherPanel.interactables.length === 7 &&
+    weatherPanel.interactables.filter((entry) => entry.data.interaction === 'set-weather').length === 4 &&
+    weatherPanel.interactables.some((entry) => entry.data.interaction === 'cycle-weather') &&
+    weatherPanel.interactables.some((entry) => entry.data.interaction === 'toggle-weather-auto') &&
+    weatherPanel.interactables.some((entry) => entry.data.interaction === 'inspect'),
+  weatherPanel.interactables.length,
+);
+const selectorStart = climate.weather;
+const selectorNext = climate.cycleWeather();
+const selectorIndex = climate.weatherOrder.indexOf(selectorStart);
+check(
+  'selector advances one detent and holds manually',
+  selectorNext === climate.weatherOrder[(selectorIndex + 1) % 4] && climate.weatherManual === true,
+  `${selectorStart} -> ${selectorNext}`,
+);
+climate.setWeather('lightRain');
+weatherPanel.update(2, climate);
+const lightRainIndex = climate.weatherOrder.indexOf('lightRain');
+const lightRainLamp = weatherPanel.stateLights.find((entry) => entry.id === 'lightRain');
+check(
+  'selector pointer follows the latched detent',
+  Math.abs(weatherPanel.selectorPointer.rotation.z + lightRainIndex * (Math.PI / 2)) < 1e-3,
+  weatherPanel.selectorPointer.rotation.z.toFixed(3),
+);
+check(
+  'active lamp lights and every lamp mesh stays visible for direct select',
+  lightRainLamp?.lamp.material === materials.ledAmber &&
+    weatherPanel.stateLights.every((entry) => entry.lamp.visible),
+);
+const lightRainRate = climate.rainMmPerHour;
+climate.setWeather('heavyRain');
+check(
+  'light and heavy rain have distinct roof capture rates',
+  lightRainRate > 0 && climate.rainMmPerHour > lightRainRate,
+  `${lightRainRate.toFixed(1)} / ${climate.rainMmPerHour.toFixed(1)} mm/h`,
+);
+climate.setWeatherAuto();
+check('AUTO key releases the manual weather hold', climate.weatherManual === false);
+weatherPanel.update(2, climate);
+check(
+  'AUTO key lamp confirms schedule control',
+  weatherPanel.autoLamp?.material === materials.ledGreen,
+);
+const detentErrors = climate.weatherOrder.map((weatherId, index) => {
+  climate.setWeather(weatherId, { manual: true });
+  weatherPanel.update(2, climate);
+  return weatherPanel.selectorPointer.rotation.z + index * (Math.PI / 2);
+});
+check(
+  'selector pointer reaches all four detents',
+  detentErrors.every((error) => Math.abs(error) < 1e-3),
+  detentErrors.map((error) => error.toFixed(3)).join('/'),
+);
+// Restore the clear-sky baseline the remaining climate checks assume.
+climate.setWeather('sunny', { manual: false });
+
 check('18 NFT tables', equipment.tables.length === 18, equipment.tables.length);
 check(
   'every table has 8 gullies',
@@ -143,14 +230,25 @@ check(
   equipment.hydraulics?.supplyHeader.start.z !== equipment.hydraulics?.returnHeader.start.z,
 );
 
-const pumpX = LAYOUT.pumps.positions[0][0];
-const pumpZ = LAYOUT.pumps.positions[0][1];
-const reservoirX = LAYOUT.storage.roTanks[1].position[0];
-const reservoirZ = LAYOUT.storage.roTanks[1].position[1];
+const pumpX = LAYOUT.pumps.circuits[0].position[0];
+const pumpZ = LAYOUT.pumps.circuits[0].position[1];
+const reservoirX = LAYOUT.storage.roTanks[0].position[0];
+const reservoirZ = LAYOUT.storage.roTanks[0].position[1];
 check(
-  'pump sited beside reservoir',
+  'group pump 1 sited beside Reservoir 1',
   Math.hypot(pumpX - reservoirX, pumpZ - reservoirZ) < 4,
   Math.hypot(pumpX - reservoirX, pumpZ - reservoirZ).toFixed(2),
+);
+check(
+  'each pump is assigned to its own reservoir',
+  LAYOUT.pumps.circuits.length === 2 &&
+    LAYOUT.pumps.circuits[0].reservoirId === 'ro-tank-1' &&
+    LAYOUT.pumps.circuits[1].reservoirId === 'ro-tank-2',
+);
+check(
+  'supply header is split between the groups',
+  equipment.hydraulics?.supplyHeaders?.length === 2 &&
+    equipment.hydraulics.supplyHeaders[0].end.x < equipment.hydraulics.supplyHeaders[1].start.x,
 );
 const entrance = greenhouse.entrance;
 const doorEntry = greenhouse.getInteractables().find((entry) => entry.data.id === 'entrance-doors');
@@ -453,7 +551,8 @@ check(
   storage.valves[1]?.angle.toFixed(2),
 );
 
-control.togglePump('irrigationOn');
+control.togglePump('group1PumpOn');
+control.togglePump('group2PumpOn');
 for (let frame = 0; frame < 120; frame += 1) water.update(1 / 60);
 const v3Snapshot = water.snapshot();
 check(
@@ -465,10 +564,207 @@ check(
     v3Snapshot.pressure < 0.5,
   `${v3Snapshot.flowRate} L/min · ${v3Snapshot.pressure} bar`,
 );
+check(
+  'group flow stops when both group pumps are off',
+  v3Snapshot.groups.length === 2 &&
+    v3Snapshot.groups.every((group) => group.pumpOn === false && group.flow === 0),
+);
 storage.update(1 / 60, v3Snapshot);
 bluelab.update(1 / 60, v3Snapshot);
+irrigationPanel.update(1 / 60, v3Snapshot);
 check('Bluelab HMI renders a water snapshot', Boolean(bluelab.screen?.material));
+check('irrigation panel HMI renders a water snapshot', Boolean(irrigationPanel.screen?.material));
 check('tank selection cycles to Reservoir 2', control.cycleTank() === 1 && water.selectedTank.code === 'RES-2');
+
+/* ------------------------------------------------ Version 6 irrigation panel */
+check('main panel carries exactly three pump switches', irrigationPanel.switches.length === 3);
+check(
+  'panel switches map to both groups and rain transfer',
+  irrigationPanel.switches.map((entry) => entry.key).join(',') ===
+    'group1PumpOn,group2PumpOn,rainwaterTransferOn',
+);
+control.setPump('group1PumpOn', true);
+control.setPump('group2PumpOn', true);
+for (let frame = 0; frame < 30; frame += 1) equipment.update(1 / 60);
+
+/* -------------------------------------- Version 7 static gully film */
+const hydraulic = equipment.hydraulicNetwork;
+check(
+  'pipe flow markers are removed',
+  !('flowMarkers' in hydraulic) &&
+    !('flowMaterials' in hydraulic) &&
+    !('flowColourMode' in control) &&
+    typeof hydraulic.addFlowTrack === 'undefined',
+);
+check(
+  'each table owns one instanced gully water mesh',
+  equipment.tables.every((table) => table.gullyWater?.isInstancedMesh) &&
+    equipment.tableSystem.gullyWaterMeshes.length === 18,
+  equipment.tableSystem.gullyWaterMeshes.length,
+);
+check(
+  'gully film instances match the eight gullies per table',
+  equipment.tables.every((table) => table.gullyWater.count === LAYOUT.beds.gulliesPerTable),
+);
+check(
+  'gully film sits below the perforated top plate',
+  (LAYOUT.beds.gullyWaterDepth ?? 0.016) > 0 &&
+    (LAYOUT.beds.gullyWaterDepth ?? 0.016) < 0.03,
+  LAYOUT.beds.gullyWaterDepth,
+);
+control.setTableValve(firstTable.id, true);
+equipment.update(1 / 60);
+check('gully film shows on a flowing table', firstTable.gullyWater.visible === true);
+control.setTableValve(firstTable.id, false);
+equipment.update(1 / 60);
+check('gully film hides when its table valve is isolated', firstTable.gullyWater.visible === false);
+
+/* ------------------------------------------------ Version 6 rain harvesting */
+const rainStart = water.harvester.level;
+climate.setWeather('lightRain');
+for (let frame = 0; frame < 60; frame += 1) water.update(1 / 60);
+const lightSnapshot = water.snapshot();
+climate.setWeather('heavyRain');
+for (let frame = 0; frame < 120; frame += 1) water.update(1 / 60);
+const rainSnapshot = water.snapshot();
+check(
+  'heavy rain fills the harvester faster than light rain',
+  rainSnapshot.weather === 'heavyRain' &&
+    rainSnapshot.rainInflow > lightSnapshot.rainInflow &&
+    water.harvester.level > rainStart &&
+    rainSnapshot.rainMmPerHour > lightSnapshot.rainMmPerHour,
+  `${lightSnapshot.rainInflow.toFixed(3)} -> ${rainSnapshot.rainInflow.toFixed(3)} L/s`,
+);
+check(
+  'harvester is now an underground tank',
+  storage.harvester?.topY < 0 &&
+    Boolean(scene.getObjectByName('underground-rainwater-harvester')),
+);
+check(
+  'rain transfer pump is relocated beside the harvester hatch',
+  LAYOUT.storage.transferPump.position[0] === -4.25 &&
+    LAYOUT.storage.transferPump.position[1] === -15.8,
+);
+
+/* ------------------------------------------------ Version 6 clock + weather */
+const fastClock = new GreenhouseClimate({ startHour: 23.99 });
+check(
+  'one real hour equals one game day',
+  Math.abs(fastClock.minutesPerSecond - 0.4) < 1e-9,
+  fastClock.minutesPerSecond,
+);
+fastClock.update(2);
+check('game clock rolls over at midnight', fastClock.dayIndex === 1, fastClock.dayLabel);
+fastClock.setWeather('heavyRain');
+check(
+  'weather state machine exposes four states and rain rates',
+  fastClock.weather === 'heavyRain' &&
+    fastClock.rainIntensity > 0.8 &&
+    fastClock.weatherState.ppfdFactor < 0.5 &&
+    fastClock.rainMmPerHour > 10,
+  fastClock.rainMmPerHour.toFixed(1),
+);
+
+const skyScene = new THREE.Scene();
+const skyEnvironment = new Environment({
+  scene: skyScene,
+  renderer: null,
+  materials,
+  preset: { id: 'medium' },
+});
+skyEnvironment.buildSky();
+skyEnvironment.buildSun();
+skyEnvironment.buildWeather();
+fastClock.hour = 12;
+fastClock.setWeather('heavyRain');
+skyEnvironment.update(1 / 60, fastClock);
+check(
+  'heavy rain shows the cloud deck and exterior rain field',
+  skyEnvironment.rain.visible &&
+    skyEnvironment.clouds.visible &&
+    skyEnvironment.rainMaterial.opacity > 0.5,
+);
+check(
+  'daylight sun is above the horizon and casts light',
+  skyEnvironment.sun.visible &&
+    skyEnvironment.sun.position.y > 0 &&
+    skyEnvironment.sun.intensity > 0,
+  skyEnvironment.sun.intensity.toFixed(2),
+);
+fastClock.hour = 23;
+skyEnvironment.update(1 / 60, fastClock);
+check(
+  'night hides the sun and shows stars',
+  skyEnvironment.sun.visible === false && skyEnvironment.stars.visible === true,
+);
+skyEnvironment.dispose();
+check('weather environment disposed', skyScene.children.length === 0, skyScene.children.length);
+
+const memory = new Map();
+const saveSystem = new SaveSystem({
+  key: 'smoke-v6',
+  storage: {
+    getItem: (key) => memory.get(key) ?? null,
+    setItem: (key, value) => memory.set(key, value),
+    removeItem: (key) => memory.delete(key),
+  },
+});
+const saved = saveSystem.save({
+  climate: fastClock,
+  control,
+  water,
+  settings: { quality: 'high' },
+});
+check(
+  'save payload is version 2 with manual weather and control state',
+  saved?.version === 2 &&
+    saved.climate?.weather === 'heavyRain' &&
+    saved.climate?.weatherManual === true &&
+    saved.climate?.rainMmPerHour > 10 &&
+    saved.control?.pumps?.group1PumpOn !== undefined &&
+    saved.water?.harvesterLevel >= 0,
+);
+const loaded = saveSystem.load();
+check(
+  'save round-trips through local storage',
+  loaded?.version === 2 && loaded.control.groups.length === 2,
+);
+const restoredClimate = new GreenhouseClimate();
+restoredClimate.restore(loaded.climate);
+check(
+  'manual weather and roof capture restore from the save',
+  restoredClimate.weather === 'heavyRain' &&
+    restoredClimate.weatherManual === true &&
+    Math.abs(restoredClimate.rainMmPerHour - fastClock.rainMmPerHour) < 1e-6,
+  `${restoredClimate.weather} / ${restoredClimate.rainMmPerHour.toFixed(1)} mm/h`,
+);
+const legacyClimate = new GreenhouseClimate();
+legacyClimate.restore({
+  hour: 12,
+  weather: 'rain',
+  rainIntensity: 0.82,
+  weatherRemainingHours: 3,
+});
+check(
+  'legacy rain saves migrate to heavy rain and auto schedule',
+  legacyClimate.weather === 'heavyRain' && legacyClimate.weatherManual === false,
+  legacyClimate.weather,
+);
+
+const drone = new DroneController({ camera: new THREE.PerspectiveCamera() });
+drone.applyLook(2400, 0);
+drone.update(0.5);
+check(
+  'drone yaw supports continuous 360 degree orbits',
+  Math.abs(drone.yaw) <= Math.PI && Number.isFinite(drone.yaw),
+  drone.yaw.toFixed(3),
+);
+check(
+  'drone pitch clamps below vertical',
+  Math.abs(drone.pitch) <= drone.maxPitch,
+  drone.pitch.toFixed(3),
+);
+drone.dispose();
 
 /* ------------------------------------------------ Version 4 bay cabinet */
 const baySwitches = equipment.cabinetSwitches;
@@ -535,6 +831,9 @@ check('equipment disposed', equipment.group === null, equipment.group);
 check('tables disposed', equipment.tables.length === 0);
 storage.dispose();
 bluelab.dispose();
+irrigationPanel.dispose();
+weatherPanel.dispose();
+environment.dispose();
 greenhouse.dispose();
 check('scene emptied', scene.children.length === 0, scene.children.length);
 

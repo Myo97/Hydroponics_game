@@ -3,13 +3,13 @@ import { LAYOUT } from '../config/layout.js';
 
 const DRONE_KEYS = {
   KeyW: 'forward',
-  ArrowUp: 'forward',
   KeyS: 'back',
-  ArrowDown: 'back',
   KeyA: 'left',
-  ArrowLeft: 'left',
   KeyD: 'right',
-  ArrowRight: 'right',
+  ArrowUp: 'lookUp',
+  ArrowDown: 'lookDown',
+  ArrowLeft: 'lookLeft',
+  ArrowRight: 'lookRight',
   KeyE: 'up',
   KeyQ: 'down',
   ShiftLeft: 'boost',
@@ -17,12 +17,12 @@ const DRONE_KEYS = {
 };
 
 /**
- * Free-flying inspection drone (Version 4).
+ * Free-flying inspection drone (Version 6).
  *
  * Runs a dedicated PerspectiveCamera, so entering and leaving drone view never
  * disturbs the walkthrough pose. WASD flies horizontally relative to the current
- * heading, Q/E changes altitude and Shift boosts. Click-drag looks around, which
- * also makes the mode usable when pointer lock is blocked.
+ * heading, Q/E changes altitude and Shift boosts. Arrow keys orbit continuously
+ * through a full 360 degrees of yaw; click-drag or pointer lock looks around.
  */
 export class DroneController {
   constructor({ camera, domElement = null, config = LAYOUT.droneView }) {
@@ -113,18 +113,39 @@ export class DroneController {
   }
 
   onPointerMove(event) {
-    if (!this.active || !this.dragging) return;
-    const dx = event.clientX - this.lastX;
-    const dy = event.clientY - this.lastY;
-    this.lastX = event.clientX;
-    this.lastY = event.clientY;
+    if (!this.active) return;
+    const pointerLocked =
+      typeof document !== 'undefined' &&
+      document.pointerLockElement === this.domElement;
+    if (!this.dragging && !pointerLocked) return;
+
+    // Pointer lock reports relative motion; drag fallback uses client coords.
+    const dx = pointerLocked ? event.movementX ?? 0 : event.clientX - this.lastX;
+    const dy = pointerLocked ? event.movementY ?? 0 : event.clientY - this.lastY;
+    if (!pointerLocked) {
+      this.lastX = event.clientX;
+      this.lastY = event.clientY;
+    }
+    this.applyLook(dx, dy);
+  }
+
+  /** Apply a relative look delta; yaw is unbounded but normalized for stability. */
+  applyLook(dx, dy) {
     const sensitivity = this.config.lookSensitivity;
-    this.yaw -= dx * sensitivity;
+    this.yaw = this.normalizeYaw(this.yaw - dx * sensitivity);
     this.pitch = THREE.MathUtils.clamp(
       this.pitch - dy * sensitivity,
-      -Math.PI / 2 + 0.04,
-      0.55,
+      -this.maxPitch,
+      this.maxPitch,
     );
+  }
+
+  normalizeYaw(angle) {
+    return Math.atan2(Math.sin(angle), Math.cos(angle));
+  }
+
+  get maxPitch() {
+    return this.config.maxPitch ?? Math.PI / 2 - 0.04;
   }
 
   onPointerUp() {
@@ -135,6 +156,18 @@ export class DroneController {
     if (!this.active) return;
     const config = this.config;
     const step = Math.max(0, dt);
+
+    const yawInput = (this.keys.has('lookLeft') ? 1 : 0) - (this.keys.has('lookRight') ? 1 : 0);
+    const pitchInput = (this.keys.has('lookUp') ? 1 : 0) - (this.keys.has('lookDown') ? 1 : 0);
+    if (yawInput || pitchInput) {
+      this.yaw = this.normalizeYaw(this.yaw + yawInput * (config.yawRate ?? 2) * step);
+      this.pitch = THREE.MathUtils.clamp(
+        this.pitch + pitchInput * (config.pitchRate ?? 1.3) * step,
+        -this.maxPitch,
+        this.maxPitch,
+      );
+    }
+
     const forward = (this.keys.has('forward') ? 1 : 0) - (this.keys.has('back') ? 1 : 0);
     const strafe = (this.keys.has('right') ? 1 : 0) - (this.keys.has('left') ? 1 : 0);
     const lift = (this.keys.has('up') ? 1 : 0) - (this.keys.has('down') ? 1 : 0);

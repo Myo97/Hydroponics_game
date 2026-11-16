@@ -390,16 +390,49 @@ export class MaterialLibrary {
       }),
     );
 
+    /**
+     * Muted natural water for reservoir surfaces and gauge tubes. The tint is
+     * deliberately blue-green rather than saturated cyan so it reads as
+     * nutrient solution under greenhouse light.
+     */
     this.water = this.track(
       new THREE.MeshPhysicalMaterial({
         name: 'water',
-        color: 0x22403c,
+        color: 0x3d6f6b,
+        metalness: 0.0,
+        roughness: 0.06,
+        transparent: true,
+        opacity: 0.78,
+        ior: 1.333,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.12,
+        envMapIntensity: 1.05,
+        side: THREE.DoubleSide,
+      }),
+    );
+
+    /**
+     * Thin solution film confined inside each NFT gully. It is only visible
+     * through the perforated top plate, so depth writes are disabled to avoid
+     * z-fighting with the opaque channel while depth testing still occludes it
+     * behind the walls and end caps.
+     */
+    this.gullyWater = this.track(
+      new THREE.MeshPhysicalMaterial({
+        name: 'gully-water',
+        color: 0x477a73,
         metalness: 0.0,
         roughness: 0.08,
         transparent: true,
-        opacity: 0.85,
-        ior: 1.33,
-        envMapIntensity: 1.2,
+        opacity: 0.82,
+        ior: 1.333,
+        clearcoat: 0.7,
+        clearcoatRoughness: 0.16,
+        envMapIntensity: 0.9,
+        depthWrite: false,
+        depthTest: true,
+        side: THREE.DoubleSide,
+        toneMapped: true,
       }),
     );
 

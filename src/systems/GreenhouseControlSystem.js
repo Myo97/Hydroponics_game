@@ -1,11 +1,14 @@
+import { LAYOUT } from '../config/layout.js';
+
 /**
- * Shared control state for the Version 4 greenhouse.
+ * Shared control state for the Version 6 greenhouse.
  *
  * One instance is created by `Game` and injected into the 3D equipment, the
- * climate cabinet, the Bluelab station, the hydraulic network and the water
- * simulation. Every switch therefore has exactly one source of truth: the
- * physical toggle, the cabinet indicator and the simulation all read the same
- * values, and a single subscribe/notify channel keeps them in sync.
+ * climate cabinet, the Bluelab station, the main irrigation panel, the hydraulic
+ * network and the water simulation. Every switch therefore has exactly one
+ * source of truth: the physical toggle, the panel indicator and the simulation
+ * all read the same values, and a single subscribe/notify channel keeps them in
+ * sync.
  */
 export class GreenhouseControlSystem {
   constructor({ bayCount = 6 } = {}) {
@@ -17,12 +20,14 @@ export class GreenhouseControlSystem {
       roofVentOpen: false,
     }));
 
+    /** Three panel switches: two group pumps plus the rain transfer pump. */
     this.pumps = {
+      group1PumpOn: true,
+      group2PumpOn: true,
       rainwaterTransferOn: true,
-      irrigationOn: true,
     };
 
-    /** tableId -> { open: boolean } */
+    /** tableId -> { open, groupId, pumpKey, reservoirId } */
     this.tables = new Map();
 
     /** Index into storage.rotanks; the Bluelab display follows this selection. */
@@ -148,13 +153,37 @@ export class GreenhouseControlSystem {
   registerTables(tableIds) {
     for (const entry of tableIds) {
       const id = typeof entry === 'string' ? entry : entry.id;
-      if (id && !this.tables.has(id)) this.tables.set(id, { open: true });
+      if (!id || this.tables.has(id)) continue;
+      const group =
+        (entry.groupId
+          ? LAYOUT.irrigation.groups.find((item) => item.id === entry.groupId)
+          : null) ??
+        LAYOUT.irrigation.groups.find((item) =>
+          item.tableCenterXs.includes(entry.centerX),
+        );
+      this.tables.set(id, {
+        open: true,
+        groupId: group?.id ?? null,
+        pumpKey: group?.pumpKey ?? null,
+        reservoirId: group?.reservoirId ?? null,
+      });
     }
     return this;
   }
 
+  getTable(tableId) {
+    return this.tables.get(tableId) ?? null;
+  }
+
   isTableValveOpen(tableId) {
     return this.tables.get(tableId)?.open ?? false;
+  }
+
+  /** A table only receives solution when its group pump and its valve are on. */
+  isTableFlowing(tableId) {
+    const table = this.tables.get(tableId);
+    if (!table || !table.open || !table.pumpKey) return false;
+    return Boolean(this.pumps[table.pumpKey]);
   }
 
   setTableValve(tableId, open) {
@@ -163,7 +192,13 @@ export class GreenhouseControlSystem {
     const next = Boolean(open);
     if (table.open === next) return next;
     table.open = next;
-    this.emit('table-valve', { tableId, open: next });
+    this.emit('table-valve', {
+      tableId,
+      open: next,
+      groupId: table.groupId,
+      reservoirId: table.reservoirId,
+      flowing: this.isTableFlowing(tableId),
+    });
     return next;
   }
 
@@ -173,9 +208,47 @@ export class GreenhouseControlSystem {
     return this.setTableValve(tableId, !table.open);
   }
 
+  getGroupStatus(groupId) {
+    const group = LAYOUT.irrigation.groups.find((item) => item.id === groupId);
+    if (!group) return null;
+    let openValves = 0;
+    let flowingTables = 0;
+    for (const [tableId, table] of this.tables) {
+      if (table.groupId !== groupId) continue;
+      if (table.open) openValves += 1;
+      if (this.isTableFlowing(tableId)) flowingTables += 1;
+    }
+    return {
+      id: group.id,
+      name: group.name,
+      label: group.label,
+      reservoirId: group.reservoirId,
+      reservoirName: group.reservoirName,
+      pumpKey: group.pumpKey,
+      pumpOn: Boolean(this.pumps[group.pumpKey]),
+      tableCount: this.groupTables(groupId).length,
+      openValves,
+      flowingTables,
+    };
+  }
+
+  groupTables(groupId) {
+    const result = [];
+    for (const [id, table] of this.tables) {
+      if (table.groupId === groupId) result.push({ id, ...table });
+    }
+    return result;
+  }
+
   get openTableCount() {
     let count = 0;
     for (const table of this.tables.values()) if (table.open) count += 1;
+    return count;
+  }
+
+  get flowingTableCount() {
+    let count = 0;
+    for (const id of this.tables.keys()) if (this.isTableFlowing(id)) count += 1;
     return count;
   }
 
@@ -236,6 +309,48 @@ export class GreenhouseControlSystem {
         Object.entries(this.dosing).map(([key, value]) => [key, { ...value }]),
       ),
       storageValves: { ...this.storageValves },
+      groups: LAYOUT.irrigation.groups.map((group) => this.getGroupStatus(group.id)),
     };
+  }
+
+  /** Restore control state from a save payload without emitting per-item events. */
+  apply(state = {}) {
+    if (Array.isArray(state.bays)) {
+      for (const saved of state.bays) {
+        const bay = this.getBay(saved.id);
+        if (!bay) continue;
+        for (const key of ['fansOn', 'shadeNetExtended', 'energyScreenExtended', 'roofVentOpen']) {
+          if (typeof saved[key] === 'boolean') bay[key] = saved[key];
+        }
+      }
+    }
+    if (state.pumps) {
+      for (const key of Object.keys(this.pumps)) {
+        if (typeof state.pumps[key] === 'boolean') this.pumps[key] = state.pumps[key];
+      }
+    }
+    if (Array.isArray(state.tables)) {
+      for (const saved of state.tables) {
+        const table = this.tables.get(saved.id);
+        if (table && typeof saved.open === 'boolean') table.open = saved.open;
+      }
+    }
+    if (Number.isFinite(state.selectedTank)) this.selectedTank = state.selectedTank % 2;
+    if (state.storageValves) {
+      for (const [tankId, open] of Object.entries(state.storageValves)) {
+        if (tankId in this.storageValves && typeof open === 'boolean') {
+          this.storageValves[tankId] = open;
+        }
+      }
+    }
+    if (state.dosing) {
+      for (const [key, saved] of Object.entries(state.dosing)) {
+        if (!this.dosing[key]) continue;
+        if (typeof saved.enabled === 'boolean') this.dosing[key].enabled = saved.enabled;
+        if (Number.isFinite(saved.output)) this.dosing[key].output = saved.output;
+      }
+    }
+    this.emit('restore');
+    return this;
   }
 }

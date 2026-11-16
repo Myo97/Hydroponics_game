@@ -3,20 +3,24 @@ import { LAYOUT } from '../config/layout.js';
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
 /**
- * Version 3 water + nutrient model.
+ * Version 6 water + nutrient model.
  *
- * Mirrors the physical storage layout: two buried clean-water reservoirs
- * (Reservoir 1 permeate, Reservoir 2 mixed feed), the dirty nutrient-return
- * tank (DR-01) and the above-ground rainwater harvester. The shared
- * GreenhouseControlSystem drives which tank is monitored, which dosing channels
- * run and which transfer pumps are enabled.
+ * Mirrors the physical storage layout: two buried reservoirs (Reservoir 1
+ * permeate, Reservoir 2 mixed feed), the dirty nutrient-return tank (DR-01) and
+ * the underground rainwater harvester. Two independently pumped irrigation
+ * groups draw from their own reservoir; roof run-off refills the harvester only
+ * while it is raining, and the transfer pump tops both reservoirs through the
+ * clean-water distribution manifold.
  */
 export class WaterNutrientSimulation {
-  constructor({ equipment, layout = LAYOUT, control = null } = {}) {
+  constructor({ equipment, layout = LAYOUT, control = null, climate = null } = {}) {
     this.equipment = equipment;
     this.layout = layout;
     this.control = control;
+    this.climate = climate;
     this.elapsedSeconds = 0;
+    this.rainInflow = 0;
+    this.groupFlow = new Map();
 
     const storage = layout.storage ?? {};
     const roConfig = storage.roTanks ?? [];
@@ -60,7 +64,7 @@ export class WaterNutrientSimulation {
       ec: this.tanks[1]?.ec ?? 1.8,
       ph: this.tanks[1]?.ph ?? 5.9,
       waterTemp: this.tanks[1]?.temp ?? 19.4,
-      flowRate: 88,
+      flowRate: 82.8,
       pressure: 1.4,
     };
 
@@ -80,6 +84,33 @@ export class WaterNutrientSimulation {
   get selectedTank() {
     const index = this.control?.selectedTank ?? 0;
     return this.tanks[index] ?? this.tanks[0] ?? null;
+  }
+
+  get groupMetrics() {
+    const { groups, nominalBranchFlow, deadheadPressure } = this.layout.irrigation;
+    return groups.map((group) => {
+      const status = this.control?.getGroupStatus?.(group.id) ?? null;
+      const pumpOn = this.control
+        ? Boolean(this.control.pumps[group.pumpKey])
+        : true;
+      const flowingTables = status?.flowingTables ?? 9;
+      const openValves = status?.openValves ?? 9;
+      const flow = pumpOn ? flowingTables * nominalBranchFlow : 0;
+      return {
+        id: group.id,
+        name: group.name,
+        label: group.label,
+        reservoirId: group.reservoirId,
+        reservoirName: group.reservoirName,
+        pumpKey: group.pumpKey,
+        pumpOn,
+        openValves,
+        flowingTables,
+        flow,
+        pressure: !pumpOn ? 0.05 : flow > 0 ? 1.4 : deadheadPressure,
+        tank: this.tanks.find((tank) => tank.id === group.reservoirId) ?? null,
+      };
+    });
   }
 
   get totalVolume() {
@@ -124,6 +155,14 @@ export class WaterNutrientSimulation {
       supplyLevel: Number((this.tanks[1]?.level ?? 0).toFixed(2)),
       returnLevel: Number(this.returnTank.level.toFixed(2)),
       rainLevel: Number(this.harvester.level.toFixed(2)),
+      rainInflow: Number(this.rainInflow.toFixed(2)),
+      groups: this.groupMetrics.map((group) => ({
+        id: group.id,
+        pumpOn: group.pumpOn,
+        openValves: group.openValves,
+        flowingTables: group.flowingTables,
+        flow: Math.round(group.flow),
+      })),
       alarm: this.isAlarm,
     };
   }
@@ -144,6 +183,26 @@ export class WaterNutrientSimulation {
       solution: { ...this.solution },
       flowRate: Math.round(this.solution.flowRate),
       pressure: Number(this.solution.pressure.toFixed(1)),
+      weather: this.climate?.weather ?? 'sunny',
+      weatherLabel: this.climate?.weatherLabel ?? 'Sunny',
+      weatherManual: this.climate?.weatherManual ?? false,
+      rainIntensity: this.climate?.rainIntensity ?? 0,
+      rainMmPerHour: this.climate?.rainMmPerHour ?? 0,
+      rainInflow: this.rainInflow,
+      groups: this.groupMetrics.map((group) => ({
+        id: group.id,
+        name: group.name,
+        label: group.label,
+        reservoirId: group.reservoirId,
+        reservoirName: group.reservoirName,
+        pumpKey: group.pumpKey,
+        pumpOn: group.pumpOn,
+        openValves: group.openValves,
+        flowingTables: group.flowingTables,
+        flow: Math.round(group.flow),
+        pressure: Number(group.pressure.toFixed(2)),
+        tankLevel: Number((group.tank?.level ?? 0).toFixed(3)),
+      })),
       dosing: {
         ...this.dosing,
         a: { ...(this.control?.dosing?.a ?? { enabled: true, output: 0.34 }) },
@@ -159,14 +218,22 @@ export class WaterNutrientSimulation {
     this.elapsedSeconds += dt;
     const phase = this.elapsedSeconds * 0.12;
     const control = this.control;
-    const irrigating = control ? control.pumps.irrigationOn : true;
     const transferOn = control ? control.pumps.rainwaterTransferOn : true;
+    const metrics = this.groupMetrics;
+    this.groupFlow.clear();
+    for (const metric of metrics) this.groupFlow.set(metric.id, metric.flow);
 
-    // Duty pump flow and manifold pressure.
-    const targetFlow = irrigating ? 88 : 0;
-    this.solution.flowRate += (targetFlow - this.solution.flowRate) * Math.min(1, dt * 0.9);
-    const targetPressure = irrigating ? 1.4 : 0.05;
-    this.solution.pressure += (targetPressure - this.solution.pressure) * Math.min(1, dt * 0.8);
+    // Each group pump only produces flow through open table valves. A pump with
+    // every valve closed deadheads at high pressure.
+    const targetFlow = metrics.reduce((sum, metric) => sum + metric.flow, 0);
+    const targetPressure = metrics.reduce(
+      (max, metric) => Math.max(max, metric.pressure),
+      0.05,
+    );
+    this.solution.flowRate +=
+      (targetFlow - this.solution.flowRate) * Math.min(1, dt * 0.9);
+    this.solution.pressure +=
+      (targetPressure - this.solution.pressure) * Math.min(1, dt * 0.8);
 
     // Dosing channels trim the mixed-feed tank toward its setpoints.
     const dosing = control?.dosing ?? {};
@@ -184,36 +251,72 @@ export class WaterNutrientSimulation {
       mixed.temp += (19.3 - mixed.temp) * Math.min(1, dt * 0.02);
     }
 
-    // Reservoir 1 (permeate) is slowly consumed while the mixed feed is irrigated.
-    const permeate = this.tanks[0];
-    if (permeate) {
-      const draw = irrigating ? 0.0000105 : 0;
-      permeate.level = clamp01(permeate.level - draw * dt);
-      permeate.temp += (18.6 - permeate.temp) * Math.min(1, dt * 0.02);
+    // Each flowing table draws from its own group reservoir.
+    for (const metric of metrics) {
+      if (!metric.tank || metric.flow <= 0) continue;
+      const draw = dt * 0.0000125 * (metric.flow / 82.8);
+      metric.tank.level = clamp01(metric.tank.level - draw);
+      metric.tank.temp +=
+        ((metric.id === 'group-1' ? 18.6 : 19.3) - metric.tank.temp) *
+        Math.min(1, dt * 0.02);
     }
 
-    // Rainwater transfer tops Reservoir 1 through the distribution manifold.
-    this.rainAccumulator += dt;
+    // Roof run-off reaches the underground harvester only while it is raining.
+    const rain = this.climate;
+    const rainConfig = this.layout.weather ?? {};
+    const rainIntensity = rain?.rainIntensity ?? 0;
+    const rainRateMmPerHour =
+      rain?.rainMmPerHour ??
+      rainIntensity * (rainConfig.rainMmPerHour ?? 0);
+    const gameSecondsPerRealSecond =
+      (rain?.minutesPerSecond ?? 1440 / LAYOUT.time.realSecondsPerGameDay) * 60;
+    const rainLitresPerSecond =
+      (rainRateMmPerHour *
+        (rainConfig.roofAreaM2 ?? 0) *
+        (rainConfig.runoffCoefficient ?? 0) *
+        gameSecondsPerRealSecond) /
+      3600;
+    this.rainInflow = rainLitresPerSecond;
+    if (rainLitresPerSecond > 0) {
+      const litres = rainLitresPerSecond * dt;
+      this.harvester.level = clamp01(
+        this.harvester.level + litres / this.harvester.capacity,
+      );
+      this.rainAccumulator += litres;
+    }
+
+    // Transfer pump: harvester -> clean-water manifold -> each reservoir whose
+    // isolation valve is open. Excess stays in the harvester at full tanks.
     if (transferOn) {
-      const inflow = Math.min(this.harvester.level, dt * 0.0000185);
-      this.harvester.level = clamp01(this.harvester.level - inflow * 0.9);
-      if (permeate) permeate.level = clamp01(permeate.level + inflow * 0.7);
-      this.transferAccumulator += inflow;
-    } else {
-      this.harvester.level = clamp01(this.harvester.level + dt * 0.000004);
+      const available = this.harvester.level * this.harvester.capacity;
+      const transferLps = this.layout.storage.transferPump.flowLps ?? 1.7;
+      const requested = Math.min(available, dt * transferLps);
+      let request = requested;
+      const targets = this.tanks.filter(
+        (tank) => control?.storageValves?.[tank.id] ?? true,
+      );
+      if (request > 0 && targets.length > 0) {
+        const share = request / targets.length;
+        for (const tank of targets) {
+          const room = (1 - tank.level) * tank.capacity;
+          const added = Math.min(share, Math.max(0, room));
+          tank.level = clamp01(tank.level + added / tank.capacity);
+          request -= added;
+          this.transferAccumulator += added;
+        }
+        const used = requested - request;
+        this.harvester.level = clamp01(
+          this.harvester.level - used / this.harvester.capacity,
+        );
+      }
     }
 
-    // The mixed feed supplies the tables; drainage returns to DR-01.
-    if (mixed) {
-      const feed = irrigating ? dt * 0.0000125 : 0;
-      mixed.level = clamp01(mixed.level - feed);
-      const openTables = control?.tables
-        ? Array.from(control.tables.values()).filter((table) => table.open).length
-        : 6;
-      const drain = (feed + dt * 0.000004) * (openTables / 6);
-      this.returnTank.level = clamp01(this.returnTank.level + drain * 0.8);
-      this.drainAccumulator += drain;
-    }
+    // Drainage from the tables returns to DR-01 proportionally to total flow.
+    const drain = (targetFlow / 60) * dt * 0.78;
+    this.returnTank.level = clamp01(
+      this.returnTank.level + drain / this.returnTank.capacity,
+    );
+    this.drainAccumulator += drain;
 
     // Slow return-tank evaporation / transfer back to the feed loop.
     this.returnTank.level = clamp01(this.returnTank.level - dt * 0.0000035);
@@ -223,26 +326,21 @@ export class WaterNutrientSimulation {
     this.returnTank.ph += (6.18 - this.returnTank.ph) * Math.min(1, dt * 0.01);
     this.returnTank.temp += (21.4 - this.returnTank.temp) * Math.min(1, dt * 0.02);
 
-    // Harvester tops up gently outside the transfer window.
-    if (!transferOn) {
-      const rain = dt * 0.0000022 * (0.6 + Math.sin(this.elapsedSeconds * 0.02) * 0.4);
-      this.harvester.level = clamp01(this.harvester.level + rain);
-    }
-
-    // Keep the legacy aggregate fields coherent for the HUD.
+    // Keep the aggregate fields coherent for the HUD and the controller HMIs.
     const tank = this.selectedTank ?? mixed ?? this.tanks[0];
     this.solution.ec = tank?.ec ?? this.solution.ec;
     this.solution.ph = tank?.ph ?? this.solution.ph;
     this.solution.waterTemp = tank?.temp ?? this.solution.waterTemp;
 
-    // Dosing inventory drains while channels run.
+    // Dosing inventory drains while solution is actually moving in Group 2.
     const activeChannels = [channelA, channelB, phDown].filter(Boolean).length;
-    if (activeChannels > 0 && irrigating) {
-      const draw = dt * 0.00000012 * activeChannels;
+    const mixedFlow = this.groupFlow.get('group-2') ?? 0;
+    if (activeChannels > 0 && mixedFlow > 0) {
+      const draw = dt * 0.00000012 * activeChannels * (mixedFlow / 41.4);
       this.dosing.stockA = clamp01(this.dosing.stockA - draw);
       this.dosing.stockB = clamp01(this.dosing.stockB - draw);
       this.dosing.phDown = clamp01(this.dosing.phDown - draw * 0.8);
-      this.dosing.volumeToday += dt * 0.0004;
+      this.dosing.volumeToday += dt * 0.0004 * (mixedFlow / 41.4);
     }
   }
 
@@ -265,7 +363,7 @@ export class WaterNutrientSimulation {
     this.solution.ec = this.tanks[1]?.ec ?? 1.8;
     this.solution.ph = this.tanks[1]?.ph ?? 5.9;
     this.solution.waterTemp = this.tanks[1]?.temp ?? 19.4;
-    this.solution.flowRate = 88;
+    this.solution.flowRate = 82.8;
     this.solution.pressure = 1.4;
     this.dosing.stockA = 0.72;
     this.dosing.stockB = 0.68;
@@ -275,5 +373,7 @@ export class WaterNutrientSimulation {
     this.drainAccumulator = 0;
     this.transferAccumulator = 0;
     this.rainAccumulator = 0;
+    this.rainInflow = 0;
+    this.groupFlow.clear();
   }
 }

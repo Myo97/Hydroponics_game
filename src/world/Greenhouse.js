@@ -409,13 +409,11 @@ export class Greenhouse {
       collector.collectorRadius,
     );
 
-    // Central downpipe turns into the above-ground rainwater harvester.
+    // Central downpipe drops straight to the harvester first-flush chamber.
     rain.addPath(
       [
         V(collector.downpipeX, collector.collectorY, collector.collectorZ),
         V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
-        V(collector.downpipeX, collector.harvesterInletY, -16.42),
-        V(collector.downpipeX, collector.harvesterInletY, -15.62),
       ],
       0.075,
     );
