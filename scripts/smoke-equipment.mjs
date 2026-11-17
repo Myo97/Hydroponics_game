@@ -53,13 +53,20 @@ const {
   cropDevelopmentForDay,
   getCropPlantGeometry,
   getNftNetPotGeometry,
-  getNftPlantGeometry,
   getNftRootGeometry,
   nftDevelopmentForDay,
-  productionVisualScaleForDay,
   resolveCropVariety,
   visualScaleForDay,
 } = await import('../src/simulation/GreenCoralGrowth.js');
+const {
+  LETTUCE_PRODUCTION_DAYS,
+  LETTUCE_HARVEST_DIAMETER_M,
+  LETTUCE_HARVEST_HEIGHT_M,
+  lettuceStageForDay,
+  getLettuceHeadGeometry,
+  referenceDayForStage,
+  greenCoralPaletteForDay,
+} = await import('../src/world/lettuce.js');
 const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
 const { Environment } = await import('../src/world/Environment.js');
 const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION, GUTTER_X, FRAME_Z } = await import('../src/config/layout.js');
@@ -129,7 +136,114 @@ const allInteractables = [
 ];
 
 check('all interactables registered', allInteractables.length >= 52, allInteractables.length);
-check('interactable registry totals 183 units', allInteractables.length === 183, allInteractables.length);
+check('interactable registry totals 184 units', allInteractables.length === 184, allInteractables.length);
+
+/* -------------------------- Version 13 crop selector + reference Day 4-20 stages */
+const defaultBenchCrop = nursery.cropName;
+const selectedRedCrop = nursery.setCrop('Red Coral Lettuce');
+const redCropSummary = nursery.equipment?.growth?.summary() ?? {};
+const selectedGreenCrop = nursery.cycleCrop();
+check(
+  'nursery bench switches between Green Coral and Red Coral Lettuce',
+  defaultBenchCrop === 'Green Coral Lettuce' &&
+    selectedRedCrop === 'Red Coral Lettuce' &&
+    redCropSummary.cropName === 'Red Coral Lettuce' &&
+    redCropSummary.cropLabel === 'Red Coral' &&
+    selectedGreenCrop === 'Green Coral Lettuce' &&
+    nursery.equipment?.table?.buttonInfo?.crop?.interaction === 'nursery-cycle-crop',
+  `${defaultBenchCrop} -> ${selectedRedCrop} -> ${selectedGreenCrop}`,
+);
+const lettuceStages = [];
+for (let day = 1; day <= LETTUCE_PRODUCTION_DAYS; day += 1) {
+  const stage = lettuceStageForDay(day);
+  const geometry = getLettuceHeadGeometry(
+    'Green Coral Lettuce',
+    day,
+    0,
+    day >= LETTUCE_PRODUCTION_DAYS - 2,
+  );
+  geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  geometry.boundingBox.getSize(size);
+  lettuceStages.push({ day, width: Math.max(size.x, size.z), height: size.y, leaves: stage.leafCount });
+}
+check(
+  'NFT lettuce renders 17 monotonic stages from reference Day 4 to Day 20',
+  lettuceStages.length === 17 &&
+    lettuceStages.every(
+      (entry, index) =>
+        index === 0 ||
+        (entry.width >= lettuceStages[index - 1].width &&
+          entry.height >= lettuceStages[index - 1].height &&
+          entry.leaves >= lettuceStages[index - 1].leaves),
+    ),
+  lettuceStages.map((entry) => `${entry.day}:${entry.leaves}`).join(' '),
+);
+const referenceDays = lettuceStages.map((entry) => referenceDayForStage(entry.day));
+check(
+  'transplanted NFT stages map one-to-one onto reference lettuce Days 4-20',
+  referenceDays[0] === 4 &&
+    referenceDays[referenceDays.length - 1] === 20 &&
+    referenceDays.every((day, index) => index === 0 || day === referenceDays[index - 1] + 1),
+  `${referenceDays[0]} -> ${referenceDays[referenceDays.length - 1]}`,
+);
+const matureLettuce = lettuceStages[lettuceStages.length - 1];
+function averageGeometryColor(geometry) {
+  const colors = geometry.getAttribute('color');
+  const average = new THREE.Color(0, 0, 0);
+  for (let index = 0; index < colors.count; index += 1) {
+    average.r += colors.getX(index);
+    average.g += colors.getY(index);
+    average.b += colors.getZ(index);
+  }
+  average.multiplyScalar(1 / colors.count);
+  return average;
+}
+const redAverage = averageGeometryColor(
+  getLettuceHeadGeometry('Red Coral Lettuce', LETTUCE_PRODUCTION_DAYS, 0, true),
+);
+check(
+  'Reference Day-20 head is 19 cm across, 20 cm tall, 60 leaves and Red Coral is red',
+  Math.abs(matureLettuce.width - LETTUCE_HARVEST_DIAMETER_M) < 0.005 &&
+    Math.abs(matureLettuce.height - LETTUCE_HARVEST_HEIGHT_M) < 0.001 &&
+    matureLettuce.leaves === 60 &&
+    redAverage.r > redAverage.g * 2 &&
+    redAverage.r > redAverage.b * 2,
+  `${(matureLettuce.width * 100).toFixed(1)}x${(matureLettuce.height * 100).toFixed(1)} cm / 60 leaves / red ${redAverage.r.toFixed(2)}`,
+);
+const greenStageDays = [1, 5, 9, 13, LETTUCE_PRODUCTION_DAYS];
+const greenStagePalettes = greenStageDays.map((day) => greenCoralPaletteForDay(day));
+const greenStageMids = greenStagePalettes.map((palette) => new THREE.Color(palette.mid));
+check(
+  'Green Coral uses a dark-green stage palette that deepens from Day 1 to Day 17',
+  greenStageMids.every(
+    (colour) =>
+      colour.g > colour.r * 1.2 &&
+      colour.g > colour.b * 1.3 &&
+      colour.g < 0.62,
+  ) &&
+    greenStageMids.every(
+      (colour, index) => index === 0 || colour.g < greenStageMids[index - 1].g,
+    ) &&
+    new Set(greenStageMids.map((colour) => colour.getHex())).size === 5,
+  greenStageMids
+    .map((colour) => `#${colour.getHexString()}`)
+    .join(' -> '),
+);
+const youngGreenAverage = averageGeometryColor(
+  getLettuceHeadGeometry('Green Coral Lettuce', 1, 0, true),
+);
+const matureGreenAverage = averageGeometryColor(
+  getLettuceHeadGeometry('Green Coral Lettuce', LETTUCE_PRODUCTION_DAYS, 0, true),
+);
+check(
+  'Green Coral heads stay dark green and darken from Day 1 to Day 17',
+  youngGreenAverage.g > youngGreenAverage.r * 1.2 &&
+    matureGreenAverage.g > matureGreenAverage.r * 1.2 &&
+    matureGreenAverage.g > matureGreenAverage.b * 1.3 &&
+    matureGreenAverage.g < youngGreenAverage.g,
+  `young ${youngGreenAverage.g.toFixed(2)} -> mature ${matureGreenAverage.g.toFixed(2)}`,
+);
 
 /* --------------------------------------- Version 7 weather control panel */
 check(
@@ -1260,12 +1374,12 @@ const productionTray3 = productionTrays[3];
 const firstSow = productionTray0.plantSeeds({ seed: 20261001 });
 const germinationSnapshot = Array.from(productionTray0.plan.germination);
 check(
-  'one tray sows exactly 320 cells with 304 germinated and 16 empty',
+  'one tray sows exactly 320 cells with every cell germinated',
   firstSow.ok &&
     productionTray0.cells === 320 &&
-    productionTray0.germinated === 304 &&
-    productionTray0.emptyCells === 16 &&
-    productionTray0.plan.germination.reduce((sum, value) => sum + value, 0) === 304,
+    productionTray0.germinated === 320 &&
+    productionTray0.emptyCells === 0 &&
+    productionTray0.plan.germination.reduce((sum, value) => sum + value, 0) === 320,
   `${productionTray0.germinated}/${productionTray0.emptyCells}`,
 );
 productionTray0.setGrowthDay(14);
@@ -1296,8 +1410,8 @@ check(
 productionTray0.setViewerDistance(0);
 productionTray0.setGrowthDay(14);
 check(
-  'transplant-ready tray renders 304 instanced rosettes with leaf-count variants',
-  productionTray0.layer.instanceCount === 304 && productionTray0.layer.buckets.length >= 2,
+  'transplant-ready tray renders 320 instanced rosettes with leaf-count variants',
+  productionTray0.layer.instanceCount === 320 && productionTray0.layer.buckets.length >= 2,
   `${productionTray0.layer.instanceCount} / ${productionTray0.layer.buckets.length} variants`,
 );
 
@@ -1385,9 +1499,28 @@ check(
   nurserySnapshot.trays.some((entry) => entry.id === calendarTray.id && entry.growthDay === 7) &&
     calendarTray.growthDay === 7 &&
     calendarTray.plantedCalendarDay === 0 &&
-    calendarTray.germinated === 304,
+    calendarTray.germinated === 320,
 );
 calendarTray.clearCrop();
+
+nursery.setCrop('Red Coral Lettuce');
+const redSow = nursery.seedTray(productionTray2.id, { seed: 7771, calendarDay: 0 });
+const redCropSnapshot = nursery.snapshotGrowth();
+productionTray2.clearCrop();
+nursery.setCrop('Green Coral Lettuce');
+nursery.restoreGrowth(redCropSnapshot);
+check(
+  'nursery snapshot restores the selected Red Coral crop and its 320 plugs',
+  redCropSnapshot.cropName === 'Red Coral Lettuce' &&
+    redSow.ok &&
+    nursery.cropName === 'Red Coral Lettuce' &&
+    productionTray2.cropName === 'Red Coral Lettuce' &&
+    productionTray2.germinated === 320 &&
+    productionTray2.ready === false,
+  `${nursery.cropName} / ${productionTray2.germinated} plugs`,
+);
+productionTray2.clearCrop();
+nursery.setCrop('Green Coral Lettuce');
 
 productionTray1.plantSeeds({ seed: 20261002 });
 nursery.growAll();
@@ -1443,7 +1576,7 @@ check(
     Math.abs(carryController.view.group.rotation.x) < 1e-9 &&
     Math.abs(carryController.view.group.rotation.z) < 1e-9 &&
     carriedScale.x < 0.001 &&
-    carryController.view.layer.instanceCount === 304,
+    carryController.view.layer.instanceCount === 320,
   `${carriedScale.x.toFixed(6)} shell scale`,
 );
 const placeBack = carryController.placeOnNursery();
@@ -1477,10 +1610,10 @@ check(
   'transplant fills free NFT holes without overplanting a gully',
   freeBefore === 320 &&
     transplantResult.ok &&
-    transplantResult.planted === 304 &&
-    transplantResult.free === 16 &&
+    transplantResult.planted === 320 &&
+    transplantResult.free === 0 &&
     transplantResult.gulliesUsed === 8 &&
-    tablePlantings.length === 304 &&
+    tablePlantings.length === 320 &&
     gullyState.every((gully) => gully.used <= gully.capacity),
   `${freeBefore} -> ${transplantResult.free}`,
 );
@@ -1503,6 +1636,14 @@ check(
     ),
   `Nursery ${tablePlantings[0].nurseryAgeDays} + NFT Day ${tablePlantings[0].nftAgeDays}`,
 );
+const transplantedNftEntry = equipment.cropLayer.tableGroups.get(nftTable.id);
+check(
+  'every transplanted crown renders in a net cup and rockwool starter cube',
+  transplantedNftEntry.rockwoolMesh?.count === 320 &&
+    transplantedNftEntry.potMesh?.count === 320 &&
+    transplantedNftEntry.buckets.reduce((sum, entry) => sum + entry.mesh.count, 0) === 320,
+  `${transplantedNftEntry.rockwoolMesh?.count} cubes / ${transplantedNftEntry.potMesh?.count} cups`,
+);
 const cropWater = new WaterNutrientSimulation({
   equipment,
   layout: LAYOUT,
@@ -1520,7 +1661,7 @@ control.setPump('rainwaterTransferOn', transferBefore);
 const levelAfter = cropDemandTank?.level ?? 0;
 check(
   'transplanted crop load draws water through the existing nutrient model',
-  cropWater.transplantedCropCount === 304 &&
+  cropWater.transplantedCropCount === 320 &&
     cropWater.cropWaterDemandLps > 0 &&
     cropWater.cropWaterUsedLitres > 0 &&
     levelAfter < levelBefore,
@@ -1566,25 +1707,33 @@ const matureDay = cropSimulation.advanceDay(NFT_PRODUCTION_DAYS);
 const mature = tablePlantings[0];
 const matureDevelopment = nftDevelopmentForDay(NFT_PRODUCTION_DAYS, mature.cropName);
 const variantSizes = [0, 1, 2, 3].map((variant) => {
-  const geometry = getNftPlantGeometry(mature.cropName, NFT_PRODUCTION_DAYS, variant, true);
+  const geometry = getLettuceHeadGeometry(mature.cropName, NFT_PRODUCTION_DAYS, variant, true);
   geometry.computeBoundingBox();
   const size = new THREE.Vector3();
   geometry.boundingBox.getSize(size);
   return { width: Math.max(size.x, size.z), height: size.y };
 });
 check(
-  '20-day NFT production ends at 100 g and total crop age 34 days',
+  '17-day NFT production ends at 100 g and total crop age 31 days',
   matureDay.ready === tablePlantings.length &&
     tablePlantings.every(
       (plant) =>
         plant.nftAgeDays === NFT_PRODUCTION_DAYS &&
-        plant.ageDays === 34 &&
+        plant.ageDays === 31 &&
         plant.harvestReady === true,
     ) &&
     mature.biomassG === 100 &&
     mature.harvestWeightG === 100 &&
     matureDevelopment.harvestReady,
   `NFT Day ${mature.nftAgeDays} / ${mature.ageDays} total / ${mature.biomassG} g`,
+);
+equipment.cropLayer.refresh(true);
+const matureNftEntry = equipment.cropLayer.tableGroups.get(nftTable.id);
+check(
+  'harvest-ready heads render a ready ring over every mature plant',
+  matureNftEntry.readyRingMesh?.count === 320 &&
+    matureNftEntry.readyPlantIds?.size === 320,
+  `${matureNftEntry.readyRingMesh?.count ?? 0} rings`,
 );
 check(
   'every harvest-ready Coral variant measures 18-20 cm across and about 20 cm tall',
@@ -1603,7 +1752,7 @@ check(
     matureInfo?.action === 'Harvest crop' &&
     matureInfo?.nftAgeDays === NFT_PRODUCTION_DAYS &&
     matureInfo?.nurseryAgeDays === 14 &&
-    matureInfo?.totalAgeDays === 34 &&
+    matureInfo?.totalAgeDays === 31 &&
     matureInfo?.biomassG === 100 &&
     matureInfo?.targetHarvestWeightG === 100 &&
     matureInfo?.specs?.every((entry) => Array.isArray(entry) && entry.length === 2) &&
@@ -1619,9 +1768,10 @@ check(
 );
 check(
   'harvest-ready geometry keeps every daily scale monotonic',
-  [5, 10, 15, 20].every(
+  [1, 5, 9, 13, NFT_PRODUCTION_DAYS].every(
     (day, index, days) =>
-      index === 0 || productionVisualScaleForDay(day) > productionVisualScaleForDay(days[index - 1]),
+      index === 0 ||
+      lettuceStageForDay(day).diameterM > lettuceStageForDay(days[index - 1]).diameterM,
   ),
 );
 
@@ -1631,20 +1781,20 @@ check(
   'E harvest removes one ready head and banks its 100 g weight',
   harvestResult.ok &&
     harvestResult.weightG === 100 &&
-    cropSimulation.getTablePlantings(nftTable.id).length === 303 &&
+    cropSimulation.getTablePlantings(nftTable.id).length === 319 &&
     cropSimulation.harvestStats.harvestedPlants === 1 &&
     cropSimulation.harvestStats.totalHarvestWeightG === 100 &&
     cropSimulation.harvestInventoryList[0]?.count === 1 &&
-    cropSimulation.harvestReadyPlantCount === 303,
+    cropSimulation.harvestReadyPlantCount === 319,
   `${harvestResult.weightG} g / ${cropSimulation.availablePositions(nftTable.id)} free holes`,
 );
 const earlyHarvest = cropSimulation.getTablePlantings(nftTable.id)[0];
-earlyHarvest.nftAgeDays = 19;
+earlyHarvest.nftAgeDays = NFT_PRODUCTION_DAYS - 1;
 earlyHarvest.harvestReady = false;
 const rejectedHarvest = cropSimulation.harvestPlant(nftTable.id, earlyHarvest.id);
 cropSimulation.getPlantGrowth(earlyHarvest);
 check(
-  'harvest rejects a plant before NFT Day 20',
+  'harvest rejects a plant before reference Day 20',
   !rejectedHarvest.ok && rejectedHarvest.ready === false,
   rejectedHarvest.reason,
 );
@@ -1656,9 +1806,9 @@ const restoredCrops = new PlantSimulation({ equipment, layout: LAYOUT });
 restoredCrops.restoreGrowth(plantGrowthSnapshot);
 check(
   'NFT growth snapshot restores production ages, biomass, readiness and harvest',
-  restoredCrops.getTablePlantings(nftTable.id).length === 303 &&
+  restoredCrops.getTablePlantings(nftTable.id).length === 319 &&
     restoredCrops.getTablePlantings(nftTable.id)[0].nftAgeDays === NFT_PRODUCTION_DAYS &&
-    restoredCrops.getTablePlantings(nftTable.id)[0].ageDays === 34 &&
+    restoredCrops.getTablePlantings(nftTable.id)[0].ageDays === 31 &&
     restoredCrops.getTablePlantings(nftTable.id)[0].biomassG === 100 &&
     restoredCrops.getTablePlantings(nftTable.id)[0].harvestReady === true &&
     restoredCrops.harvestStats.harvestedPlants === 1 &&
@@ -1722,7 +1872,7 @@ check(
   tooFull.ok &&
     !rejected.ok &&
     carryController.isCarrying &&
-    cropSimulation.availablePositions(nftTable.id) === 17,
+    cropSimulation.availablePositions(nftTable.id) === 1,
   rejected.reason,
 );
 carryController.placeOnNursery();

@@ -1,13 +1,20 @@
-import { TOTAL_GROWTH_DAYS } from '../simulation/GreenCoralGrowth.js';
+import {
+  CROP_NAME,
+  NURSERY_CROPS,
+  TOTAL_GROWTH_DAYS,
+  resolveCropVariety,
+} from '../simulation/GreenCoralGrowth.js';
 
 /**
  * Drives the nursery production cycle independently of the ebb-and-flow
- * hardware. It only touches planted trays, never empty neighbours.
+ * hardware. It only touches planted trays, never empty neighbours, and it owns
+ * the bench crop selection (Green Coral / Red Coral) used by every sow action.
  */
 export class NurseryGrowthController {
   constructor({ table, growDuration = 3.2 }) {
     this.table = table;
     this.growDuration = growDuration;
+    this.selectedCropName = CROP_NAME;
     this.lastSummary = null;
     this.lastAdvanceDay = null;
   }
@@ -16,10 +23,45 @@ export class NurseryGrowthController {
     return this.table?.trays.find((tray) => tray.id === trayId) ?? null;
   }
 
+  /** The crop variety currently loaded on the bench seed drill. */
+  get cropName() {
+    return this.selectedCropName;
+  }
+
+  /** Switch the bench crop; returns the (normalised) selected crop name. */
+  setCrop(cropName) {
+    const variety = resolveCropVariety(cropName);
+    const match = NURSERY_CROPS.find(
+      (name) => resolveCropVariety(name).key === variety.key,
+    );
+    if (!match) return this.selectedCropName;
+    if (match !== this.selectedCropName) {
+      this.selectedCropName = match;
+      this.publish();
+    }
+    return this.selectedCropName;
+  }
+
+  /** Cycle through the available nursery crops (Green Coral <-> Red Coral). */
+  cycleCrop() {
+    const currentKey = resolveCropVariety(this.selectedCropName).key;
+    const index = Math.max(
+      0,
+      NURSERY_CROPS.findIndex((name) => resolveCropVariety(name).key === currentKey),
+    );
+    this.selectedCropName = NURSERY_CROPS[(index + 1) % NURSERY_CROPS.length];
+    this.publish();
+    return this.selectedCropName;
+  }
+
   seedTray(trayId, options = {}) {
     const tray = this.getTray(trayId);
     if (!tray) return { ok: false, reason: 'Tray not found' };
-    const result = tray.plantSeeds({ ...options, duration: this.growDuration });
+    const result = tray.plantSeeds({
+      ...options,
+      cropName: options.cropName ?? this.selectedCropName,
+      duration: this.growDuration,
+    });
     if (result.ok) this.publish();
     return result;
   }
@@ -27,16 +69,17 @@ export class NurseryGrowthController {
   seedAllEmpty(options = {}) {
     let seeded = 0;
     let germinated = 0;
+    const cropName = options.cropName ?? this.selectedCropName;
     for (const tray of this.table?.trays ?? []) {
       if (!tray.canPlant) continue;
-      const result = tray.plantSeeds({ ...options, duration: this.growDuration });
+      const result = tray.plantSeeds({ ...options, cropName, duration: this.growDuration });
       if (result.ok) {
         seeded += 1;
         germinated += result.germinated;
       }
     }
     this.publish();
-    return { seeded, germinated };
+    return { seeded, germinated, cropName };
   }
 
   /** One completed in-game day applied to every planted tray exactly once. */
@@ -66,6 +109,7 @@ export class NurseryGrowthController {
   snapshotGrowth() {
     return {
       day: this.lastAdvanceDay,
+      cropName: this.selectedCropName,
       trays: (this.table?.trays ?? []).map((tray) => tray.snapshotGrowth()),
     };
   }
@@ -73,6 +117,13 @@ export class NurseryGrowthController {
   restoreGrowth(state = {}) {
     const saved = Array.isArray(state?.trays) ? state.trays : [];
     this.lastAdvanceDay = Number.isFinite(state?.day) ? state.day : null;
+    if (state?.cropName) {
+      const variety = resolveCropVariety(state.cropName);
+      const match = NURSERY_CROPS.find(
+        (name) => resolveCropVariety(name).key === variety.key,
+      );
+      if (match) this.selectedCropName = match;
+    }
     let restored = 0;
     for (const entry of saved) {
       const tray = this.getTray(entry.id);
@@ -122,7 +173,16 @@ export class NurseryGrowthController {
       (total, tray) => total + (tray.ready || tray.state !== 'empty' ? tray.germinated : 0),
       0,
     );
-    return { empty, growing, ready, carried, active, seedlings };
+    return {
+      empty,
+      growing,
+      ready,
+      carried,
+      active,
+      seedlings,
+      cropName: this.selectedCropName,
+      cropLabel: resolveCropVariety(this.selectedCropName).label,
+    };
   }
 
   summaryChanged() {

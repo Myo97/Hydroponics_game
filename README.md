@@ -1,16 +1,19 @@
- # Verde Block 4 — Hydroponic Glasshouse
+# Verde Block 4 — Hydroponic Glasshouse
 
 A first-person, real-scale walkthrough of a 24 x 36 m Venlo glasshouse running NFT
-lettuce benches. Version 12 completes the propagation-to-harvest loop. Seedlings
-still grow through five stages from Day 1 to Day 14, then transplant into an NFT
-table with their 14-day nursery age frozen and a fresh NFT production Day 1. The
-20-day NFT cycle ends at a 100 g harvest-ready Green Coral head roughly 18–20 cm
-across and 20 cm tall. Aim at a mature plant and press E to harvest it into the
-persistent inventory, or Shift+E to inspect its nursery age, NFT day, stage,
-biomass and readiness. Version 11's calendar-driven growth, crop-specific leaf
-morphology and per-plant variation are retained. Version 10's 36 independent
-320-cell trays, deterministic 95% germination, physical tray carrying and direct
-transplantation are retained. Version 9's commercial 36-tray ebb-and-flow bench,
+lettuce benches. Version 13 adds the Red Coral Lettuce nursery selection and the
+reference Day 4-20 coral lettuce production model. Seedlings still grow through
+five stages from Day 1 to Day 14, then transplant into an NFT table with their
+14-day nursery age frozen and a fresh NFT production Day 1, which renders the
+reference file's Day 4 plant. The 17-day NFT cycle advances one reference growth
+day at a time through Day 20 and ends at a 100 g harvest-ready coral head roughly
+18–20 cm across and 20 cm tall. Aim at a mature plant and press E to harvest it
+into the persistent inventory, or Shift+E to inspect its nursery age, NFT day,
+stage, biomass and readiness. Version 11's
+calendar-driven growth, crop-specific leaf morphology and per-plant variation are
+retained. Version 10's 36 independent 320-cell trays, physical tray carrying and
+direct transplantation are retained, now with 100% germination so every tray
+fills its table exactly. Version 9's commercial 36-tray ebb-and-flow bench,
 automatic flood/drain irrigation from Reservoir 2, sticky traps and retractable
 shade screen are retained. Version 7's four-position weather selector, static NFT
 gully water films and calmer water materials are retained. The deterministic
@@ -144,45 +147,54 @@ still works; `Esc` then opens the pause menu directly.
   retractable 3.6 x 7.4 m woven shade screen below the trusses. Press E on the
   bench to start a cycle or on the screen to retract/extend it; the screen also
   follows the shared nursery climate state.
-- **Version 11 calendar growth:** every one of the 36 trays is an independent crop
-  record. Press E on an empty tray to sow Green Coral Lettuce; each receives a
-  deterministic 304-germinated / 16-empty mask (95%) that never reshuffles. A
-  completed in-game day advances every planted tray once, from Day 1 to Day 14:
-  Days 1-2 show dark peat plugs and pale sprouts, Days 3-5 rounded cotyledons that
-  enlarge daily, Days 6-8 progressively larger true leaves, Days 9-11 deeply lobed
-  coral rosettes and Days 12-14 dense, frilled transplant-ready plugs. Each daily
-  step builds new leaf geometry and eases the size change, so consecutive days are
-  visibly different. Empty trays never grow and a per-tray calendar guard prevents
-  duplicate daily updates.
+- **Version 13 nursery crop selection:** the physical CROP button on the bench
+  cycles the seed drill between Green Coral Lettuce and Red Coral Lettuce. Its
+  lamp turns red for Red Coral and every empty tray prompt, SEED action and toast
+  quotes the loaded variety. Press E on an empty tray (or SEED ALL) to sow every
+  one of the 320 cells: germination is 100%, with deterministic per-cell
+  variation that never reshuffles. A completed in-game day advances every planted
+  tray once, from Day 1 to Day 14: Days 1-2 show dark peat plugs and pale sprouts,
+  Days 3-5 rounded cotyledons that enlarge daily, Days 6-8 progressively larger
+  true leaves, Days 9-11 deeply lobed coral rosettes and Days 12-14 dense, frilled
+  transplant-ready plugs. Red Coral uses its own pink-to-deep-red seedling palette.
+  Each daily step builds new leaf geometry and eases the size change, so
+  consecutive days are visibly different. Empty trays never grow and a per-tray
+  calendar guard prevents duplicate daily updates.
   GROW remains as an optional accelerated test that pushes planted trays to Day 14
   in 3.2 s without moving the clock; normal gameplay no longer needs it. The physical
-  SEED ALL button on the bench sows every empty tray.
+  SEED ALL button on the bench sows every empty tray with the selected crop.
 - Transplant-ready trays can be picked up, carried horizontally at chest height
   and placed back on the bench, or carried to any main-house NFT table. The
   contextual `Transplant Seedlings` action fills free planting holes across that
-  table's eight gullies (40 holes each), rejects a 304-plug tray if fewer than 304
-  holes are free, keeps the Green Coral variety and returns an empty tray for
-  replanting. Each plug records its 14-day nursery age as a frozen credential and
-  starts NFT production at Day 1, so total crop age is 15 days on the first
-  production day.
-- **Version 12 NFT production and harvest:** each transplanted plant grows through
-  a 20-day NFT cycle while its nursery age stays visible. Production geometry is
-  built separately from the nursery plug: leaves emerge on a golden-angle rosette,
-  the head scales across 20 daily steps and the mature Green Coral plant measures
-  18–20 cm across and about 20 cm tall at 100 g. Plants are bucketed by crop, NFT
-  day and visual variant for efficient instanced rendering, with dark net pots and
-  roots below the channel plate. Aim at a mature plant for the `READY FOR HARVEST`
-  hint and press E to harvest one head; Shift+E opens the inspect panel instead.
-  Harvested weight is added to a persistent per-crop inventory and lifetime total
-  while the freed hole can be replanted.
+  table's eight gullies (40 holes each), rejects a 320-plug tray if fewer than 320
+  holes are free, preserves the selected Green Coral or Red Coral variety and
+  returns an empty tray for replanting. Each plug records its 14-day nursery age
+  as a frozen credential and starts NFT production at Day 1, so total crop age is
+  15 days on the first production day.
+- **Version 13 NFT production:** each transplanted plant grows through a 17-day
+  NFT cycle while its nursery age stays visible. Production geometry ports the
+  60-leaf coral generator from *Green Coral Lettuce – three.js.html*: transplant
+  begins at reference Day 4 with 18 visible leaves, then one production day adds
+  the next reference growth day until Day 20. Leaves emerge outside-in on a
+  golden-angle rosette, expand and ruffle over time, and finish as a 60-leaf,
+  deeply frilled head. Green Coral uses a dedicated dark-green palette that
+  deepens across five growth stages, from a young seedling green to deep forest
+  green at harvest. Each crown sits in a rockwool starter cube and net cup,
+  with roots below the channel plate; harvest-ready heads carry an emissive green
+  ring. The mature plant measures 19 cm across and 20 cm tall at 100 g (14 nursery
+  days + 17 NFT days = total crop age 31). Plants are bucketed by crop, NFT day and
+  visual variant for efficient instanced rendering. Aim at a mature plant for the
+  `READY FOR HARVEST` hint and press E to harvest one head; Shift+E opens the
+  inspect panel instead. Harvested weight is added to a persistent per-crop
+  inventory and lifetime total while the freed hole can be replanted.
 - **Main-house daily crop growth:** each plant owns its age and visual variation
   and is rendered from a day-specific crop mesh. Existing leaves lengthen and
   widen, new leaves emerge from the growing centre, height and canopy spread
-  increase, and the rosette keeps filling out through Day 20. Daily updates are
-  idempotent per plant, so a frame-loop repeat or a `T` skip cannot generate the
-  same day's leaves twice. Five profiles preserve distinct morphology and colour:
-  frilled Green Coral, lobed Green Oak, red-toned Red Oak, broad pale Xiao Bai Cai
-  and broad-petiole Pak Choy.
+  increase, and the rosette keeps filling out through reference Day 20. Daily
+  updates are idempotent per plant, so a frame-loop repeat or a `T` skip cannot
+  generate the same day's leaves twice. Five profiles preserve distinct morphology
+  and colour: frilled Green Coral, lobed Green Oak, red-toned Red Oak, broad pale
+  Xiao Bai Cai and broad-petiole Pak Choy.
 - Cut-away drone view (`V`) lifts the camera above the crop and hides the floor slab
   and manhole covers so the buried tanks, harvester vault, pipe risers and full
   equipment layout remain visible. Arrow keys orbit a full 360° and tilt through
@@ -246,7 +258,8 @@ src/world/NurseryTable.js  36-tray ebb-and-flow bench, pipework, pump, SEED/GROW
 src/world/SeedlingTray.js  independent 320-cell tray record, interaction, picked-up tray view
 src/world/SeedlingPlantLayer.js  instanced stage/LOD canopy for one tray
 src/world/NurseryShadeScreen.js  retractable nursery shade deck and drive
-src/world/NftCropLayer.js  instanced 20-day NFT production plants, net pots, roots and per-day palettes
+src/world/NftCropLayer.js  instanced 17-stage NFT lettuce heads, rockwool, net pots, roots and ready rings
+src/world/lettuce.js      cached 17-stage lettuce head geometry, leaf palettes, net cups and rockwool
 src/world/EntranceDoors.js twin-leaf sliding entrance, animation + collision
 src/world/BayScreens.js    6 shade panels, 6 energy panels, 12 ridge-vent leaves
 src/world/StickyTraps.js   12 column-mounted pest-monitoring cards
@@ -270,7 +283,8 @@ src/systems/NurseryGrowthController.js  sowing, calendar-day growth, GROW shortc
 src/systems/TrayPickupController.js     first-person tray carrying and bench placement
 src/systems/SeedlingTransplantController.js  tray-to-NFT capacity check and transfer
 src/simulation/GreenhouseClimate.js  shared climate/HUD/controller model
-src/simulation/GreenCoralGrowth.js  five-stage nursery model, 20-day NFT production geometry, crop catalogue and daily procedural leaves
+src/simulation/GreenCoralGrowth.js  five-stage nursery model, 17-day NFT production data, crop catalogue and daily procedural leaves
+src/world/referenceLettuce.js  port of the standalone Green Coral Lettuce three.js generator
 src/simulation/WaterNutrientSimulation.js  tank levels, flows, dosing and alarms
 src/simulation/PlantSimulation.js    calendar-driven NFT ages, 100 g harvest records, inventory and save snapshots
 src/save/SaveSystem.js     versioned localStorage save payload (v3)

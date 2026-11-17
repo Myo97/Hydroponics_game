@@ -8,8 +8,11 @@ const SAVE_VERSION = 3;
  * addition to the original session metadata. Version 11 adds per-tray nursery
  * growth and per-plant NFT growth records, including each plant's last processed
  * calendar day so a restored save cannot replay a growth step. Version 12 stores
- * the 20-day NFT production ages, stored biomass and harvest readiness of every
- * plant plus the harvest inventory, lifetime totals and harvest log.
+ * the NFT production ages, stored biomass and harvest readiness of every plant
+ * plus the harvest inventory, lifetime totals and harvest log. Version 13 stores
+ * each tray's selected Green/Red Coral variety and the bench's loaded seed crop,
+ * while the germination plan is recreated from its per-tray seed. Version 13 also
+ * uses the 17-day reference Day 4-20 NFT cycle.
  */
 export class SaveSystem {
   constructor({ key = 'verde-block4:save', storage = window.localStorage } = {}) {

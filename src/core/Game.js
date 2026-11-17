@@ -415,7 +415,7 @@ export class Game {
         ...target,
         data: {
           ...data,
-          title: `${data.title} - Green Coral transplant`,
+          title: `${data.title} - ${tray.cropName} transplant`,
           interaction: 'nursery-transplant',
           interactionHint: hint,
           carryTrayId: tray.id,
@@ -460,7 +460,7 @@ export class Game {
         });
         if (result.ok) {
           this.ui.toast(
-            `${data.title}: Green Coral sown - ${result.germinated}/320 germinated, Day 1`,
+            `${data.title}: ${result.cropName} sown - ${result.germinated}/320 germinated, Day 1`,
           );
         } else {
           this.ui.toast(result.reason ?? 'Tray could not be seeded', 'warn');
@@ -484,10 +484,15 @@ export class Game {
         const result = this.nursery.seedAllEmpty({ calendarDay: this.climate.dayIndex });
         this.ui.toast(
           result.seeded > 0
-            ? `Seeded ${result.seeded} trays with ${result.germinated.toLocaleString('en-GB')} Green Coral cells`
+            ? `Seeded ${result.seeded} trays with ${result.germinated.toLocaleString('en-GB')} ${result.cropName} cells`
             : 'No empty trays to sow',
           result.seeded > 0 ? 'info' : 'warn',
         );
+        return true;
+      }
+      case 'nursery-cycle-crop': {
+        const cropName = this.nursery.cycleCrop();
+        this.ui.toast(`Nursery seed drill loaded with ${cropName}`);
         return true;
       }
       case 'nursery-grow-all': {
@@ -518,7 +523,7 @@ export class Game {
           this.ui.setCarry(null);
           this.ui.setTarget(null);
           this.ui.toast(
-            `${result.planted} Green Coral seedlings transplanted to ${result.tableTitle} - tray returned for reuse`,
+            `${result.planted} ${result.cropName} seedlings transplanted to ${result.tableTitle} - tray returned for reuse`,
           );
         } else {
           this.ui.toast(result.reason ?? 'Transplant rejected', 'warn');

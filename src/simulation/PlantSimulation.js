@@ -342,7 +342,7 @@ export class PlantSimulation {
       title,
       hintName: harvestReady ? `${plant.cropName} - READY FOR HARVEST` : title,
       description: harvestReady
-        ? 'Full-grown commercial head at the end of its 20-day NFT production cycle.'
+        ? 'Full-grown commercial head at the end of its 17-day NFT production cycle.'
         : `Nursery Day ${plant.nurseryAgeDays} plug now on NFT production Day ${plant.nftAgeDays}.`,
       action: harvestReady ? 'Harvest crop' : 'Inspect crop',
       interaction: harvestReady ? 'harvest-crop' : 'inspect-crop',
@@ -392,7 +392,7 @@ export class PlantSimulation {
 
   /**
    * Remove one harvest-ready plant and add its stored biomass to inventory.
-   * Plants before Day 20 are rejected rather than silently deleted.
+   * Plants before NFT Day 17 are rejected rather than silently deleted.
    */
   harvestPlant(tableIdOrPlantId, plantId = null) {
     let entry = null;

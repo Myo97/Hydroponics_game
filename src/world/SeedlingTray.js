@@ -181,7 +181,13 @@ export class SeedlingTray {
     this.refreshVisual();
     this.refreshInteraction();
     this.table?.refreshStock();
-    return { ok: true, tray: this, germinated: this.germinated, empty: this.emptyCells };
+    return {
+      ok: true,
+      tray: this,
+      cropName: this.cropName,
+      germinated: this.germinated,
+      empty: this.emptyCells,
+    };
   }
 
   /** Start the accelerated 14-day sequence. Empty/ready trays are ignored. */
@@ -281,11 +287,14 @@ export class SeedlingTray {
 
   refreshInteraction() {
     const label = this.stage > 0 ? stageForDay(this.growthDay).label : 'Not sown';
+    const benchVariety = resolveCropVariety(
+      this.table?.growth?.cropName ?? CROP_NAME,
+    );
     if (this.state === 'empty') {
       this.info.interaction = 'nursery-seed-tray';
-      this.info.interactionHint = 'Plant Green Coral seeds';
+      this.info.interactionHint = `Plant ${benchVariety.label} seeds`;
       this.info.description =
-        'An empty 550 x 280 mm, 320-cell propagation tray on the nursery bench. Press E to sow Green Coral Lettuce; germination is generated once and then preserved as the tray grows. Hold Shift and press E to pick the empty tray up for staging or return.';
+        `An empty 550 x 280 mm, 320-cell propagation tray on the nursery bench. Press E to sow ${benchVariety.label}; germination is 100% and is generated once, then preserved as the tray grows. Hold Shift and press E to pick the empty tray up for staging or return.`;
     } else if (this.ready) {
       this.info.interaction = 'nursery-pickup-tray';
       this.info.interactionHint = 'Pick up transplant-ready tray';
@@ -299,7 +308,7 @@ export class SeedlingTray {
     }
 
     this.info.specs = [
-      ['Crop', this.state === 'empty' ? CROP_NAME : this.cropName],
+      ['Crop', this.state === 'empty' ? benchVariety.label : this.cropName],
       ['Total cells', String(this.cells)],
       ['Germinated', this.state === 'empty' ? '0' : String(this.germinated)],
       ['Empty cells', this.state === 'empty' ? String(this.cells) : String(this.emptyCells)],

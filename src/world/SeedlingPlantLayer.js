@@ -46,6 +46,9 @@ export class SeedlingPlantLayer {
       red: [1, 2, 3, 4, 5].map(
         (stage) => materials[`cropLeafRed${stage}`] ?? materials.seedlingLeaf5,
       ),
+      'red-coral': [1, 2, 3, 4, 5].map(
+        (stage) => materials[`cropLeafRedCoral${stage}`] ?? materials.cropLeafRed3,
+      ),
       pale: [1, 2, 3, 4, 5].map(
         (stage) => materials[`cropLeafPale${stage}`] ?? materials.seedlingLeaf4,
       ),

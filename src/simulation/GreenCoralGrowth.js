@@ -15,8 +15,14 @@ export const TOTAL_GROWTH_DAYS = 14;
 export const TRAY_CELLS = 320;
 export const TRAY_COLUMNS = 16;
 export const TRAY_ROWS = 20;
-export const GERMINATION_RATE = 0.95;
+/**
+ * Commercial plug trays are sown with a primed, high-vigour seed lot and the
+ * game deliberately models a perfect batch: every one of the 320 cells
+ * germinates, so a propagated tray never leaves an empty hole behind.
+ */
+export const GERMINATION_RATE = 1;
 export const GERMINATED_CELLS = Math.round(TRAY_CELLS * GERMINATION_RATE);
+export const EMPTY_CELLS = TRAY_CELLS - GERMINATED_CELLS;
 
 export const GROWTH_STAGES = [
   {
@@ -67,12 +73,13 @@ export const GROWTH_STAGES = [
 ];
 
 /**
- * Version 12 NFT production window. The nursery age stays frozen at 14 and the
- * production age starts at Day 1, giving a 34-day total crop age at harvest
- * readiness (14 nursery days + 20 NFT production days).
+ * Version 13 NFT production window. The nursery age stays frozen at 14 and the
+ * production age starts at Day 1, which renders reference lettuce Day 4. The
+ * cycle finishes on reference Day 20 after 17 production days, giving a 31-day
+ * total crop age at harvest readiness (14 nursery days + 17 NFT days).
  */
-export const NFT_PRODUCTION_DAYS = 20;
-/** Standard Green Coral Lettuce fresh weight at NFT Day 20. */
+export const NFT_PRODUCTION_DAYS = 17;
+/** Standard Green Coral Lettuce fresh weight at reference Day 20. */
 export const NFT_HARVEST_WEIGHT_G = 100;
 export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~137.507 degrees
 
@@ -91,31 +98,31 @@ export const NFT_GROWTH_STAGES = Object.freeze([
     key: 'early-expansion',
     label: 'Establishment and early expansion',
     minDay: 3,
-    maxDay: 6,
+    maxDay: 5,
     status: 'Growing - leaves expanding',
   },
   {
     stage: 3,
     key: 'rapid-canopy',
     label: 'Rapid canopy development',
-    minDay: 7,
-    maxDay: 12,
+    minDay: 6,
+    maxDay: 9,
     status: 'Growing - rapid canopy development',
   },
   {
     stage: 4,
     key: 'heading',
     label: 'Heading and deep ruffling',
-    minDay: 13,
-    maxDay: 17,
+    minDay: 10,
+    maxDay: 14,
     status: 'Growing - heading and deep coral ruffling',
   },
   {
     stage: 5,
     key: 'harvest-ready',
     label: 'Full-grown commercial head',
-    minDay: 18,
-    maxDay: 20,
+    minDay: 15,
+    maxDay: NFT_PRODUCTION_DAYS,
     status: 'READY FOR HARVEST',
   },
 ]);
@@ -123,57 +130,104 @@ export const NFT_GROWTH_STAGES = Object.freeze([
 /**
  * Data-driven production targets. Weight is deliberately a separate curve from
  * diameter: it represents stored biomass, not a value inferred from mesh size.
+ * Each anchor corresponds to a reference lettuce day from 4 to 20.
  */
 export const NFT_GROWTH_MILESTONES = Object.freeze([
   {
+    // NFT Day 1 / reference Day 4: established plug with 18 visible leaves.
     day: 1,
-    diameterM: 0.05,
-    heightM: 0.032,
-    leafCount: 6,
-    biomassG: 3.4,
+    diameterM: 0.0715,
+    heightM: 0.055,
+    leafCount: 18,
+    biomassG: 9,
     rootDepthM: 0.03,
-    label: 'Transplant establishment',
+    label: 'Early seedling',
   },
   {
+    // Reference Day 6.
+    day: 3,
+    diameterM: 0.118,
+    heightM: 0.087,
+    leafCount: 28,
+    biomassG: 21,
+    rootDepthM: 0.038,
+    label: 'Coral rosette forming',
+  },
+  {
+    // Reference Day 8.
     day: 5,
-    diameterM: 0.09,
-    heightM: 0.06,
-    leafCount: 9,
-    biomassG: 11,
-    rootDepthM: 0.045,
-    label: 'Early expansion',
+    diameterM: 0.163,
+    heightM: 0.124,
+    leafCount: 38,
+    biomassG: 41,
+    rootDepthM: 0.046,
+    label: 'Coral rosette forming',
   },
   {
-    day: 10,
-    diameterM: 0.14,
-    heightM: 0.11,
-    leafCount: 13,
-    biomassG: 36,
-    rootDepthM: 0.055,
+    // Reference Day 10.
+    day: 7,
+    diameterM: 0.184,
+    heightM: 0.158,
+    leafCount: 48,
+    biomassG: 65,
+    rootDepthM: 0.054,
     label: 'Rapid canopy development',
   },
   {
-    day: 15,
-    diameterM: 0.168,
-    heightM: 0.152,
-    leafCount: 17,
-    biomassG: 68,
-    rootDepthM: 0.065,
+    // Reference Day 12.
+    day: 9,
+    diameterM: 0.188,
+    heightM: 0.18,
+    leafCount: 58,
+    biomassG: 83,
+    rootDepthM: 0.062,
+    label: 'Rapid canopy development',
+  },
+  {
+    // Reference Day 14.
+    day: 11,
+    diameterM: 0.189,
+    heightM: 0.191,
+    leafCount: 60,
+    biomassG: 91,
+    rootDepthM: 0.069,
     label: 'Heading and deep ruffling',
   },
   {
-    day: 20,
+    // Reference Day 16.
+    day: 13,
+    diameterM: 0.1894,
+    heightM: 0.195,
+    leafCount: 60,
+    biomassG: 95,
+    rootDepthM: 0.073,
+    label: 'Heading and deep ruffling',
+  },
+  {
+    // Reference Day 18.
+    day: 15,
+    diameterM: 0.1898,
+    heightM: 0.198,
+    leafCount: 60,
+    biomassG: 98,
+    rootDepthM: 0.076,
+    label: 'Full coral head',
+  },
+  {
+    // Reference Day 20: 19 cm head, 20 cm tall, 60 leaves, 100 g.
+    day: NFT_PRODUCTION_DAYS,
     diameterM: 0.19,
     heightM: 0.2,
-    leafCount: 21,
+    leafCount: 60,
     biomassG: 100,
-    rootDepthM: 0.075,
+    rootDepthM: 0.078,
     label: 'Harvest ready',
   },
 ]);
 
 const CROP_TARGET_WEIGHT_G = Object.freeze({
   'green-coral': 100,
+  'red-coral': 100,
   'green-oak': 110,
   'red-oak': 105,
   'xiao-bai-cai': 70,
@@ -183,7 +237,9 @@ const CROP_TARGET_WEIGHT_G = Object.freeze({
 });
 
 const NFT_LEAF_COLOURS = Object.freeze({
-  green: [0x8fc45a, 0x7fb449, 0x6ba63e, 0x538f34, 0x3c7a2a],
+  // Green Coral follows a dark-green ramp from young seedling to deep forest
+  // green at harvest. Red and pale crops retain their established palettes.
+  green: [0x4a7c2e, 0x416f28, 0x376122, 0x2d521b, 0x234313],
   red: [0xc98a73, 0xb26b5f, 0x984b45, 0x793635, 0x5f282b],
   pale: [0xd8e89a, 0xc5dc7c, 0xafc965, 0x97b451, 0x7f9b40],
 });
@@ -281,7 +337,7 @@ function milestoneValue(day, key) {
 /**
  * Per-NFT-day growth record. This is the single source of truth for both stored
  * crop data and the production mesh. Diameter, height, leaf count and biomass
- * interpolate smoothly between the Day 1/5/10/15/20 milestones.
+ * interpolate smoothly across the reference Day 4-20 milestones.
  */
 export function nftDevelopmentForDay(day, crop = CROP_NAME) {
   const variety = resolveCropVariety(crop);
@@ -325,7 +381,7 @@ export function nftDevelopmentForDay(day, crop = CROP_NAME) {
   };
 }
 
-/** Continuous production scale used only for the one-day visual ease. */
+/** Legacy continuous production scale retained for compatibility with older UI code. */
 export function productionVisualScaleForDay(day) {
   const bounded = THREE.MathUtils.clamp(Number(day) || 1, 1, NFT_PRODUCTION_DAYS);
   return milestoneValue(bounded, 'diameterM') / NFT_GROWTH_MILESTONES[0].diameterM;
@@ -339,16 +395,14 @@ export function productionVisualScaleForDay(day) {
 export function productionLeafColorHex(day, materialSet = 'green') {
   const bounded = THREE.MathUtils.clamp(Number(day) || 1, 1, NFT_PRODUCTION_DAYS);
   const colours = NFT_LEAF_COLOURS[materialSet] ?? NFT_LEAF_COLOURS.green;
-  let index = 1;
-  while (index < NFT_GROWTH_MILESTONES.length && bounded > NFT_GROWTH_MILESTONES[index].day) {
-    index += 1;
-  }
-  if (index >= NFT_GROWTH_MILESTONES.length) return colours[colours.length - 1];
-  const previous = NFT_GROWTH_MILESTONES[index - 1];
-  const next = NFT_GROWTH_MILESTONES[index];
-  const t = smoothstep01((bounded - previous.day) / Math.max(1, next.day - previous.day));
-  const from = colours[index - 1];
-  const to = colours[index];
+  const maturity =
+    NFT_PRODUCTION_DAYS <= 1 ? 0 : (bounded - 1) / (NFT_PRODUCTION_DAYS - 1);
+  const position = maturity * (colours.length - 1);
+  const fromIndex = Math.floor(position);
+  const toIndex = Math.min(colours.length - 1, fromIndex + 1);
+  const t = position - fromIndex;
+  const from = colours[fromIndex];
+  const to = colours[toIndex];
   const mix = (shift) =>
     Math.round(
       THREE.MathUtils.lerp((from >> shift) & 0xff, (to >> shift) & 0xff, t),
@@ -358,7 +412,7 @@ export function productionLeafColorHex(day, materialSet = 'green') {
 
 /**
  * Continuous size curve used by the nursery renderer. Kept for compatibility;
- * NFT production rendering uses productionVisualScaleForDay instead.
+ * the NFT table renderer now uses lettuceStageForDay() from world/lettuce.js.
  */
 export function visualScaleForDay(day) {
   const bounded = THREE.MathUtils.clamp(Number(day) || 1, 1, MAX_CROP_DAY);
@@ -385,6 +439,21 @@ export const CROP_VARIETIES = Object.freeze({
     leafCountBonus: 0,
     cup: 1,
     status: 'Coral rosette',
+  },
+  'red-coral': {
+    key: 'red-coral',
+    name: 'Red Coral Lettuce',
+    label: 'Red Coral',
+    materialSet: 'red-coral',
+    lobes: 6,
+    lobeDepth: 0.38,
+    ruffle: 1.12,
+    widthScale: 1.02,
+    lengthScale: 0.98,
+    leafRate: 1,
+    leafCountBonus: 0,
+    cup: 1.04,
+    status: 'Red coral rosette',
   },
   'green-oak': {
     key: 'green-oak',
@@ -481,6 +550,8 @@ export const CROP_VARIETIES = Object.freeze({
 const CROP_ALIASES = {
   'green coral': 'green-coral',
   'green coral lettuce': 'green-coral',
+  'red coral': 'red-coral',
+  'red coral lettuce': 'red-coral',
   'green oak': 'green-oak',
   'green oak lettuce': 'green-oak',
   'red oak': 'red-oak',
@@ -508,6 +579,13 @@ export function resolveCropVariety(value = CROP_NAME) {
   const alias = CROP_ALIASES[normaliseCropKey(direct)];
   return CROP_VARIETIES[alias] ?? CROP_VARIETIES['green-coral'];
 }
+
+/**
+ * Crops the nursery bench can select without changing the row contract or the
+ * transplant pipeline. The grower can switch the sowing line between the two
+ * coral lettuces.
+ */
+export const NURSERY_CROPS = Object.freeze([CROP_NAME, 'Red Coral Lettuce']);
 
 /**
  * Per-day growth record. It deliberately exposes leaf count, height and canopy
@@ -592,8 +670,10 @@ export function cropDevelopmentForDay(day, crop = CROP_NAME) {
 
 /**
  * Build the immutable germination + variation plan for one tray.
- * Exactly 304 of the 320 cells germinate (95%); which cells germinate is chosen
- * once, then stored, so opening or growing the tray never reshuffles plants.
+ * Every one of the 320 cells germinates (100%), so a transplanted tray always
+ * fills the NFT table exactly. Per-cell rotation/scale/lean variation still comes
+ * from the deterministic seed, so opening or growing a tray never reshuffles
+ * plants and replays of the same tray look identical.
  */
 export function createTrayPlan({
   seed = 1,
@@ -606,18 +686,10 @@ export function createTrayPlan({
   const total = columns * rows;
   const germinatedCount = Math.round(total * GERMINATION_RATE);
   const random = mulberry32(seed >>> 0);
-  const order = Array.from({ length: total }, (_, index) => index);
 
-  // Fisher-Yates shuffle: deterministic for a tray, but spatially well mixed.
-  for (let index = order.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(random() * (index + 1));
-    [order[index], order[swap]] = [order[swap], order[index]];
-  }
-
-  const germination = new Uint8Array(total);
-  for (let index = 0; index < germinatedCount; index += 1) {
-    germination[order[index]] = 1;
-  }
+  // 100% germination: every cell is populated. The array is kept so the data
+  // contract, save format and renderer loops remain unchanged.
+  const germination = new Uint8Array(total).fill(1);
 
   const cellX = new Float32Array(total);
   const cellZ = new Float32Array(total);
@@ -1064,9 +1136,10 @@ function buildProductionPlantGeometry(day, variant = 0, detail = false, variety)
 }
 
 /**
- * NFT production plant geometry accessor.
+ * Legacy NFT production geometry accessor retained for compatibility and tests.
+ * The live table renderer uses getLettuceHeadGeometry() from world/lettuce.js.
  * @param {string} crop crop name or variety key
- * @param {number} day local NFT production day (1-20)
+ * @param {number} day local NFT production day (1-17)
  * @param {number} variant deterministic per-plant variant index (0-3)
  * @param {boolean} detailed high-detail buffer for close inspection
  */

@@ -1,6 +1,6 @@
 /**
  * Couples a carried, transplant-ready nursery tray to the existing NFT crop
- * simulation. A tray is only accepted when the whole 304-plug batch fits the
+ * simulation. A tray is only accepted when the whole 320-plug batch fits the
  * selected table; each gully's 40-hole capacity is respected.
  */
 export class SeedlingTransplantController {

@@ -2,16 +2,23 @@ import * as THREE from 'three';
 import {
   NFT_PRODUCTION_DAYS,
   getNftNetPotGeometry,
-  getNftPlantGeometry,
   getNftRootGeometry,
   nftDevelopmentForDay,
-  productionLeafColorHex,
-  productionVisualScaleForDay,
   resolveCropVariety,
 } from '../simulation/GreenCoralGrowth.js';
+import {
+  LETTUCE_CROWN_OFFSET_M,
+  createLettuceReadyRingMaterial,
+  getLettuceHeadGeometry,
+  getLettuceLeafMaterial,
+  getLettuceNetCupMaterial,
+  getLettuceReadyRingGeometry,
+  getLettuceRockwoolGeometry,
+  getLettuceRockwoolMaterial,
+  lettuceStageForDay,
+} from './lettuce.js';
 
 const temp = new THREE.Object3D();
-const scratchColor = new THREE.Color();
 const ease = (value) => value * value * (3 - 2 * value);
 const DETAILED_VARIANTS = 4;
 
@@ -19,9 +26,11 @@ const DETAILED_VARIANTS = 4;
  * Renders the real per-hole NFT production plants held by PlantSimulation.
  *
  * Each plant is bucketed by (crop, local NFT day, deterministic variant), so a
- * table needs only a few InstancedMeshes while still showing 304 independently
- * aged individuals. Geometry is rebuilt only when a table's actual plants or
- * day buckets change; a short eased scale bridges the one-day growth step.
+ * table needs only a few InstancedMeshes while still showing 320 independently
+ * aged individuals. Every bucket reuses one cached merged lettuce geometry, a
+ * vertex-coloured shared leaf material, one net cup and one rockwool cube.
+ * Geometry is rebuilt only when a table's actual plants or day buckets change;
+ * a short eased scale bridges the one-day growth step.
  */
 export class NftCropLayer {
   constructor({ materials, tables, layout }) {
@@ -33,19 +42,7 @@ export class NftCropLayer {
     this.tableGroups = new Map();
     this.signatures = new Map();
 
-    const baseLeaf =
-      materials.seedlingLeaf5 ??
-      materials.cropLeafGreen5 ??
-      materials.nurseryTrayCells;
-    this.leafMaterial = baseLeaf
-      ? baseLeaf.clone()
-      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
-    this.leafMaterial.name = 'nft-production-leaf-instanced-colour';
-    this.leafMaterial.color.set(0xffffff);
-    this.leafMaterial.side = THREE.DoubleSide;
-    this.leafMaterial.vertexColors = false;
-    this.leafMaterial.needsUpdate = true;
-
+    this.leafMaterial = getLettuceLeafMaterial();
     this.rootMaterial = new THREE.MeshStandardMaterial({
       name: 'nft-production-roots',
       color: 0xe4dcc0,
@@ -53,13 +50,9 @@ export class NftCropLayer {
       metalness: 0,
       side: THREE.DoubleSide,
     });
-    this.netPotMaterial = new THREE.MeshStandardMaterial({
-      name: 'nft-production-net-pot',
-      color: 0x39463d,
-      roughness: 0.82,
-      metalness: 0.04,
-      side: THREE.DoubleSide,
-    });
+    this.netPotMaterial = getLettuceNetCupMaterial();
+    this.rockwoolMaterial = getLettuceRockwoolMaterial();
+    this.readyRingMaterial = createLettuceReadyRingMaterial();
     this.lastVersion = -1;
   }
 
@@ -77,6 +70,8 @@ export class NftCropLayer {
         plants: [],
         rootMesh: null,
         potMesh: null,
+        rockwoolMesh: null,
+        readyRingMesh: null,
         ageById: new Map(),
         fromAgeById: new Map(),
         transitionElapsed: 1,
@@ -125,6 +120,7 @@ export class NftCropLayer {
             day: development.day,
             variant,
             variety,
+            detailed,
             plants: [],
           });
         }
@@ -169,15 +165,15 @@ export class NftCropLayer {
     entry.transitionDuration = 1.4;
 
     for (const bucket of buckets.values()) {
-      const geometry = getNftPlantGeometry(
+      const geometry = getLettuceHeadGeometry(
         bucket.variety.name,
         bucket.day,
         bucket.variant,
         detailed,
       );
       const mesh = new THREE.InstancedMesh(geometry, this.leafMaterial, bucket.plants.length);
-      mesh.name = `${table.id}-${bucket.variety.key}-nft-day-${bucket.day}-v${bucket.variant}`;
-      mesh.castShadow = detailed;
+      mesh.name = `${table.id}-${bucket.variety.key}-lettuce-day-${bucket.day}-v${bucket.variant}`;
+      mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
       mesh.userData.sharedGeometry = true;
@@ -188,13 +184,6 @@ export class NftCropLayer {
         mesh.userData.resolveInteractable = (instanceId) =>
           this.describePlant(bucket.plants[instanceId], table);
       }
-      bucket.plants.forEach((plant, instance) => {
-        scratchColor.set(
-          productionLeafColorHex(bucket.day, bucket.variety.materialSet, bucket.variant),
-        );
-        mesh.setColorAt(instance, scratchColor);
-      });
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       entry.group.add(mesh);
       entry.meshes.push(mesh);
       entry.buckets.push({ mesh, bucket });
@@ -234,6 +223,53 @@ export class NftCropLayer {
     entry.meshes.push(potMesh);
     entry.potMesh = potMesh;
 
+    const rockwoolMesh = new THREE.InstancedMesh(
+      getLettuceRockwoolGeometry(),
+      this.rockwoolMaterial,
+      count,
+    );
+    rockwoolMesh.name = `${table.id}-lettuce-rockwool-cubes`;
+    rockwoolMesh.castShadow = detailed;
+    rockwoolMesh.receiveShadow = true;
+    rockwoolMesh.frustumCulled = false;
+    rockwoolMesh.userData.sharedGeometry = true;
+    rockwoolMesh.userData.suppressHighlight = true;
+    if (table.data) {
+      rockwoolMesh.userData.interactable = table.data;
+      rockwoolMesh.userData.tableId = table.id;
+    }
+    entry.group.add(rockwoolMesh);
+    entry.meshes.push(rockwoolMesh);
+    entry.rockwoolMesh = rockwoolMesh;
+
+    const readyPlants = plantings.filter(
+      (plant) => plant.harvestReady || this.nftDayForPlant(plant) >= NFT_PRODUCTION_DAYS,
+    );
+    if (readyPlants.length > 0) {
+      const ringMesh = new THREE.InstancedMesh(
+        getLettuceReadyRingGeometry(),
+        this.readyRingMaterial,
+        readyPlants.length,
+      );
+      ringMesh.name = `${table.id}-lettuce-harvest-ready-rings`;
+      ringMesh.castShadow = false;
+      ringMesh.receiveShadow = false;
+      ringMesh.frustumCulled = false;
+      ringMesh.userData.sharedGeometry = true;
+      ringMesh.userData.suppressHighlight = true;
+      if (table.data) {
+        ringMesh.userData.interactable = table.data;
+        ringMesh.userData.tableId = table.id;
+      }
+      entry.group.add(ringMesh);
+      entry.meshes.push(ringMesh);
+      entry.readyRingMesh = ringMesh;
+      entry.readyPlantIds = new Set(readyPlants.map((plant) => plant.id));
+    } else {
+      entry.readyRingMesh = null;
+      entry.readyPlantIds = null;
+    }
+
     this.placeTablePlants(table, entry);
   }
 
@@ -260,20 +296,23 @@ export class NftCropLayer {
   }
 
   placeTablePlants(table, entry) {
-    const { rootMesh, potMesh } = entry;
+    const { rootMesh, potMesh, rockwoolMesh, readyRingMesh } = entry;
     for (const { mesh, bucket } of entry.buckets) {
       bucket.plants.forEach((plant, instance) => {
         const hole = this.holeTransform(table, plant);
         if (!hole) return;
         const displayAge = this.displayAge(entry, plant);
+        const targetAge = this.nftDayForPlant(plant);
+        // Bridge the one-day step using the same diameter curve as the rendered
+        // head, so a new stage starts at yesterday's width and eases to today's.
         const correction = THREE.MathUtils.clamp(
-          productionVisualScaleForDay(displayAge) /
-            productionVisualScaleForDay(this.nftDayForPlant(plant)),
+          lettuceStageForDay(displayAge).diameterM /
+            Math.max(0.0001, lettuceStageForDay(targetAge).diameterM),
           0.82,
           1,
         );
-        const variantScale = 0.99 + (plant.variantSeed ?? 0.5) * 0.01;
-        temp.position.set(hole.x, hole.y + 0.004, hole.z);
+        const variantScale = 0.985 + (plant.variantSeed ?? 0.5) * 0.03;
+        temp.position.set(hole.x, hole.y + LETTUCE_CROWN_OFFSET_M, hole.z);
         temp.rotation.set(0, plant.growthSeed ?? (plant.variantSeed ?? 0.5) * Math.PI * 2, 0);
         temp.scale.setScalar(correction * variantScale);
         temp.updateMatrix();
@@ -283,6 +322,7 @@ export class NftCropLayer {
       mesh.computeBoundingSphere();
     }
 
+    let ringInstance = 0;
     entry.plants.forEach((plant, instance) => {
       const hole = this.holeTransform(table, plant);
       if (!hole) return;
@@ -304,14 +344,34 @@ export class NftCropLayer {
         temp.updateMatrix();
         potMesh.setMatrixAt(instance, temp.matrix);
       }
+      if (rockwoolMesh) {
+        temp.position.set(hole.x, hole.y + 0.006, hole.z);
+        temp.rotation.set(0, seed * Math.PI * 0.5, 0);
+        temp.scale.setScalar(1);
+        temp.updateMatrix();
+        rockwoolMesh.setMatrixAt(instance, temp.matrix);
+      }
+      if (
+        readyRingMesh &&
+        entry.readyPlantIds?.has(plant.id) &&
+        ringInstance < readyRingMesh.count
+      ) {
+        temp.position.set(
+          hole.x,
+          hole.y + LETTUCE_CROWN_OFFSET_M + development.height + 0.018,
+          hole.z,
+        );
+        temp.rotation.set(0, 0, 0);
+        temp.scale.setScalar(1);
+        temp.updateMatrix();
+        readyRingMesh.setMatrixAt(ringInstance, temp.matrix);
+        ringInstance += 1;
+      }
     });
-    if (rootMesh) {
-      rootMesh.instanceMatrix.needsUpdate = true;
-      rootMesh.computeBoundingSphere();
-    }
-    if (potMesh) {
-      potMesh.instanceMatrix.needsUpdate = true;
-      potMesh.computeBoundingSphere();
+    for (const mesh of [rootMesh, potMesh, rockwoolMesh, readyRingMesh]) {
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
     }
   }
 
@@ -335,6 +395,9 @@ export class NftCropLayer {
     entry.buckets.length = 0;
     entry.rootMesh = null;
     entry.potMesh = null;
+    entry.rockwoolMesh = null;
+    entry.readyRingMesh = null;
+    entry.readyPlantIds = null;
   }
 
   update(dt, viewer = null) {
@@ -362,8 +425,9 @@ export class NftCropLayer {
     this.group.removeFromParent();
     this.group = null;
     this.simulation = null;
-    this.leafMaterial?.dispose();
+    // Leaf/net-cup/rockwool materials are shared module-level lettuce materials.
+    // They are owned by lettuce.js, so this layer only disposes its own ones.
     this.rootMaterial?.dispose();
-    this.netPotMaterial?.dispose();
+    this.readyRingMaterial?.dispose();
   }
 }

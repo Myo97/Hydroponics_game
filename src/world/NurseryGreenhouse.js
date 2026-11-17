@@ -119,6 +119,18 @@ export class NurseryGreenhouse {
     return this.equipment?.seedAllEmpty(options) ?? { seeded: 0, germinated: 0 };
   }
 
+  get cropName() {
+    return this.equipment?.cropName ?? '';
+  }
+
+  setCrop(cropName) {
+    return this.equipment?.setCrop(cropName) ?? '';
+  }
+
+  cycleCrop() {
+    return this.equipment?.cycleCrop() ?? '';
+  }
+
   advanceDay(calendarDay) {
     return this.equipment?.advanceDay(calendarDay) ?? {
       advanced: 0,

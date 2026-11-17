@@ -42,6 +42,8 @@ export class NurseryEquipment {
     }).build(group);
 
     this.growth = new NurseryGrowthController({ table: this.table, growDuration: 3.2 });
+    // Let trays read the current bench crop for their empty-state prompts.
+    this.table.growth = this.growth;
 
     // The trap anchors are local to the nursery root; the frame grid itself is
     // also local, while NURSERY_FRAME_Z is exported in world Z.
@@ -92,6 +94,18 @@ export class NurseryEquipment {
 
   seedAllEmpty(options = {}) {
     return this.growth?.seedAllEmpty(options) ?? { seeded: 0, germinated: 0 };
+  }
+
+  get cropName() {
+    return this.growth?.cropName ?? '';
+  }
+
+  setCrop(cropName) {
+    return this.growth?.setCrop(cropName) ?? '';
+  }
+
+  cycleCrop() {
+    return this.growth?.cycleCrop() ?? '';
   }
 
   advanceDay(calendarDay) {

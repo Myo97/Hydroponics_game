@@ -42,8 +42,8 @@ export class NurseryTable {
     this.collisionBox = null;
     this.plantRoot = null;
     this.hitRoot = null;
-    this.buttons = { grow: null, seed: null };
-    this.buttonInfo = { grow: null, seed: null };
+    this.buttons = { grow: null, seed: null, crop: null };
+    this.buttonInfo = { grow: null, seed: null, crop: null };
     this.stockIndex = -1;
     this.plantedIndex = -1;
     this.readyIndex = -1;
@@ -424,7 +424,7 @@ export class NurseryTable {
     this.trayMeshes.cells.instanceMatrix.needsUpdate = true;
   }
 
-  /** Physical SEED ALL / GROW panel on the south end of the bench. */
+  /** Physical CROP / SEED ALL / GROW panel on the south end of the bench. */
   buildControls(group) {
     const pan = this.bed.floodPan;
     const panel = new THREE.Group();
@@ -433,15 +433,15 @@ export class NurseryTable {
     group.add(panel);
 
     panel.add(
-      boxMesh(0.46, 0.2, 0.065, this.materials.stainless, V(0, 0, 0), 'nursery-growth-control-housing'),
+      boxMesh(0.62, 0.2, 0.065, this.materials.stainless, V(0, 0, 0), 'nursery-growth-control-housing'),
     );
     panel.add(
-      boxMesh(0.4, 0.14, 0.008, this.materials.steelDark, V(0, 0.005, 0.038), 'nursery-growth-control-face'),
+      boxMesh(0.56, 0.14, 0.008, this.materials.steelDark, V(0, 0.005, 0.038), 'nursery-growth-control-face'),
     );
     if (this.materials.createLabelMaterial) {
       const label = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.37, 0.048),
-        this.materials.createLabelMaterial('NURSERY PROPAGATION', 'SEED ALL  |  GROW'),
+        new THREE.PlaneGeometry(0.5, 0.048),
+        this.materials.createLabelMaterial('NURSERY PROPAGATION', 'CROP  |  SEED ALL  |  GROW'),
       );
       label.name = 'nursery-growth-control-label';
       label.position.set(0, 0.066, 0.043);
@@ -450,7 +450,7 @@ export class NurseryTable {
 
     const makeButton = (x, label, interaction, hint, description) => {
       const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.037, 0.037, 0.015, 20),
+        new THREE.CylinderGeometry(0.034, 0.034, 0.015, 20),
         this.materials.ledGreen,
       );
       cap.name = `nursery-${label.toLowerCase()}-button`;
@@ -469,7 +469,7 @@ export class NurseryTable {
         specs: [],
       };
       const proxy = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.105, 0.035),
+        new THREE.BoxGeometry(0.15, 0.105, 0.035),
         this.materials.hitProxy,
       );
       proxy.name = `nursery-${label.toLowerCase()}-hit`;
@@ -480,34 +480,64 @@ export class NurseryTable {
       return { cap, info };
     };
 
+    this.buttons.crop = makeButton(
+      -0.19,
+      'CROP',
+      'nursery-cycle-crop',
+      'Crop: Green Coral Lettuce - click to switch',
+      'Bench crop selector: choose the lettuce variety loaded in the seed drill. Green Coral and Red Coral Lettuce share the same reference Day 4-20 morphology but use different leaf palettes.',
+    );
     this.buttons.seed = makeButton(
-      -0.105,
+      0,
       'SEED',
       'nursery-seed-all',
       'Sow every empty tray',
-      'Batch seed drill: sow Green Coral Lettuce into every empty 320-cell tray on this bench. Each tray receives its own deterministic 95% germination result.',
+      'Batch seed drill: sow the selected lettuce variety into every empty 320-cell tray on this bench. Germination is 100%, so no cell is left empty.',
     );
     this.buttons.grow = makeButton(
-      0.105,
+      0.19,
       'GROW',
       'nursery-grow-all',
       'Grow planted trays to Day 14',
       'Accelerated nursery cycle: advance every planted tray through Day 1 to Day 14 in a short controlled sequence. Empty trays are left untouched and the game clock does not change.',
     );
+    this.buttonInfo.crop = this.buttons.crop.info;
     this.buttonInfo.seed = this.buttons.seed.info;
     this.buttonInfo.grow = this.buttons.grow.info;
     this.setGrowthControlsState({ empty: this.trays.length, planted: 0, ready: 0, active: 0 });
   }
 
   /** Live labels and lamp colour for the bench control panel. */
-  setGrowthControlsState({ empty = 0, growing = 0, ready = 0, active = 0, carried = 0, seedlings = 0 } = {}) {
+  setGrowthControlsState({
+    empty = 0,
+    growing = 0,
+    ready = 0,
+    active = 0,
+    carried = 0,
+    seedlings = 0,
+    cropName = '',
+    cropLabel = 'Green Coral Lettuce',
+  } = {}) {
     const planted = growing + ready + carried;
+    const redCoral = /red/i.test(cropName) || /red/i.test(cropLabel);
+    if (this.buttons.crop) {
+      this.buttons.crop.cap.material = redCoral
+        ? this.materials.ledRed
+        : this.materials.ledGreen;
+      this.buttonInfo.crop.interactionHint = `Crop: ${cropLabel} - click to switch`;
+      this.buttonInfo.crop.specs = [
+        ['Loaded crop', cropLabel],
+        ['Available', 'Green Coral Lettuce · Red Coral Lettuce'],
+        ['Growth cycle', 'Day 1 to Day 17 · reference lettuce Days 4-20'],
+      ];
+    }
     if (this.buttons.seed) {
       this.buttons.seed.cap.material =
         empty > 0 ? this.materials.ledGreen : this.materials.ledRed;
       this.buttonInfo.seed.interactionHint =
         empty > 0 ? `Sow ${empty} empty tray${empty === 1 ? '' : 's'}` : 'All trays sown';
       this.buttonInfo.seed.specs = [
+        ['Crop', cropLabel],
         ['Empty trays', String(empty)],
         ['Stock on bench', `${planted} planted · ${seedlings.toLocaleString('en-GB')} seedlings`],
       ];
@@ -534,6 +564,10 @@ export class NurseryTable {
         ['Ready for transplant', String(ready)],
         ['Cycle', 'Day 1 to Day 14 · clock unchanged'],
       ];
+    }
+    // Empty tray prompts quote the loaded crop, so refresh them on crop change.
+    for (const tray of this.trays ?? []) {
+      if (tray.state === 'empty') tray.refreshInteraction();
     }
   }
 
@@ -1015,8 +1049,8 @@ export class NurseryTable {
     this.trays.length = 0;
     this.plantRoot = null;
     this.hitRoot = null;
-    this.buttons = { grow: null, seed: null };
-    this.buttonInfo = { grow: null, seed: null };
+    this.buttons = { grow: null, seed: null, crop: null };
+    this.buttonInfo = { grow: null, seed: null, crop: null };
     this.trayMeshes = null;
     this.waterMesh = null;
     this.sightWater = null;

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Green Coral Lettuce – three.js</title>
+<style>
+:root{--bg:#eef3e8;--panel:#ffffffd9;--text:#1d2a14;--muted:#5d6b52;--accent:#4c9a1f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141a10;--panel:#1f2918d9;--text:#e6efdc;--muted:#9bab8d;--accent:#7bd13a}}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#ui{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:420px;margin:0 auto;background:var(--panel);backdrop-filter:blur(8px);border-radius:14px;padding:12px 16px;font-size:14px}
+#ui label{display:flex;align-items:center;gap:10px;margin:6px 0}
+#ui label span{width:78px;color:var(--muted)}
+#ui input[type=range]{flex:1;accent-color:var(--accent)}
+#ui output{width:46px;text-align:right;font-variant-numeric:tabular-nums}
+h1{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:16px;margin:0;font-size:16px;font-weight:600}
+h1 small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<h1>Green coral lettuce<small>Drag to rotate · scroll or pinch to zoom</small></h1>
+<canvas id="c"></canvas>
+<div id="ui">
+  <label><span>Day</span><input id="day" type="range" min="1" max="20" step="0.1" value="20"><output id="dayO">20</output></label>
+  <label><span>Frill</span><input id="frill" type="range" min="0.3" max="1.8" step="0.05" value="1"><output id="frillO">1.0</output></label>
+  <label><span>Variation</span><input id="seed" type="range" min="1" max="50" step="1" value="7"><output id="seedO">7</output></label>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ================= LETTUCE GENERATOR (copy this block into your project) =================
+   buildLettuce({day, frill, seed}) -> THREE.Group
+   day: 1 (transplant seedling) .. 20 (harvest). Units: 1 = ~10 cm. */
+function buildLettuce({ day = 20, frill = 1, seed = 7, leafCount = 60 } = {}) {
+  const rngFor = (s) => () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  const GOLDEN = 2.399963;
+  const NU = 40, NV = 16;                    // leaf grid resolution
+  const pos = [], col = [], idx = [];
+  const g = (day - 1) / 19;                  // overall growth 0..1
+  const c1 = new THREE.Color(0x3f7d14), c2 = new THREE.Color(0x86c322), c3 = new THREE.Color(0xc4e35a);
+  const tmp = new THREE.Color();
+
+  for (let i = 0; i < leafCount; i++) {
+    const r = rngFor(seed * 1000 + i);        // per-leaf stable randomness
+    const t = i / (leafCount - 1);            // 0 = innermost, 1 = outermost
+    // Real lettuce order: outer (oldest) leaves exist first and expand first;
+    // new leaves push out of the centre later, small and upright.
+    const emerge = 0.3 + (1 - t) * 11.7;      // day this leaf appears (outer first, innermost ~day 12)
+    const d = day - emerge;                   // leaf age in days
+    if (d <= 0) continue;
+    const size = smooth(d) * (0.3 + 0.7 * smooth(d / 9));   // pops out small, then expands over ~9 days
+    const open = smooth(d / 10);              // 0 = upright/folded, 1 = fully opened
+    if (size < 0.04) continue;
+
+    const az = i * GOLDEN + (r() - 0.5) * 0.25;
+    const Lfinal = 0.38 + 0.95 * Math.pow(t, 0.75);
+    const L = Lfinal * (0.25 + 0.75 * size) * (0.92 + r() * 0.16);
+    const W = L * (0.62 + r() * 0.18);
+    const pitch0 = lerp(1.45, lerp(1.45, 0.45, Math.pow(t, 0.9)), open) + (r() - 0.5) * 0.12;
+    const droop = lerp(-0.15, 1.15, Math.pow(t, 1.1)) * (0.15 + 0.85 * open);
+    const r0 = 0.04 + 0.11 * t;
+    const y0 = 0.12 + 0.3 * (1 - t) * g * 0.5 + 0.05 * (1 - t);
+    const phase = r() * 6.28;
+    const f1 = 12 + r() * 6, f2 = 28 + r() * 10;
+    const amp = 0.13 * frill * Math.min(1, 0.4 + 0.6 * size) * (0.55 + 0.45 * t + 0.25);
+
+    const radX = Math.cos(az), radZ = Math.sin(az), tanX = -Math.sin(az), tanZ = Math.cos(az);
+    let pr = r0, py = y0;
+    const base = pos.length / 3;
+
+    for (let j = 0; j <= NU; j++) {
+      const u = j / NU;
+      const th = pitch0 - droop * u;
+      if (j > 0) { pr += Math.cos(th) * L / NU; py += Math.sin(th) * L / NU; }
+      const nr = -Math.sin(th), ny = Math.cos(th);         // normal in (radial, up) plane
+      const profile = 0.07 + Math.pow(Math.sin(Math.PI * Math.pow(u, 0.7)), 0.75);
+      for (let k = 0; k <= NV; k++) {
+        const v = -1 + 2 * k / NV, av = Math.abs(v);
+        const e = Math.pow(av, 2.1);
+        let w = W * 0.5 * profile * v;
+        w += e * 0.05 * L * Math.sin(u * 46 + phase + v * 3);                        // edge wobble
+        const ruffle = amp * L * e * (0.65 * Math.sin(u * L * f1 + phase) + 0.38 * Math.sin(u * L * f2 + v * 5 + phase * 2) + 0.2 * Math.sin(v * 9 + u * 17));
+        const cup = 0.28 * W * v * v * (0.5 + 0.5 * u);                              // cup the blade upward
+        const midrib = -0.012 * Math.exp(-av * 9);                                   // slight rib groove
+        const off = ruffle + cup + midrib;
+        pos.push((pr + nr * off) * radX + tanX * w, py + ny * off, (pr + nr * off) * radZ + tanZ * w);
+        // colour: dark near base & midrib, lighter toward edges; inner leaves paler
+        const m = Math.min(1, u * 0.55 + e * 0.6 + (r() - 0.5) * 0.04);
+        tmp.copy(c1).lerp(c2, Math.min(1, m * 1.3));
+        tmp.lerp(c3, Math.max(0, (1 - t) * 0.55 - 0.1) + e * 0.12);
+        if (u < 0.12) tmp.lerp(c3, 0.5 * (1 - u / 0.12));                            // pale base
+        col.push(tmp.r, tmp.g, tmp.b);
+      }
+    }
+    for (let j = 0; j < NU; j++) for (let k = 0; k < NV; k++) {
+      const a = base + j * (NV + 1) + k, b = a + 1, c = a + NV + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.62, metalness: 0 });
+  const leaves = new THREE.Mesh(geo, mat);
+  leaves.castShadow = true; leaves.receiveShadow = true;
+
+  const grp = new THREE.Group();
+  grp.add(leaves);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.06 + 0.07 * g, 0.09 + 0.08 * g, 0.2 + 0.1 * g, 14),
+    new THREE.MeshStandardMaterial({ color: 0xcfe39a, roughness: 0.7 }));
+  stem.position.y = 0.1 + 0.05 * g; stem.castShadow = true;
+  grp.add(stem);
+  return grp;
+}
+/* ================= END GENERATOR ================= */
+
+/* ---------- demo scene ---------- */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+scene.background = new THREE.Color(dark ? 0x141a10 : 0xe9f0e2);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7a55, 0.75));
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.1);
+sun.position.set(3, 6, 2.5); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 20 });
+sun.shadow.bias = -0.0006;
+scene.add(sun);
+
+// NFT gully (white channel) + net pot
+const white = new THREE.MeshStandardMaterial({ color: 0xf4f6f2, roughness: 0.5 });
+const gully = new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 1.1), white);
+gully.position.y = -0.05; gully.receiveShadow = true; gully.castShadow = true; scene.add(gully);
+const rim1 = new THREE.Mesh(new THREE.BoxGeometry(5, 0.14, 0.06), white); rim1.position.set(0, 0.0, 0.52);
+const rim2 = rim1.clone(); rim2.position.z = -0.52; scene.add(rim1, rim2);
+const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.2, 24, 1, true),
+  new THREE.MeshStandardMaterial({ color: 0x222622, roughness: 0.9, side: THREE.DoubleSide }));
+pot.position.y = 0.1; pot.castShadow = true; scene.add(pot);
+const potRim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 8, 28), pot.material);
+potRim.rotation.x = Math.PI / 2; potRim.position.y = 0.2; scene.add(potRim);
+
+let plant = null;
+const el = (id) => document.getElementById(id);
+function rebuild() {
+  const day = +el('day').value, frill = +el('frill').value, seed = +el('seed').value;
+  el('dayO').textContent = Math.round(day * 10) / 10; el('frillO').textContent = frill.toFixed(1); el('seedO').textContent = seed;
+  if (plant) { plant.traverse(o => { o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); scene.remove(plant); }
+  plant = buildLettuce({ day, frill, seed });
+  plant.position.y = 0.1;
+  scene.add(plant);
+}
+['day', 'frill', 'seed'].forEach(id => el(id).addEventListener('input', rebuild));
+rebuild();
+
+// simple orbit (drag + wheel + pinch)
+let theta = 0.6, phi = 1.08, dist = 5.2, tY = 0.55, autoRot = true;
+const ptrs = new Map(); let pinch0 = 0;
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); autoRot = false; });
+canvas.addEventListener('pointerup', e => { ptrs.delete(e.pointerId); pinch0 = 0; });
+canvas.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+  const p = ptrs.get(e.pointerId);
+  if (ptrs.size === 1) { theta -= (e.clientX - p[0]) * 0.007; phi = Math.min(1.55, Math.max(0.2, phi - (e.clientY - p[1]) * 0.007)); }
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0) dist = Math.min(12, Math.max(1.5, dist * pinch0 / d)); pinch0 = d; }
+});
+canvas.addEventListener('wheel', e => { e.preventDefault(); dist = Math.min(12, Math.max(1.5, dist * (1 + e.deltaY * 0.001))); }, { passive: false });
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+(function loop() {
+  if (autoRot) theta += 0.004;
+  camera.position.set(Math.sin(phi) * Math.sin(theta) * dist, tY + Math.cos(phi) * dist, Math.sin(phi) * Math.cos(theta) * dist);
+  camera.lookAt(0, tY, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -83,7 +83,7 @@ const HUD_MARKUP = `
       <span class="carry-dot"></span>
       <span class="carry-label">CARRYING</span>
       <strong data-carry-title>Seedling tray</strong>
-      <span data-carry-detail>304 plugs &middot; Day 14</span>
+      <span data-carry-detail>320 plugs &middot; Day 14</span>
       <span class="carry-action"><kbd>E</kbd> place / transplant</span>
     </div>
 

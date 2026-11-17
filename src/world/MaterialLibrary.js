@@ -467,7 +467,7 @@ export class MaterialLibrary {
     // Green Coral Lettuce foliage. Each stage has a distinct chlorophyll tone;
     // all are double-sided because the thin instanced leaf ribbons have no
     // modelled underside.
-    const leafColours = [0xd4e8ad, 0x8bc34a, 0x7cb342, 0x689f38, 0x5f9f35];
+    const leafColours = [0x5a8a3a, 0x4b7a30, 0x3c6825, 0x2d571b, 0x214313];
     leafColours.forEach((color, index) => {
       this[`seedlingLeaf${index + 1}`] = this.track(
         new THREE.MeshStandardMaterial({
@@ -493,6 +493,22 @@ export class MaterialLibrary {
           roughness: 0.62,
           side: THREE.DoubleSide,
           envMapIntensity: 0.3,
+        }),
+      );
+    });
+
+    // Red Coral Lettuce: a brighter anthocyanin rosette than Red Oak, with a
+    // pinker seedling stage so the two red varieties read apart at plug size.
+    const redCoralColours = [0xf3b3ab, 0xe0796f, 0xc74a50, 0xa33240, 0x7e2333];
+    redCoralColours.forEach((color, index) => {
+      this[`cropLeafRedCoral${index + 1}`] = this.track(
+        new THREE.MeshStandardMaterial({
+          name: `red-coral-leaf-stage-${index + 1}`,
+          color,
+          metalness: 0.0,
+          roughness: 0.62,
+          side: THREE.DoubleSide,
+          envMapIntensity: 0.32,
         }),
       );
     });
