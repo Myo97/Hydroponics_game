@@ -53,7 +53,8 @@ export const LAYOUT = {
     skylightColor: 0xd8e8ef,
     groundColor: 0x6c675a,
     skylightIntensity: 0.36,
-    shadowExtent: 27,
+    shadowExtent: 32,
+    shadowTargetZ: 8,
     shadowNear: 1,
     shadowFar: 220,
     shadowBias: -0.0004,
@@ -388,9 +389,9 @@ export const LAYOUT = {
    * Walkthrough pose is restored untouched when the drone lands.
    */
   droneView: {
-    position: [0, 17, 27],
+    position: [0, 20, 46],
     yaw: 0,
-    pitch: -0.5,
+    pitch: -0.45,
     speed: 9,
     boost: 2.2,
     verticalSpeed: 5.5,
@@ -404,7 +405,7 @@ export const LAYOUT = {
       minY: 3.2,
       maxY: 34,
       minZ: -42,
-      maxZ: 44,
+      maxZ: 58,
     },
   },
 
@@ -515,9 +516,141 @@ export const LAYOUT = {
     screenSize: [0.54, 0.25],
   },
 
+  /**
+   * Nursery greenhouse.
+   *
+   * A second, independent glasshouse standing beside the main production house.
+   * It reuses the main Venlo construction language - same 4 m truss pitch,
+   * gutter/ridge heights, galvanised columns, aluminium glazing bars, glass and
+   * concrete plinth - but is one span wide and two bays long. The footprint is
+   * exactly half the previous 8 x 16 m nursery in both plan dimensions while
+   * the section height is unchanged.
+   *
+   * Footprint: X in [-19, -15], Z in [12, 20]. The main house west wall is at
+   * X = -12, leaving a 3.0 m clear structural gap (2.3 m between floor slabs)
+   * for a walkway from the south apron into the nursery door. The nursery south
+   * gable door lands on the existing concrete apron.
+   */
+  nursery: {
+    id: 'nursery-greenhouse',
+    label: 'Nursery Greenhouse',
+    zone: 'nursery',
+    width: 4, // 1 roof span of 4 m - half the previous 8 m width
+    length: 8, // 2 frame bays of 4 m - half the previous 16 m length
+    centre: [-17, 16], // beside the main house west wall, aligned with its south half
+    // Height, bay pitch and construction sections intentionally unchanged.
+    gutterHeight: 4.6,
+    ridgeHeight: 5.55,
+    plinthHeight: 0.9,
+    bayWidth: 4,
+    bayLength: 4,
+    wallThickness: 0.18,
+    perimeterColumnSize: 0.18,
+    columnSize: 0.15,
+    /**
+     * Two-leaf sliding entrance. The 1.8 m opening fits the 4 m gable and the
+     * explicit 3.9 m track parks both leaves over the side glazing instead of
+     * projecting beyond the narrow house.
+     */
+    entrance: {
+      width: 1.8,
+      height: 2.4,
+      panelWidth: 0.88,
+      openTravel: 0.92,
+      leafDepth: 0.055,
+      trackOverrun: 0.72,
+      interlockDelay: 0.18,
+      trackLength: 3.9,
+      guideLength: 3.5,
+      hangerOffsets: [-1.65, -0.9, 0.9, 1.65],
+    },
+    /**
+     * One commercial single-layer ebb-and-flow nursery bench. The 3.4 x 1.8 m
+     * outer frame contains a 3.36 x 1.74 m flood pan, leaving the specified
+     * 2-3 cm perimeter clearance around the 3.30 x 1.68 m tray block.
+     */
+    tidalBed: {
+      id: 'nursery-tidal-bed-1',
+      centre: [0, 0], // local to the nursery root
+      width: 1.8,
+      length: 3.4,
+      height: 0.88,
+      floodPan: {
+        width: 1.74,
+        length: 3.36,
+        baseY: 0.7,
+        floorY: 0.76,
+        rimHeight: 0.12,
+        rimThickness: 0.01,
+        waterDepth: 0.04,
+      },
+      trays: {
+        count: 36,
+        rows: 6, // along the bench length
+        columns: 6, // across the bench width
+        length: 0.55,
+        width: 0.28,
+        height: 0.045,
+        cells: 320,
+      },
+      cycle: {
+        floodSeconds: 20,
+        irrigateSeconds: 30,
+        drainSeconds: 22,
+        intervalSeconds: 240,
+        initialDelaySeconds: 8,
+      },
+    },
+    /** One tidal bed only; the rectangle is expanded in world coordinates. */
+    tables: [{ id: 'nursery-tidal-bed-1', centreX: -17, centreZ: 16 }],
+    irrigation: {
+      reservoirId: 'ro-tank-2',
+      reservoirName: 'Reservoir 2',
+      pumpPosition: [1.46, -3.15],
+      pumpHeight: 0.4,
+      feedLps: 8, // representative pump duty while the flood pan fills
+    },
+    /** Retractable woven shade / energy screen under the nursery roof. */
+    shadeScreen: {
+      width: 3.6,
+      length: 7.4,
+      y: 3.42,
+      northInset: 0.3,
+      retractedFraction: 0.08,
+      travelSeconds: 4.5,
+    },
+    /** Four inward-facing cards on the nursery's perimeter frame columns. */
+    stickyTraps: {
+      positions: [
+        [-2, -4],
+        [-2, 0],
+        [2, 0],
+        [2, 4],
+      ],
+      width: 0.22,
+      height: 0.3,
+      cardY: 1.34,
+    },
+    features: {
+      bayScreens: false,
+      stickyTraps: false,
+      rainCollector: false,
+      interiorDetails: true,
+      vents: false,
+    },
+    signage: {
+      title: 'NURSERY',
+      subtitle: 'SEEDLING PROPAGATION - TIDAL BEDS',
+      width: 2.9,
+      height: 0.72,
+      y: 3.55,
+      options: { background: '#e8ece5', foreground: '#1b3440' },
+    },
+  },
+
   player: {
     spawnX: 0,
-    spawnZ: 27,
+    spawnZ: 43.5,
     spawnYaw: 0,
     eyeHeight: 1.68,
     radius: 0.3,
@@ -529,7 +662,7 @@ export const LAYOUT = {
   exterior: {
     apronHalfWidth: 21,
     apronHalfDepth: 26,
-    apronFront: 31,
+    apronFront: 45,
     apronBack: -25,
   },
 };
@@ -553,6 +686,60 @@ export const RIDGE_X = [-10, -6, -2, 2, 6, 10];
 
 /** Z positions of the frame bays / trusses. */
 export const FRAME_Z = Array.from({ length: 10 }, (_, i) => -18 + i * 4);
+
+/**
+ * Nursery greenhouse derived geometry.
+ *
+ * `gutterX` and `ridgeX` are local to the nursery centre line, while
+ * `frameZ` is already shifted to world Z so placement code can reason about
+ * the gap to the main house without re-deriving the centre.
+ */
+const nurseryConfig = LAYOUT.nursery;
+const nurseryHalfWidth = nurseryConfig.width / 2;
+const nurseryHalfLength = nurseryConfig.length / 2;
+const nurseryBayCount = Math.max(1, Math.round(nurseryConfig.width / nurseryConfig.bayWidth));
+const nurseryFrameCount = Math.max(1, Math.round(nurseryConfig.length / nurseryConfig.bayLength));
+
+export const NURSERY_DIM = {
+  centreX: nurseryConfig.centre[0],
+  centreZ: nurseryConfig.centre[1],
+  halfWidth: nurseryHalfWidth,
+  halfLength: nurseryHalfLength,
+  gutterY: nurseryConfig.gutterHeight,
+  ridgeY: nurseryConfig.ridgeHeight,
+  plinthY: nurseryConfig.plinthHeight,
+  bayWidth: nurseryConfig.bayWidth,
+  bayLength: nurseryConfig.bayLength,
+};
+
+export const NURSERY_GUTTER_X = Array.from(
+  { length: nurseryBayCount + 1 },
+  (_, i) => -nurseryHalfWidth + i * nurseryConfig.bayWidth,
+);
+
+export const NURSERY_RIDGE_X = Array.from(
+  { length: nurseryBayCount },
+  (_, i) => -nurseryHalfWidth + nurseryConfig.bayWidth * (i + 0.5),
+);
+
+export const NURSERY_FRAME_Z = Array.from(
+  { length: nurseryFrameCount + 1 },
+  (_, i) => nurseryConfig.centre[1] - nurseryHalfLength + i * nurseryConfig.bayLength,
+);
+
+/** Reserved single-layer tidal-bed positions, expanded to world rectangles. */
+export const NURSERY_TABLE_SLOTS = nurseryConfig.tables.map((slot) => {
+  const { width, length } = nurseryConfig.tidalBed;
+  return {
+    ...slot,
+    width,
+    length,
+    minX: slot.centreX - width / 2,
+    maxX: slot.centreX + width / 2,
+    minZ: slot.centreZ - length / 2,
+    maxZ: slot.centreZ + length / 2,
+  };
+});
 
 /**
  * HAF fan installation derived from the six 4 m roof bays.

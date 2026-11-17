@@ -1,5 +1,5 @@
-﻿import * as THREE from 'three';
-import { LAYOUT, DIM, GUTTER_X, RIDGE_X, FRAME_Z } from '../config/layout.js';
+import * as THREE from 'three';
+import { LAYOUT } from '../config/layout.js';
 import { BeamBatch, PanelBatch, CylinderBatch, boxMesh } from './Batches.js';
 import { EntranceDoors } from './EntranceDoors.js';
 import { BayScreens } from './BayScreens.js';
@@ -8,19 +8,136 @@ import { StickyTraps } from './StickyTraps.js';
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 /**
+ * Feature switches for the generic glasshouse builder. Everything defaults to
+ * the main production house fit-out, so building with an empty spec reproduces
+ * the original structure exactly.
+ */
+const DEFAULT_FEATURES = {
+  bayScreens: true,
+  stickyTraps: true,
+  rainCollector: true,
+  interiorDetails: true,
+  vents: true,
+};
+
+const DEFAULT_INTERIOR = {
+  drain: true,
+  joints: [-12, -6, 0, 6, 12],
+};
+
+/**
+ * Turn a compact greenhouse description into all derived geometry the builder
+ * needs. Dimensions are local to the building centre; world placement is kept
+ * separate so the same builder can serve any number of houses.
+ */
+export function resolveGreenhouseSpec(spec = {}) {
+  const base = LAYOUT.greenhouse;
+  const width = spec.width ?? base.width;
+  const length = spec.length ?? base.length;
+  const bayWidth = spec.bayWidth ?? base.bayWidth;
+  const bayLength = spec.bayLength ?? base.bayLength;
+  const centre = spec.centre ?? spec.center ?? [0, 0];
+  const halfWidth = width / 2;
+  const halfLength = length / 2;
+  const bayCount = Math.max(1, Math.round(width / bayWidth));
+  const frameCount = Math.max(1, Math.round(length / bayLength));
+  const gutterXs = Array.from(
+    { length: bayCount + 1 },
+    (_, i) => -halfWidth + i * bayWidth,
+  );
+  const ridgeXs = Array.from(
+    { length: bayCount },
+    (_, i) => -halfWidth + bayWidth * (i + 0.5),
+  );
+  const frameZs = Array.from(
+    { length: frameCount + 1 },
+    (_, i) => -halfLength + i * bayLength,
+  );
+  const id = spec.id ?? 'greenhouse';
+  const label = spec.label ?? 'Main Greenhouse';
+  const isMainHouse = id === 'greenhouse';
+  const entrance =
+    spec.entrance === null
+      ? null
+      : { ...LAYOUT.entrance, ...(spec.entrance ?? {}) };
+
+  return {
+    id,
+    label,
+    zone: spec.zone ?? 'main',
+    centreX: centre[0],
+    centreZ: centre[1],
+    width,
+    length,
+    bayWidth,
+    bayLength,
+    halfWidth,
+    halfLength,
+    gutterY: spec.gutterHeight ?? base.gutterHeight,
+    ridgeY: spec.ridgeHeight ?? base.ridgeHeight,
+    plinthY: spec.plinthHeight ?? base.plinthHeight,
+    wallThickness: spec.wallThickness ?? base.wallThickness,
+    perimeterColumnSize: spec.perimeterColumnSize ?? base.perimeterColumnSize,
+    columnSize: spec.columnSize ?? base.columnSize,
+    bayCount,
+    frameCount,
+    gutterXs,
+    ridgeXs,
+    frameZs,
+    entrance,
+    entranceTitle:
+      spec.entranceTitle ??
+      (isMainHouse ? 'Main entrance - sliding doors' : `${label} entrance - sliding doors`),
+    entranceSign:
+      spec.entranceSign ??
+      {
+        title: isMainHouse ? 'MAIN ENTRANCE' : `${label.toUpperCase()} ENTRANCE`,
+        subtitle: 'SLIDING DOOR - KEEP CLEAR',
+      },
+    entranceDescription: spec.entranceDescription ?? null,
+    entranceId: spec.entranceId ?? (isMainHouse ? 'entrance-doors' : `${id}-entrance-doors`),
+    features: { ...DEFAULT_FEATURES, ...(spec.features ?? {}) },
+    interior: {
+      ...DEFAULT_INTERIOR,
+      ...(spec.interior ?? {}),
+      joints: spec.interior?.joints ?? [...DEFAULT_INTERIOR.joints],
+    },
+    signage: spec.signage ?? null,
+  };
+}
+
+/**
  * Greenhouse environment system.
  * Builds a Venlo-style multi-span glasshouse: concrete slab and plinths,
  * galvanised steel frame, aluminium glazing bars, glass roof/walls, gutters and
  * an open sliding entrance door. Static collision volumes are registered with
  * the collision world; all structural geometry is instanced.
+ *
+ * The builder is fully parameterised: pass a `spec` (see
+ * `resolveGreenhouseSpec`) to build a second, differently sized house that
+ * shares the same construction language. Omitting the spec builds the main
+ * 24 x 36 m production house exactly as before.
  */
 export class Greenhouse {
-  constructor({ scene, materials, collisionWorld, preset, control = null }) {
+  constructor({ scene, materials, collisionWorld, preset, control = null, spec = null }) {
     this.scene = scene;
     this.materials = materials;
     this.collisionWorld = collisionWorld;
     this.preset = preset;
     this.control = control;
+    this.spec = resolveGreenhouseSpec(spec ?? {});
+    this.dims = {
+      width: this.spec.width,
+      length: this.spec.length,
+      halfWidth: this.spec.halfWidth,
+      halfLength: this.spec.halfLength,
+      gutterY: this.spec.gutterY,
+      ridgeY: this.spec.ridgeY,
+      plinthY: this.spec.plinthY,
+      bayWidth: this.spec.bayWidth,
+      bayLength: this.spec.bayLength,
+    };
+    this.features = this.spec.features;
     this.detailGroup = null;
     this.floorSlab = null;
     this.entrance = null;
@@ -31,9 +148,10 @@ export class Greenhouse {
 
   build() {
     this.group = new THREE.Group();
-    this.group.name = 'greenhouse';
+    this.group.name = this.spec.id;
+    this.group.position.set(this.spec.centreX, 0, this.spec.centreZ);
     this.detailGroup = new THREE.Group();
-    this.detailGroup.name = 'greenhouse-details';
+    this.detailGroup.name = `${this.spec.id}-details`;
 
     this.buildFloor();
     this.buildPlinths();
@@ -44,6 +162,7 @@ export class Greenhouse {
     this.buildBayScreens();
     this.buildStickyTraps();
     this.buildInteriorDetails();
+    this.buildSignage();
     this.buildColliders();
 
     this.group.add(this.detailGroup);
@@ -56,18 +175,20 @@ export class Greenhouse {
     return this;
   }
 
-  /** Roof surface height at a given X (ridge at span centre, gutter at edges). */
+  /** Roof surface height at a given local X (ridge at span centre, gutter at edges). */
   roofYAt(x) {
-    const clampedX = Math.min(DIM.halfWidth - 1e-4, Math.max(-DIM.halfWidth + 1e-4, x));
-    const spanIndex = Math.floor((clampedX + DIM.halfWidth) / DIM.bayWidth);
-    const ridge = -DIM.halfWidth + spanIndex * DIM.bayWidth + DIM.bayWidth / 2;
-    const t = Math.abs(clampedX - ridge) / (DIM.bayWidth / 2);
-    return DIM.ridgeY - t * (DIM.ridgeY - DIM.gutterY);
+    const { halfWidth, bayWidth, ridgeY, gutterY } = this.dims;
+    const clampedX = Math.min(halfWidth - 1e-4, Math.max(-halfWidth + 1e-4, x));
+    const spanIndex = Math.floor((clampedX + halfWidth) / bayWidth);
+    const ridge = -halfWidth + spanIndex * bayWidth + bayWidth / 2;
+    const t = Math.abs(clampedX - ridge) / (bayWidth / 2);
+    return ridgeY - t * (ridgeY - gutterY);
   }
 
   buildFloor() {
+    const { halfWidth, halfLength } = this.dims;
     const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(DIM.halfWidth * 2 + 0.7, 0.18, DIM.halfLength * 2 + 0.7),
+      new THREE.BoxGeometry(halfWidth * 2 + 0.7, 0.18, halfLength * 2 + 0.7),
       this.materials.concreteFloor,
     );
     floor.position.set(0, -0.085, 0);
@@ -78,11 +199,11 @@ export class Greenhouse {
   }
 
   buildPlinths() {
-    const { plinthHeight } = LAYOUT.greenhouse;
+    const { plinthY: plinthHeight, halfWidth, halfLength } = this.dims;
     const thickness = 0.24;
-    const hw = DIM.halfWidth + thickness / 2;
-    const hl = DIM.halfLength + thickness / 2;
-    const doorHalf = LAYOUT.entrance.width / 2;
+    const hw = halfWidth + thickness / 2;
+    const hl = halfLength + thickness / 2;
+    const doorHalf = this.spec.entrance ? this.spec.entrance.width / 2 : 0;
     const mat = this.materials.concretePlinth;
 
     const plinth = (width, depth, x, z) => {
@@ -91,14 +212,18 @@ export class Greenhouse {
       this.group.add(mesh);
     };
 
-    const frontSegmentWidth = DIM.halfWidth + thickness / 2 - doorHalf;
-    const frontSegmentCentre = (DIM.halfWidth + thickness / 2 + doorHalf) / 2;
+    const frontSegmentWidth = halfWidth + thickness / 2 - doorHalf;
+    const frontSegmentCentre = (halfWidth + thickness / 2 + doorHalf) / 2;
 
-    plinth(DIM.halfWidth * 2 + thickness * 2, thickness, 0, -hl);
-    plinth(frontSegmentWidth, thickness, -frontSegmentCentre, hl);
-    plinth(frontSegmentWidth, thickness, frontSegmentCentre, hl);
-    plinth(thickness, DIM.halfLength * 2, -hw, 0);
-    plinth(thickness, DIM.halfLength * 2, hw, 0);
+    plinth(halfWidth * 2 + thickness * 2, thickness, 0, -hl);
+    if (doorHalf > 0) {
+      plinth(frontSegmentWidth, thickness, -frontSegmentCentre, hl);
+      plinth(frontSegmentWidth, thickness, frontSegmentCentre, hl);
+    } else {
+      plinth(halfWidth * 2 + thickness * 2, thickness, 0, hl);
+    }
+    plinth(thickness, halfLength * 2, -hw, 0);
+    plinth(thickness, halfLength * 2, hw, 0);
 
     // Galvanised flashing along the top of each plinth.
     const flashMat = this.materials.steel;
@@ -110,45 +235,53 @@ export class Greenhouse {
     // The north plinth is flashed in one run. The south plinth is only flashed
     // in the two segments either side of the entrance; a full-width run would
     // leave a horizontal bar straight across the doorway.
-    flashing(DIM.halfWidth * 2 + thickness * 2 + 0.06, thickness + 0.06, 0, -hl);
-    flashing(frontSegmentWidth + 0.06, thickness + 0.06, -frontSegmentCentre, hl);
-    flashing(frontSegmentWidth + 0.06, thickness + 0.06, frontSegmentCentre, hl);
-    flashing(thickness + 0.06, DIM.halfLength * 2 + 0.06, -hw, 0);
-    flashing(thickness + 0.06, DIM.halfLength * 2 + 0.06, hw, 0);
+    flashing(halfWidth * 2 + thickness * 2 + 0.06, thickness + 0.06, 0, -hl);
+    if (doorHalf > 0) {
+      flashing(frontSegmentWidth + 0.06, thickness + 0.06, -frontSegmentCentre, hl);
+      flashing(frontSegmentWidth + 0.06, thickness + 0.06, frontSegmentCentre, hl);
+    } else {
+      flashing(halfWidth * 2 + thickness * 2 + 0.06, thickness + 0.06, 0, hl);
+    }
+    flashing(thickness + 0.06, halfLength * 2 + 0.06, -hw, 0);
+    flashing(thickness + 0.06, halfLength * 2 + 0.06, hw, 0);
   }
 
   /** Structural frame, built entirely from instanced members. */
   buildFrame() {
     const steel = new BeamBatch(this.materials.steel);
     const alu = new BeamBatch(this.materials.aluminium);
-    const { gutterHeight, ridgeHeight } = LAYOUT.greenhouse;
-    const halfWidth = DIM.halfWidth;
-    const halfLength = DIM.halfLength;
-    const doorHalf = LAYOUT.entrance.width / 2;
+    const {
+      gutterY: gutterHeight,
+      ridgeY: ridgeHeight,
+      halfWidth,
+      halfLength,
+      bayWidth,
+      plinthY,
+    } = this.dims;
+    const { perimeterColumnSize, columnSize } = this.spec;
+    const doorHalf = this.spec.entrance ? this.spec.entrance.width / 2 : 0;
 
     // Columns at every gutter line / truss intersection.
-    for (const x of GUTTER_X) {
-      for (const z of FRAME_Z) {
+    for (const x of this.spec.gutterXs) {
+      for (const z of this.spec.frameZs) {
         if (z === halfLength && Math.abs(x) < doorHalf + 0.05) continue;
         const thickness =
-          Math.abs(x) === halfWidth
-            ? LAYOUT.greenhouse.perimeterColumnSize
-            : LAYOUT.greenhouse.columnSize;
+          Math.abs(Math.abs(x) - halfWidth) < 1e-6 ? perimeterColumnSize : columnSize;
         steel.add(V(x, 0, z), V(x, gutterHeight - 0.06, z), thickness, thickness);
       }
     }
 
     // Transverse trusses: bottom chord, rafters following the roof, king posts.
-    for (const z of FRAME_Z) {
+    for (const z of this.spec.frameZs) {
       steel.add(
         V(-halfWidth, gutterHeight - 0.06, z),
         V(halfWidth, gutterHeight - 0.06, z),
         0.12,
         0.16,
       );
-      for (const ridge of RIDGE_X) {
+      for (const ridge of this.spec.ridgeXs) {
         for (const side of [-1, 1]) {
-          const gutter = ridge + side * DIM.bayWidth / 2;
+          const gutter = ridge + side * bayWidth / 2;
           steel.add(
             V(gutter, this.roofYAt(gutter) - 0.1, z),
             V(ridge, ridgeHeight - 0.1, z),
@@ -167,7 +300,7 @@ export class Greenhouse {
 
     // Eave and mid-wall girts.
     for (const x of [-halfWidth, halfWidth]) {
-      for (const y of [DIM.plinthY + 0.04, 2.72, gutterHeight - 0.08]) {
+      for (const y of [plinthY + 0.04, 2.72, gutterHeight - 0.08]) {
         steel.add(V(x, y, -halfLength), V(x, y, halfLength), 0.09, 0.12);
       }
     }
@@ -175,7 +308,7 @@ export class Greenhouse {
     // Side wall mullions every 2 m.
     for (const x of [-halfWidth, halfWidth]) {
       for (let z = -halfLength + 2; z < halfLength; z += 2) {
-        alu.add(V(x, DIM.plinthY, z), V(x, gutterHeight - 0.05, z), 0.055, 0.08);
+        alu.add(V(x, plinthY, z), V(x, gutterHeight - 0.05, z), 0.055, 0.08);
       }
     }
 
@@ -184,15 +317,20 @@ export class Greenhouse {
       const isFront = zEnd === halfLength;
       for (let x = -halfWidth + 2; x < halfWidth; x += 2) {
         if (isFront && Math.abs(x) < doorHalf) {
-          alu.add(V(x, LAYOUT.entrance.height + 0.02, zEnd), V(x, gutterHeight - 0.05, zEnd), 0.055, 0.08);
+          alu.add(
+            V(x, (this.spec.entrance?.height ?? 0) + 0.02, zEnd),
+            V(x, gutterHeight - 0.05, zEnd),
+            0.055,
+            0.08,
+          );
           continue;
         }
-        alu.add(V(x, DIM.plinthY, zEnd), V(x, gutterHeight - 0.05, zEnd), 0.055, 0.08);
+        alu.add(V(x, plinthY, zEnd), V(x, gutterHeight - 0.05, zEnd), 0.055, 0.08);
       }
       // barge board following the roof line
-      for (const ridge of RIDGE_X) {
+      for (const ridge of this.spec.ridgeXs) {
         for (const side of [-1, 1]) {
-          const gutter = ridge + side * DIM.bayWidth / 2;
+          const gutter = ridge + side * bayWidth / 2;
           alu.add(
             V(gutter, this.roofYAt(gutter) - 0.03, zEnd),
             V(ridge, ridgeHeight - 0.03, zEnd),
@@ -203,12 +341,12 @@ export class Greenhouse {
       }
       // corner posts
       for (const x of [-halfWidth, halfWidth]) {
-        steel.add(V(x, DIM.plinthY, zEnd), V(x, gutterHeight, zEnd), 0.14, 0.14);
+        steel.add(V(x, plinthY, zEnd), V(x, gutterHeight, zEnd), 0.14, 0.14);
       }
     }
 
     // Roof purlins and ridge caps along the length of the house.
-    for (const ridge of RIDGE_X) {
+    for (const ridge of this.spec.ridgeXs) {
       alu.add(
         V(ridge, ridgeHeight - 0.07, -halfLength),
         V(ridge, ridgeHeight - 0.07, halfLength),
@@ -231,7 +369,7 @@ export class Greenhouse {
         );
       }
     }
-    for (const x of GUTTER_X) {
+    for (const x of this.spec.gutterXs) {
       alu.add(
         V(x, gutterHeight - 0.02, -halfLength),
         V(x, gutterHeight - 0.02, halfLength),
@@ -240,10 +378,10 @@ export class Greenhouse {
       );
     }
     // Longitudinal ties at the ridge for lateral stiffness.
-    for (const ridge of RIDGE_X) {
+    for (const ridge of this.spec.ridgeXs) {
       steel.add(
-        V(ridge, DIM.ridgeY - 0.14, -halfLength),
-        V(ridge, DIM.ridgeY - 0.14, halfLength),
+        V(ridge, ridgeHeight - 0.14, -halfLength),
+        V(ridge, ridgeHeight - 0.14, halfLength),
         0.05,
         0.05,
       );
@@ -256,46 +394,44 @@ export class Greenhouse {
   /** Glass roof, side walls and gable ends (instanced panes + merged gables). */
   buildGlass() {
     const panes = new PanelBatch(this.materials.glass);
-    const hw = DIM.halfWidth;
-    const hl = DIM.halfLength;
-    const doorHalf = LAYOUT.entrance.width / 2;
+    const { halfWidth: hw, halfLength: hl, bayWidth, bayLength, gutterY, ridgeY, plinthY } = this.dims;
+    const doorHalf = this.spec.entrance ? this.spec.entrance.width / 2 : 0;
+    const doorHeight = this.spec.entrance?.height ?? 0;
     const rightX = new THREE.Vector3(1, 0, 0);
     const rightZ = new THREE.Vector3(0, 0, 1);
     const upY = new THREE.Vector3(0, 1, 0);
-    const wallHeight = DIM.gutterY - DIM.plinthY;
-    const wallCentreY = (DIM.gutterY + DIM.plinthY) / 2;
+    const wallHeight = gutterY - plinthY;
+    const wallCentreY = (gutterY + plinthY) / 2;
 
-    // Side wall glazing: one pane per 4 m bay.
+    // Side wall glazing: one pane per bay.
     for (const x of [-hw, hw]) {
       const glassX = x - Math.sign(x) * 0.012;
-      for (let i = 0; i < FRAME_Z.length - 1; i += 1) {
-        const z = (FRAME_Z[i] + FRAME_Z[i + 1]) / 2;
-        panes.add(new THREE.Vector3(glassX, wallCentreY, z), DIM.bayLength, wallHeight, rightZ, upY);
+      for (let i = 0; i < this.spec.frameZs.length - 1; i += 1) {
+        const z = (this.spec.frameZs[i] + this.spec.frameZs[i + 1]) / 2;
+        panes.add(new THREE.Vector3(glassX, wallCentreY, z), bayLength, wallHeight, rightZ, upY);
       }
     }
 
-    // Roof glazing: one pane per bay on each side of every ridge. The upper
-    // section of each slope is left open for the hinged vent leaf, so opening a
-    // vent exposes sky and mesh instead of a second layer of glass.
-    const slopeLength = Math.hypot(DIM.bayWidth / 2, DIM.ridgeY - DIM.gutterY);
-    const ventSlopeLength = Math.min(LAYOUT.vents.slopeLength, slopeLength - 0.1);
+    // Roof glazing: one pane per bay on each side of every ridge. When hinged
+    // vents are fitted the upper section of each slope is left open for the
+    // vent leaf, so opening a vent exposes sky instead of a second glass layer.
+    const slopeLength = Math.hypot(bayWidth / 2, ridgeY - gutterY);
+    const ventSlopeLength = this.features.vents
+      ? Math.min(LAYOUT.vents.slopeLength, slopeLength - 0.1)
+      : 0;
     const glazedLength = slopeLength - ventSlopeLength;
     const glazedDistance = ventSlopeLength + glazedLength / 2;
-    for (const ridge of RIDGE_X) {
+    for (const ridge of this.spec.ridgeXs) {
       for (const side of [-1, 1]) {
-        const right = new THREE.Vector3(
-          side * (DIM.bayWidth / 2),
-          DIM.gutterY - DIM.ridgeY,
-          0,
-        ).normalize();
-        const centreX = ridge + side * (glazedDistance / slopeLength) * (DIM.bayWidth / 2);
-        const centreY = DIM.ridgeY - (glazedDistance / slopeLength) * (DIM.ridgeY - DIM.gutterY);
-        for (let i = 0; i < FRAME_Z.length - 1; i += 1) {
-          const z = (FRAME_Z[i] + FRAME_Z[i + 1]) / 2;
+        const right = new THREE.Vector3(side * (bayWidth / 2), gutterY - ridgeY, 0).normalize();
+        const centreX = ridge + side * (glazedDistance / slopeLength) * (bayWidth / 2);
+        const centreY = ridgeY - (glazedDistance / slopeLength) * (ridgeY - gutterY);
+        for (let i = 0; i < this.spec.frameZs.length - 1; i += 1) {
+          const z = (this.spec.frameZs[i] + this.spec.frameZs[i + 1]) / 2;
           panes.add(
             new THREE.Vector3(centreX, centreY, z),
             glazedLength,
-            DIM.bayLength,
+            bayLength,
             right,
             rightZ,
           );
@@ -306,10 +442,10 @@ export class Greenhouse {
     // Gable end glazing below the eaves.
     for (const zEnd of [-hl, hl]) {
       const glassZ = zEnd - Math.sign(zEnd) * 0.012;
-      if (zEnd === hl) {
+      if (zEnd === hl && doorHalf > 0) {
         // Front: leave the doorway clear, glaze both sides and the transom.
         const regionWidth = hw - doorHalf;
-        const count = 5;
+        const count = Math.max(1, Math.ceil(regionWidth / 2.1));
         const paneWidth = regionWidth / count;
         for (const sign of [-1, 1]) {
           for (let i = 0; i < count; i += 1) {
@@ -319,17 +455,19 @@ export class Greenhouse {
         }
         for (const x of [-doorHalf / 2, doorHalf / 2]) {
           panes.add(
-            new THREE.Vector3(x, (LAYOUT.entrance.height + DIM.gutterY) / 2, glassZ),
+            new THREE.Vector3(x, (doorHeight + gutterY) / 2, glassZ),
             doorHalf,
-            DIM.gutterY - LAYOUT.entrance.height,
+            gutterY - doorHeight,
             rightX,
             upY,
           );
         }
       } else {
-        for (let i = 0; i < 12; i += 1) {
-          const x = -hw + 1 + i * 2;
-          panes.add(new THREE.Vector3(x, wallCentreY, glassZ), 2, wallHeight, rightX, upY);
+        const count = Math.max(1, Math.round((hw * 2) / 2));
+        const paneWidth = (hw * 2) / count;
+        for (let i = 0; i < count; i += 1) {
+          const x = -hw + paneWidth * (i + 0.5);
+          panes.add(new THREE.Vector3(x, wallCentreY, glassZ), paneWidth, wallHeight, rightX, upY);
         }
       }
     }
@@ -340,6 +478,7 @@ export class Greenhouse {
 
   /** Glass in the triangular gable above the gutter line. */
   buildGableTriangles() {
+    const { halfWidth, halfLength, bayWidth, gutterY, ridgeY } = this.dims;
     const positions = [];
     const normals = [];
     const uvs = [];
@@ -347,17 +486,17 @@ export class Greenhouse {
     const pushVertex = (x, y, z, normalZ) => {
       positions.push(x, y, z);
       normals.push(0, 0, normalZ);
-      uvs.push((x + DIM.halfWidth) / (DIM.halfWidth * 2), (y - DIM.gutterY) / (DIM.ridgeY - DIM.gutterY));
+      uvs.push((x + halfWidth) / (halfWidth * 2), (y - gutterY) / (ridgeY - gutterY));
     };
 
-    for (const zEnd of [-DIM.halfLength, DIM.halfLength]) {
+    for (const zEnd of [-halfLength, halfLength]) {
       const normalZ = Math.sign(zEnd);
-      for (const ridge of RIDGE_X) {
-        const left = ridge - DIM.bayWidth / 2;
-        const right = ridge + DIM.bayWidth / 2;
-        pushVertex(left, DIM.gutterY, zEnd, normalZ);
-        pushVertex(right, DIM.gutterY, zEnd, normalZ);
-        pushVertex(ridge, DIM.ridgeY, zEnd, normalZ);
+      for (const ridge of this.spec.ridgeXs) {
+        const left = ridge - bayWidth / 2;
+        const right = ridge + bayWidth / 2;
+        pushVertex(left, gutterY, zEnd, normalZ);
+        pushVertex(right, gutterY, zEnd, normalZ);
+        pushVertex(ridge, ridgeY, zEnd, normalZ);
       }
     }
 
@@ -375,53 +514,67 @@ export class Greenhouse {
     this.group.add(mesh);
   }
 
-
   buildGuttersAndDownpipes() {
     const pipes = new CylinderBatch(this.materials.aluminium);
     const rain = new CylinderBatch(this.materials.pvcWhite);
-    const hw = DIM.halfWidth;
-    const hl = DIM.halfLength;
-    const gutterY = DIM.gutterY - 0.04;
+    const { halfWidth: hw, halfLength: hl, gutterY } = this.dims;
+    const gutterTop = gutterY - 0.04;
     const collector = LAYOUT.rainwater;
+    const splash = (x, z) => {
+      const block = boxMesh(
+        0.46,
+        0.1,
+        0.46,
+        this.materials.concretePlinth,
+        V(x, 0.05, z),
+        'downpipe-splash-block',
+      );
+      block.castShadow = true;
+      this.group.add(block);
+    };
 
     // Eave gutters run the length of the house at every gutter line.
-    for (const x of GUTTER_X) {
-      pipes.add(V(x, gutterY, -hl), V(x, gutterY, hl), 0.11);
+    for (const x of this.spec.gutterXs) {
+      pipes.add(V(x, gutterTop, -hl), V(x, gutterTop, hl), 0.11);
       // North end drops into the rainwater collector that feeds the harvester.
-      rain.addPath(
-        [
-          V(x, gutterY, -hl + 0.06),
-          V(x, collector.collectorY, collector.collectorZ),
-        ],
-        collector.collectorRadius * 0.55,
-      );
+      if (this.features.rainCollector) {
+        rain.addPath(
+          [
+            V(x, gutterTop, -hl + 0.06),
+            V(x, collector.collectorY, collector.collectorZ),
+          ],
+          collector.collectorRadius * 0.55,
+        );
+      }
     }
 
-    // Level collector along the north eave, falling to the central downpipe.
-    rain.add(
-      V(-hw, collector.collectorY + 0.05, collector.collectorZ),
-      V(collector.downpipeX, collector.collectorY, collector.collectorZ),
-      collector.collectorRadius,
-    );
-    rain.add(
-      V(collector.downpipeX, collector.collectorY, collector.collectorZ),
-      V(hw, collector.collectorY + 0.05, collector.collectorZ),
-      collector.collectorRadius,
-    );
-
-    // Central downpipe drops straight to the harvester first-flush chamber.
-    rain.addPath(
-      [
+    if (this.features.rainCollector) {
+      // Level collector along the north eave, falling to the central downpipe.
+      rain.add(
+        V(-hw, collector.collectorY + 0.05, collector.collectorZ),
         V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+        collector.collectorRadius,
+      );
+      rain.add(
+        V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+        V(hw, collector.collectorY + 0.05, collector.collectorZ),
+        collector.collectorRadius,
+      );
+
+      // Central downpipe drops straight to the harvester first-flush chamber.
+      rain.addPath(
+        [
+          V(collector.downpipeX, collector.collectorY, collector.collectorZ),
+          V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
+        ],
+        0.075,
+      );
+      rain.addJoint(V(collector.downpipeX, collector.collectorY, collector.collectorZ), 0.14);
+      rain.addJoint(
         V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
-      ],
-      0.075,
-    );
-    rain.addJoint(V(collector.downpipeX, collector.collectorY, collector.collectorZ), 0.14);
-    rain.addJoint(
-      V(collector.downpipeX, collector.harvesterInletY, collector.collectorZ),
-      0.1,
-    );
+        0.1,
+      );
+    }
 
     // Front downpipes still discharge to splash blocks; the roof water that
     // matters for irrigation is captured on the north collector.
@@ -430,40 +583,108 @@ export class Greenhouse {
       const z = hl - 0.25;
       pipes.addPath(
         [
-          V(sx * hw, gutterY - 0.1, z),
-          V(x, gutterY - 0.1, z),
+          V(sx * hw, gutterTop - 0.1, z),
+          V(x, gutterTop - 0.1, z),
           V(x, 0.16, z),
           V(x - sx * 0.12, 0.16, z),
         ],
         0.055,
       );
-      const block = boxMesh(
-        0.46,
-        0.1,
-        0.46,
-        this.materials.concretePlinth,
-        V(x - sx * 0.12, 0.05, z),
-        'downpipe-splash-block',
-      );
-      block.castShadow = true;
-      this.group.add(block);
+      splash(x - sx * 0.12, z);
+    }
+
+    // The nursery has no harvester, so its north eaves discharge to the apron
+    // through matching rear downpipes instead of a collector run.
+    if (!this.features.rainCollector) {
+      for (const sx of [-1, 1]) {
+        const x = sx * (hw - 0.22);
+        const z = -hl + 0.25;
+        pipes.addPath(
+          [
+            V(sx * hw, gutterTop - 0.1, z),
+            V(x, gutterTop - 0.1, z),
+            V(x, 0.16, z),
+            V(x - sx * 0.12, 0.16, z),
+          ],
+          0.055,
+        );
+        splash(x - sx * 0.12, z);
+      }
     }
 
     pipes.build(this.group, 'gutters-downpipes');
-    rain.build(this.group, 'rainwater-collector');
+    if (this.features.rainCollector) rain.build(this.group, 'rainwater-collector');
   }
 
-  /** Build the animated, two-leaf sliding main entrance. */
+  /** Build the animated, two-leaf sliding entrance. */
   buildDoors() {
+    if (!this.spec.entrance) return;
     this.entrance = new EntranceDoors({
       materials: this.materials,
       collisionWorld: this.collisionWorld,
+      config: this.spec.entrance,
+      frameZ: this.dims.halfLength,
+      originX: this.spec.centreX,
+      originZ: this.spec.centreZ,
+      buildingId: this.spec.id,
+      id: this.spec.entranceId,
+      groupName: `${this.spec.id}-entrance-sliding-doors`,
+      title: this.spec.entranceTitle,
+      sign: this.spec.entranceSign,
+      description: this.spec.entranceDescription,
     }).build(this.group);
     this.interactables.push(...this.entrance.interactables);
   }
 
-  /** Per-bay shade, energy screen and hinged ridge vents. */
+  /**
+   * Optional building name board mounted above the south entrance. The main
+   * house relies on its existing door sign, so only specified houses build it.
+   */
+  buildSignage() {
+    const signage = this.spec.signage;
+    if (!signage) return;
+    const { halfLength } = this.dims;
+    const width = signage.width ?? 2.4;
+    const height = signage.height ?? 0.72;
+    const y = signage.y ?? this.dims.gutterY - 0.9;
+    const z = halfLength + 0.06;
+
+    const backing = boxMesh(
+      width + 0.14,
+      height + 0.14,
+      0.06,
+      this.materials.steelDark,
+      V(0, y, z),
+      'nursery-sign-backing',
+    );
+    backing.castShadow = true;
+    this.group.add(backing);
+
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      this.materials.createLabelMaterial(signage.title, signage.subtitle, signage.options),
+    );
+    plate.position.set(0, y, z + 0.035);
+    plate.name = 'nursery-sign';
+    this.group.add(plate);
+
+    for (const x of [-width * 0.32, width * 0.32]) {
+      this.group.add(
+        boxMesh(
+          0.05,
+          0.05,
+          0.16,
+          this.materials.aluminium,
+          V(x, y + height / 2 - 0.03, z - 0.1),
+          'nursery-sign-bracket',
+        ),
+      );
+    }
+  }
+
+  /** Per-bay shade, energy screen and hinged ridge vents (main house only). */
   buildBayScreens() {
+    if (!this.features.bayScreens || !this.control) return;
     this.bayScreens = new BayScreens({
       materials: this.materials,
       control: this.control,
@@ -473,6 +694,7 @@ export class Greenhouse {
 
   /** Yellow sticky traps clipped to the structural columns. */
   buildStickyTraps() {
+    if (!this.features.stickyTraps) return;
     this.stickyTraps = new StickyTraps({ materials: this.materials }).build(this.group);
     this.interactables.push(...this.stickyTraps.interactables);
   }
@@ -498,14 +720,15 @@ export class Greenhouse {
     this.stickyTraps?.setTopView(active);
   }
 
-
   /** Floor joints, central drain channel and other small fixed details. */
   buildInteriorDetails() {
-    const hw = DIM.halfWidth;
+    if (!this.features.interiorDetails) return;
+    const { halfWidth: hw, halfLength: hl } = this.dims;
     const detail = this.detailGroup;
 
     // Saw-cut expansion joints in the slab.
-    for (const z of [-12, -6, 0, 6, 12]) {
+    for (const z of this.spec.interior.joints) {
+      if (Math.abs(z) > hl - 0.2) continue;
       const joint = boxMesh(
         hw * 2 - 0.5,
         0.012,
@@ -518,9 +741,11 @@ export class Greenhouse {
       detail.add(joint);
     }
 
+    if (!this.spec.interior.drain) return;
+
     // Recessed drainage channel down the central aisle.
     const channelStart = -9;
-    const channelEnd = DIM.halfLength - 0.6;
+    const channelEnd = hl - 0.6;
     const channelLength = channelEnd - channelStart;
 
     const recess = boxMesh(
@@ -550,46 +775,69 @@ export class Greenhouse {
   buildColliders() {
     const cw = this.collisionWorld;
     if (!cw) return;
+    const { halfWidth, halfLength } = this.dims;
+    const { centreX, centreZ } = this.spec;
     const thickness = 0.36;
-    const doorHalf = LAYOUT.entrance.width / 2;
-    const segmentWidth = DIM.halfWidth - doorHalf;
+    const doorHalf = this.spec.entrance ? this.spec.entrance.width / 2 : 0;
+    const segmentWidth = halfWidth - doorHalf;
     const segmentCentre = doorHalf + segmentWidth / 2;
 
+    // Register the building footprint so player zones and future systems can
+    // tell which house the player is standing in.
+    cw.addFootprint?.({
+      x: centreX,
+      z: centreZ,
+      width: this.spec.width,
+      depth: this.spec.length,
+      label: this.spec.label,
+      zone: this.spec.zone,
+      buildingId: this.spec.id,
+    });
+
     cw.addBox({
-      x: 0,
-      z: -DIM.halfLength,
-      width: DIM.halfWidth * 2 + 0.7,
+      x: centreX,
+      z: centreZ - halfLength,
+      width: this.spec.width + 0.7,
       depth: thickness,
       label: 'north wall',
     });
-    cw.addBox({
-      x: -segmentCentre,
-      z: DIM.halfLength,
-      width: segmentWidth,
-      depth: thickness,
-      label: 'south wall (left)',
-    });
-    cw.addBox({
-      x: segmentCentre,
-      z: DIM.halfLength,
-      width: segmentWidth,
-      depth: thickness,
-      label: 'south wall (right)',
-    });
-    for (const x of [-DIM.halfWidth, DIM.halfWidth]) {
+    if (doorHalf > 0) {
       cw.addBox({
-        x,
-        z: 0,
+        x: centreX - segmentCentre,
+        z: centreZ + halfLength,
+        width: segmentWidth,
+        depth: thickness,
+        label: 'south wall (left)',
+      });
+      cw.addBox({
+        x: centreX + segmentCentre,
+        z: centreZ + halfLength,
+        width: segmentWidth,
+        depth: thickness,
+        label: 'south wall (right)',
+      });
+    }
+    for (const x of [-halfWidth, halfWidth]) {
+      cw.addBox({
+        x: centreX + x,
+        z: centreZ,
         width: thickness,
-        depth: DIM.halfLength * 2,
+        depth: this.spec.length,
         label: 'side wall',
       });
     }
 
-    for (const x of [-8, -4, 0, 4, 8]) {
-      for (const z of FRAME_Z) {
-        if (z === DIM.halfLength && Math.abs(x) < doorHalf) continue;
-        cw.addBox({ x, z, width: 0.3, depth: 0.3, label: 'column' });
+    for (const x of this.spec.gutterXs) {
+      if (Math.abs(Math.abs(x) - halfWidth) < 1e-6) continue;
+      for (const z of this.spec.frameZs) {
+        if (z === halfLength && Math.abs(x) < doorHalf) continue;
+        cw.addBox({
+          x: centreX + x,
+          z: centreZ + z,
+          width: 0.3,
+          depth: 0.3,
+          label: 'column',
+        });
       }
     }
   }
@@ -610,4 +858,3 @@ export class Greenhouse {
     this.group.parent?.remove(this.group);
   }
 }
-

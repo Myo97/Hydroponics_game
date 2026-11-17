@@ -27,6 +27,22 @@ const HUD_MARKUP = `
       </div>
       <div class="hud-row"><span>Position</span><strong data-pos>0.0 / 27.0</strong></div>
       <div class="hud-row"><span>Speed</span><strong data-speed>0.0 m/s</strong></div>
+      <div class="hud-divider"></div>
+      <div class="dev-tools" aria-label="Developer time and weather controls">
+        <span class="dev-tools-label">DEV</span>
+        <button
+          type="button"
+          class="btn btn-small btn-ghost dev-btn"
+          data-action="skip-time"
+          title="Skip 24 game hours and one plant growth day (T)"
+        >Skip 24h <span class="dev-key">T</span></button>
+        <button
+          type="button"
+          class="btn btn-small btn-ghost dev-btn dev-btn--weather"
+          data-action="cycle-weather"
+          title="Cycle weather (C)"
+        ><span class="dev-prefix">WX</span><span data-dev-weather>Sunny</span><span class="dev-key">C</span></button>
+      </div>
     </div>
 
     <div class="crosshair" id="crosshair"><span class="crosshair-dot"></span></div>
@@ -52,11 +68,23 @@ const HUD_MARKUP = `
       <span class="sep"></span>
       <span><kbd>Q</kbd><kbd>E</kbd> Drone altitude</span>
       <span class="sep"></span>
+      <span><kbd>T</kbd> +1 day</span>
+      <span class="sep"></span>
+      <span><kbd>C</kbd> Weather</span>
+      <span class="sep"></span>
       <span><kbd>Esc</kbd> Menu</span>
     </div>
 
     <div class="location-tag panel" id="location-tag">
       <span class="dot"></span><span data-zone-tag>Entrance</span>
+    </div>
+
+    <div class="carry-tag panel" id="carry-tag">
+      <span class="carry-dot"></span>
+      <span class="carry-label">CARRYING</span>
+      <strong data-carry-title>Seedling tray</strong>
+      <span data-carry-detail>304 plugs &middot; Day 14</span>
+      <span class="carry-action"><kbd>E</kbd> place / transplant</span>
     </div>
 
     <aside class="inspect-panel panel" id="inspect-panel" aria-live="polite">
@@ -82,7 +110,7 @@ const HUD_MARKUP = `
         <h2>Walkthrough</h2>
       </div>
       <div class="modal-body">
-        <div class="hud-row"><span>Build</span><strong>Version 6 &middot; Two-group irrigation &amp; weather</strong></div>
+        <div class="hud-row"><span>Build</span><strong>Version 10 &middot; Green Coral nursery cycle</strong></div>
         <div class="hud-row"><span>Pointer</span><strong>Released</strong></div>
         <p class="hint">Resume to re-lock the mouse and continue walking the house.</p>
       </div>
@@ -150,11 +178,15 @@ export class GameUI {
       rh: $('[data-rh]'),
       clock: $('[data-clock]'),
       weather: $('[data-weather]'),
+      devWeather: $('[data-dev-weather]'),
       solution: $('[data-solution]'),
       status: $('[data-status]'),
       zone: $('[data-zone]'),
       zoneTag: $('#location-tag'),
       zoneTagText: $('[data-zone-tag]'),
+      carry: $('#carry-tag'),
+      carryTitle: $('[data-carry-title]'),
+      carryDetail: $('[data-carry-detail]'),
       fps: $('[data-fps]'),
       pos: $('[data-pos]'),
       speed: $('[data-speed]'),
@@ -200,6 +232,8 @@ export class GameUI {
       else if (action === 'respawn') this.handlers.onRespawn?.();
       else if (action === 'close-settings') this.closeSettings();
       else if (action === 'close-inspect') this.handlers.onCloseInspect?.();
+      else if (action === 'skip-time') this.handlers.onSkipTime?.();
+      else if (action === 'cycle-weather') this.handlers.onCycleWeather?.();
     });
 
     this.el.sensitivity.addEventListener('input', () => {
@@ -246,6 +280,8 @@ export class GameUI {
     if (this.el.rh.textContent !== humidity) this.el.rh.textContent = humidity;
     if (this.el.clock.textContent !== clock) this.el.clock.textContent = clock;
     if (this.el.weather.textContent !== weather) this.el.weather.textContent = weather;
+    const devWeather = data.weatherLabel ?? 'Sunny';
+    if (this.el.devWeather.textContent !== devWeather) this.el.devWeather.textContent = devWeather;
     if (this.el.solution.textContent !== solution) this.el.solution.textContent = solution;
     if (this.el.status.textContent !== status) this.el.status.textContent = status;
     this.el.status.classList.toggle('accent', !data.isAlarm);
@@ -280,6 +316,19 @@ export class GameUI {
     }
   }
 
+
+  /** Persistent carry card while a physical seedling tray is in hand. */
+  setCarry(tray) {
+    const active = Boolean(tray);
+    this.el.carry.classList.toggle('is-visible', active);
+    if (!active) return;
+    this.el.carryTitle.textContent = `Tray ${String(tray.index + 1).padStart(2, '0')} · ${tray.cropName}`;
+    this.el.carryDetail.textContent = tray.ready
+      ? `${tray.germinated} plugs · Day ${tray.growthDay} · READY`
+      : tray.state === 'empty'
+        ? 'Empty tray · ready to replant'
+        : `${tray.germinated} plugs · Day ${tray.growthDay}`;
+  }
 
   openInspect(data) {
     this.inspectOpen = true;

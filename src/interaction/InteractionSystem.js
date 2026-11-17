@@ -22,9 +22,10 @@ export class InteractionSystem {
 
     this.target = null;
     this.targetObject = null;
+    this.targetInstanceId = null;
 
     this.box = new THREE.Box3();
-    this.highlight = new THREE.BoxHelper(new THREE.Object3D(), 0x74d6b4);
+    this.highlight = new THREE.Box3Helper(this.box, 0x74d6b4);
     this.highlight.material.depthTest = false;
     this.highlight.material.transparent = true;
     this.highlight.material.opacity = 0.5;
@@ -47,6 +48,7 @@ export class InteractionSystem {
   clear() {
     this.target = null;
     this.targetObject = null;
+    this.targetInstanceId = null;
     this.highlight.visible = false;
   }
 
@@ -61,32 +63,80 @@ export class InteractionSystem {
 
     let found = null;
     let foundObject = null;
+    let foundHit = null;
     for (const hit of hits) {
+      const resolved =
+        hit.instanceId != null && typeof hit.object.userData.resolveInteractable === 'function'
+          ? hit.object.userData.resolveInteractable(hit.instanceId)
+          : null;
+      if (resolved) {
+        found = {
+          data: resolved,
+          distance: hit.distance,
+          instanceId: hit.instanceId,
+          object: hit.object,
+        };
+        foundObject = hit.object;
+        foundHit = hit;
+        break;
+      }
       let node = hit.object;
       while (node && !node.userData.interactable) node = node.parent;
       if (node && node.userData.interactable) {
-        found = { data: node.userData.interactable, distance: hit.distance };
+        found = {
+          data: node.userData.interactable,
+          distance: hit.distance,
+          instanceId: null,
+          object: node,
+        };
         foundObject = node;
+        foundHit = hit;
         break;
       }
       // Opaque, non-interactive geometry in front of the target: stop looking.
       if (!hit.object.material?.transparent) break;
     }
 
-    if (found !== this.target || foundObject !== this.targetObject) {
+    const changed =
+      found?.data !== this.target?.data ||
+      found?.instanceId !== this.targetInstanceId ||
+      foundObject !== this.targetObject;
+    if (changed) {
       this.target = found;
       this.targetObject = foundObject;
-      if (foundObject) {
-        this.highlight.setFromObject(foundObject);
-        this.highlight.visible = true;
-      } else {
-        this.highlight.visible = false;
-      }
-    } else if (foundObject) {
-      this.highlight.setFromObject(foundObject);
+      this.targetInstanceId = found?.instanceId ?? null;
+      this.highlight.visible = false;
     }
 
+    if (!foundObject || !foundHit) return this.target;
+    if (foundObject.userData.suppressHighlight) {
+      this.highlight.visible = false;
+      return this.target;
+    }
+    this.updateHighlight(foundObject, foundHit.instanceId);
     return this.target;
+  }
+
+  /** Boxes one instanced plant or the whole equipment group when not instanced. */
+  updateHighlight(object, instanceId) {
+    if (instanceId == null || !object.isInstancedMesh) {
+      this.box.setFromObject(object);
+    } else {
+      const geometry = object.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      const matrix = new THREE.Matrix4();
+      object.getMatrixAt(instanceId, matrix);
+      object.updateWorldMatrix(true, false);
+      matrix.premultiply(object.matrixWorld);
+      this.box.copy(geometry.boundingBox).applyMatrix4(matrix);
+    }
+    if (this.box.isEmpty()) {
+      this.highlight.visible = false;
+      return;
+    }
+    this.highlight.box = this.box;
+    this.highlight.updateMatrixWorld(true);
+    this.highlight.visible = true;
   }
 
   dispose() {
@@ -95,5 +145,6 @@ export class InteractionSystem {
     this.highlight.material?.dispose();
     this.target = null;
     this.targetObject = null;
+    this.targetInstanceId = null;
   }
 }

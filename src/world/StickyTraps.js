@@ -16,23 +16,22 @@ const nearestGridLine = (values, value) =>
 /**
  * Resolve a trap anchor to the actual side face of the nearest structural
  * column. The column grid is the same one the frame is built from, and the
- * section size comes from LAYOUT, so the card sits flush against the steel
- * instead of floating in the aisle.
+ * section size comes from the frame description, so the card sits flush against
+ * the steel instead of floating in the aisle.
  */
-function columnMount(x, z) {
-  const columnX = nearestGridLine(GUTTER_X, x);
-  const columnZ = nearestGridLine(FRAME_Z, z);
+function columnMount(x, z, frame) {
+  const columnX = nearestGridLine(frame.gutterXs, x);
+  const columnZ = nearestGridLine(frame.frameZs, z);
   if (Math.abs(columnX - x) > 1e-3 || Math.abs(columnZ - z) > 1e-3) {
     console.warn(
       `Sticky trap at (${x}, ${z}) is not on a column; snapped to (${columnX}, ${columnZ}).`,
     );
   }
 
-  const halfWidth = LAYOUT.greenhouse.width / 2;
   const section =
-    Math.abs(columnX) === halfWidth
-      ? LAYOUT.greenhouse.perimeterColumnSize
-      : LAYOUT.greenhouse.columnSize;
+    Math.abs(Math.abs(columnX) - frame.halfWidth) < 1e-6
+      ? frame.perimeterColumnSize
+      : frame.columnSize;
   // Cards face the centre of the house so they stay readable from the aisle.
   const face = columnX <= 0 ? 1 : -1;
 
@@ -45,6 +44,14 @@ function columnMount(x, z) {
   };
 }
 
+const DEFAULT_FRAME = {
+  gutterXs: GUTTER_X,
+  frameZs: FRAME_Z,
+  halfWidth: LAYOUT.greenhouse.width / 2,
+  perimeterColumnSize: LAYOUT.greenhouse.perimeterColumnSize,
+  columnSize: LAYOUT.greenhouse.columnSize,
+};
+
 /**
  * Yellow sticky traps clipped to the structural columns (Version 3).
  *
@@ -52,10 +59,26 @@ function columnMount(x, z) {
  * There is no printed label on the card: colour alone identifies the monitor.
  * Press E on a card to record an inspection; the card brightens briefly and the
  * caught count is reported.
+ *
+ * The component is reusable: pass `config` and a local `frame` grid to mount the
+ * same cards on a second glasshouse. Without either option it reproduces the
+ * original twelve main-house traps exactly.
  */
 export class StickyTraps {
-  constructor({ materials }) {
+  constructor({
+    materials,
+    config = LAYOUT.traps,
+    frame = null,
+    idPrefix = 'sticky-trap',
+    groupName = 'sticky-traps',
+    buildingId = null,
+  }) {
     this.materials = materials;
+    this.config = config;
+    this.frame = { ...DEFAULT_FRAME, ...(frame ?? {}) };
+    this.idPrefix = idPrefix;
+    this.groupName = groupName;
+    this.buildingId = buildingId;
     this.group = null;
     this.traps = [];
     this.interactables = [];
@@ -64,9 +87,9 @@ export class StickyTraps {
   }
 
   build(parent) {
-    const config = LAYOUT.traps;
+    const config = this.config;
     const group = new THREE.Group();
-    group.name = 'sticky-traps';
+    group.name = this.groupName;
     this.group = group;
     parent.add(group);
 
@@ -89,10 +112,11 @@ export class StickyTraps {
     this.labelMaterials.push(edgeMaterial);
 
     config.positions.forEach(([x, z], index) => {
-      const mount = columnMount(x, z);
+      const mount = columnMount(x, z, this.frame);
+      const cardY = config.cardY ?? 1.34;
 
       const trap = new THREE.Group();
-      trap.name = `sticky-trap-${index + 1}`;
+      trap.name = `${this.idPrefix}-${index + 1}`;
       trap.position.set(mount.x, 0, mount.z);
       trap.rotation.y = mount.face > 0 ? Math.PI / 2 : -Math.PI / 2;
       group.add(trap);
@@ -100,14 +124,14 @@ export class StickyTraps {
       // Card and its darker rim, both double-sided so the trap reads from the
       // adjacent aisle as well as from the table bay.
       const card = new THREE.Mesh(new THREE.PlaneGeometry(config.width, config.height), cardMaterial);
-      card.position.y = 1.34;
+      card.position.y = cardY;
       card.castShadow = true;
       trap.add(card);
       const rim = new THREE.Mesh(
         new THREE.PlaneGeometry(config.width + 0.018, config.height + 0.018),
         edgeMaterial,
       );
-      rim.position.set(0, 1.34, -0.002);
+      rim.position.set(0, cardY, -0.002);
       trap.add(rim);
 
       // Wire hanger and clip back to the column. The clip bridges the card and
@@ -117,7 +141,7 @@ export class StickyTraps {
         0.07,
         0.035,
         this.materials.stainless,
-        V(0, 1.34 + config.height / 2 + 0.03, -CARD_CLEARANCE / 2),
+        V(0, cardY + config.height / 2 + 0.03, -CARD_CLEARANCE / 2),
         'trap-clip',
       );
       trap.add(clip);
@@ -125,7 +149,7 @@ export class StickyTraps {
         new THREE.TorusGeometry(0.045, 0.006, 5, 12, Math.PI * 1.35),
         this.materials.stainless,
       );
-      wire.position.set(0, 1.34 + config.height / 2 + 0.09, 0.02);
+      wire.position.set(0, cardY + config.height / 2 + 0.09, 0.02);
       wire.rotation.z = Math.PI * 0.18;
       trap.add(wire);
 
@@ -139,14 +163,15 @@ export class StickyTraps {
         speck.scale.set(1.5, 1, 0.4);
         speck.position.set(
           Math.cos(angle) * radius,
-          1.34 + Math.sin(angle) * radius * 1.3,
+          cardY + Math.sin(angle) * radius * 1.3,
           0.006,
         );
         trap.add(speck);
       }
 
       const info = {
-        id: `sticky-trap-${index + 1}`,
+        id: `${this.idPrefix}-${index + 1}`,
+        buildingId: this.buildingId,
         category: 'Crop protection',
         title: `Sticky trap ${String(index + 1).padStart(2, '0')}`,
         description:

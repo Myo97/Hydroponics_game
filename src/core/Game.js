@@ -4,6 +4,7 @@ import { getPreset } from './Quality.js';
 import { MaterialLibrary } from '../world/MaterialLibrary.js';
 import { Environment } from '../world/Environment.js';
 import { Greenhouse } from '../world/Greenhouse.js';
+import { NurseryGreenhouse } from '../world/NurseryGreenhouse.js';
 import { Equipment } from '../world/Equipment.js';
 import { CollisionWorld } from '../player/CollisionWorld.js';
 import { FirstPersonController } from '../player/FirstPersonController.js';
@@ -14,6 +15,8 @@ import { PlantSimulation } from '../simulation/PlantSimulation.js';
 import { WaterNutrientSimulation } from '../simulation/WaterNutrientSimulation.js';
 import { GreenhouseClimate } from '../simulation/GreenhouseClimate.js';
 import { GreenhouseControlSystem } from '../systems/GreenhouseControlSystem.js';
+import { TrayPickupController } from '../systems/TrayPickupController.js';
+import { SeedlingTransplantController } from '../systems/SeedlingTransplantController.js';
 import { WaterStorage } from '../world/WaterStorage.js';
 import { BluelabController } from '../world/BluelabController.js';
 import { IrrigationPanel } from '../world/IrrigationPanel.js';
@@ -43,6 +46,8 @@ export class Game {
     this.fpsFrames = 0;
     this.fps = 60;
     this.report = () => {};
+    this.lastGrowthDayIndex = null;
+    this.saveAccumulator = 0;
 
     this.settings = this.loadSettings();
     this.preset = getPreset(this.settings.quality);
@@ -51,6 +56,7 @@ export class Game {
     this.onPointerLockError = this.onPointerLockError.bind(this);
     this.onResize = this.onResize.bind(this);
     this.onKeyDown = this.onKeyDown.bind(this);
+    this.onBeforeUnload = this.onBeforeUnload.bind(this);
     this.animate = this.animate.bind(this);
   }
 
@@ -87,6 +93,18 @@ export class Game {
       control: this.control,
     }).build();
     this.greenhouse.setDetailVisible(this.preset.showDetail);
+
+    // Separate propagation house beside the main glasshouse. Same construction
+    // language, half the previous plan size, with a complete ebb-and-flow bench,
+    // sticky traps and retractable shade screen inside.
+    this.nursery = new NurseryGreenhouse({
+      scene: this.scene,
+      materials: this.materials,
+      collisionWorld: this.collisionWorld,
+      preset: this.preset,
+      control: this.control,
+    }).build();
+    this.nursery.setDetailVisible(this.preset.showDetail);
 
     this.report(0.72, 'Installing NFT tables and hydraulics…');
     await this.nextTick();
@@ -157,6 +175,7 @@ export class Game {
       scene: this.scene,
       interactables: [
         ...this.greenhouse.getInteractables(),
+        ...this.nursery.getInteractables(),
         ...this.equipment.getInteractables(),
         ...this.storage.interactables,
         ...this.bluelab.interactables,
@@ -181,6 +200,8 @@ export class Game {
           this.settings.fov = value;
           this.saveSettings();
         },
+        onSkipTime: () => this.skipTime(24),
+        onCycleWeather: () => this.cycleWeather(),
         onCloseInspect: () => this.closeInspect(),
       },
     });
@@ -194,13 +215,28 @@ export class Game {
     this.report(0.94, 'Waking simulations…');
     await this.nextTick();
     this.plants = new PlantSimulation({ equipment: this.equipment, layout: LAYOUT });
+    this.equipment.setPlantSimulation(this.plants);
+    this.trayPickup = new TrayPickupController({
+      scene: this.scene,
+      camera: this.camera,
+      nursery: this.nursery,
+      materials: this.materials,
+    });
+    this.transplant = new SeedlingTransplantController({
+      simulation: this.plants,
+      equipment: this.equipment,
+      nursery: this.nursery,
+      pickup: this.trayPickup,
+    });
     this.water = new WaterNutrientSimulation({
       equipment: this.equipment,
       layout: LAYOUT,
       control: this.control,
       climate: this.climate,
+      plants: this.plants,
     });
     this.saveSystem = new SaveSystem({ key: 'verde-block4:save' });
+    this.restoreSession();
 
     this.report(1, 'Ready');
     await this.nextTick();
@@ -209,6 +245,7 @@ export class Game {
     document.addEventListener('pointerlockerror', this.onPointerLockError);
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('beforeunload', this.onBeforeUnload);
     this.onResize();
     this.running = true;
     this.clock.start();
@@ -289,6 +326,7 @@ export class Game {
   pause() {
     if (!this.started || this.paused) return;
     this.paused = true;
+    this.saveGame();
     // Drone mode survives the pause; only flight input is suspended.
     this.drone?.deactivate();
     // Drop out of inspect first so the panel state cannot outlive the pause.
@@ -343,15 +381,171 @@ export class Game {
   }
 
   /**
+   * While carrying, the same aimed object gets a contextual action: the nursery
+   * bench accepts the tray back, and an NFT table offers transplantation with a
+   * live capacity check. Nothing else is repurposed.
+   */
+  decorateCarryTarget(target) {
+    if (!target || !this.trayPickup?.isCarrying) return target;
+    const data = target.data;
+    if (!data) return target;
+    const bedId = this.nursery.tidalBed?.bed.id;
+    const isBench = data.trayId || data.id === bedId;
+    if (isBench && data.buildingId === LAYOUT.nursery.id) {
+      return {
+        ...target,
+        data: {
+          ...data,
+          title: 'Nursery propagation bench',
+          interaction: 'nursery-place-tray',
+          interactionHint: 'Place tray on the nursery bench',
+        },
+      };
+    }
+
+    if (data.kind === 'nft-table') {
+      const tray = this.trayPickup.carried;
+      const capacity = this.transplant.canTransplant(data.nftTableId);
+      const hint = !tray.ready
+        ? `Transplant-ready tray required (Day ${tray.growthDay}/14)`
+        : capacity.ok
+          ? `Transplant ${tray.germinated} seedlings (${capacity.free} holes free)`
+          : `No capacity - ${tray.germinated} needed, ${capacity.free} free`;
+      return {
+        ...target,
+        data: {
+          ...data,
+          title: `${data.title} - Green Coral transplant`,
+          interaction: 'nursery-transplant',
+          interactionHint: hint,
+          carryTrayId: tray.id,
+        },
+      };
+    }
+    return target;
+  }
+
+  /**
    * Central dispatch for every Version 4 interaction. Returns true when the
    * action was handled, so E never falls through to the generic inspect panel.
    */
-  handleInteraction(data) {
+  handleInteraction(data, options = {}) {
     if (!data) return false;
     switch (data.interaction) {
+      case 'inspect-crop': {
+        this.openInspect(data);
+        return true;
+      }
+      case 'harvest-crop': {
+        if (options.shiftKey) {
+          this.openInspect(data);
+          return true;
+        }
+        const result = this.plants.harvestPlant(data.tableId, data.plantId);
+        if (result.ok) {
+          const total = this.plants.harvestStats.totalHarvestWeightG;
+          this.ui.toast(
+            `${result.cropName} harvested - ${result.weightG.toFixed(0)} g head · ${this.plants.harvestStats.harvestedPlants} heads / ${total.toFixed(0)} g total`,
+          );
+          if (this.inspecting) this.closeInspect();
+        } else {
+          this.ui.toast(result.reason ?? 'Crop is not ready to harvest', 'warn');
+          this.openInspect(data);
+        }
+        return true;
+      }
+      case 'nursery-seed-tray': {
+        const result = this.nursery.seedTray(data.trayId, {
+          calendarDay: this.climate.dayIndex,
+        });
+        if (result.ok) {
+          this.ui.toast(
+            `${data.title}: Green Coral sown - ${result.germinated}/320 germinated, Day 1`,
+          );
+        } else {
+          this.ui.toast(result.reason ?? 'Tray could not be seeded', 'warn');
+        }
+        return true;
+      }
+      case 'nursery-pickup-tray': {
+        const result = this.trayPickup.pickUp(data.trayId);
+        if (result.ok) {
+          this.ui.setCarry(result.tray);
+          this.ui.setTarget(null);
+          this.ui.toast(
+            `Carrying Tray ${String(result.tray.index + 1).padStart(2, '0')} - ${result.tray.germinated} transplant-ready plugs`,
+          );
+        } else {
+          this.ui.toast(result.reason ?? 'Tray could not be picked up', 'warn');
+        }
+        return true;
+      }
+      case 'nursery-seed-all': {
+        const result = this.nursery.seedAllEmpty({ calendarDay: this.climate.dayIndex });
+        this.ui.toast(
+          result.seeded > 0
+            ? `Seeded ${result.seeded} trays with ${result.germinated.toLocaleString('en-GB')} Green Coral cells`
+            : 'No empty trays to sow',
+          result.seeded > 0 ? 'info' : 'warn',
+        );
+        return true;
+      }
+      case 'nursery-grow-all': {
+        const result = this.nursery.growAll();
+        this.ui.toast(
+          result.growing > 0
+            ? `GROW: ${result.growing} planted trays advancing Day 1 to Day 14 (empty trays untouched)`
+            : 'GROW skipped - no planted trays below Day 14',
+          result.growing > 0 ? 'info' : 'warn',
+        );
+        return true;
+      }
+      case 'nursery-place-tray': {
+        const result = this.trayPickup.placeOnNursery();
+        if (result.ok) {
+          this.ui.setCarry(null);
+          this.ui.toast(
+            `Tray ${String(result.tray.index + 1).padStart(2, '0')} set down on the nursery bench`,
+          );
+        } else {
+          this.ui.toast(result.reason ?? 'Tray could not be placed', 'warn');
+        }
+        return true;
+      }
+      case 'nursery-transplant': {
+        const result = this.transplant.transplant(data.nftTableId);
+        if (result.ok) {
+          this.ui.setCarry(null);
+          this.ui.setTarget(null);
+          this.ui.toast(
+            `${result.planted} Green Coral seedlings transplanted to ${result.tableTitle} - tray returned for reuse`,
+          );
+        } else {
+          this.ui.toast(result.reason ?? 'Transplant rejected', 'warn');
+        }
+        return true;
+      }
       case 'toggle-entrance': {
-        const open = this.greenhouse.toggleEntranceDoors();
-        this.ui.toast(open ? 'Entrance opening' : 'Entrance closing');
+        const isNursery = data.buildingId === LAYOUT.nursery.id;
+        const building = isNursery ? this.nursery : this.greenhouse;
+        const open = building.toggleEntranceDoors();
+        this.ui.toast(
+          `${isNursery ? 'Nursery' : 'Main'} entrance ${open ? 'opening' : 'closing'}`,
+        );
+        return true;
+      }
+      case 'nursery-start-cycle': {
+        const result = this.nursery.startTidalCycle();
+        if (result.started) {
+          this.ui.toast('Nursery ebb & flow: flooding started');
+        } else {
+          this.ui.toast(`Nursery bed busy - ${result.label ?? result.stage}`);
+        }
+        return true;
+      }
+      case 'nursery-toggle-shade': {
+        const extended = this.nursery.toggleShade();
+        this.ui.toast(`Nursery shade screen ${extended ? 'extending' : 'retracting'}`);
         return true;
       }
       case 'toggle-cabinet': {
@@ -422,10 +616,7 @@ export class Game {
         return true;
       }
       case 'cycle-weather': {
-        const state = this.climate.cycleWeather();
-        const label = LAYOUT.weather?.states?.[state]?.label ?? state;
-        this.weatherPanel.hmiAccumulator = 1;
-        this.ui.toast(`Weather selector: ${label} (manual hold)`);
+        this.cycleWeather();
         return true;
       }
       case 'set-weather': {
@@ -460,7 +651,9 @@ export class Game {
         return true;
       }
       case 'inspect-trap': {
-        this.greenhouse.stickyTraps?.inspect(data.trapIndex);
+        const trapSystem =
+          data.buildingId === LAYOUT.nursery.id ? this.nursery.stickyTraps : this.greenhouse.stickyTraps;
+        trapSystem?.inspect(data.trapIndex);
         this.openInspect(data);
         return true;
       }
@@ -471,12 +664,125 @@ export class Game {
   }
 
   /**
+   * One calendar authority for every living crop. The climate day index is
+   * compared with the last processed day, so a frame update and a developer
+   * clock jump can never grow the same plant twice.
+   */
+  applyCalendarGrowth() {
+    const targetDay = this.climate?.dayIndex ?? 0;
+    if (this.lastGrowthDayIndex === null) {
+      this.lastGrowthDayIndex = targetDay;
+      return { days: 0, nursery: { advanced: 0 }, plants: { advanced: 0 } };
+    }
+    let days = 0;
+    let nursery = { advanced: 0, skippedEmpty: 0, ready: 0 };
+    let plants = { advanced: 0 };
+    while (this.lastGrowthDayIndex < targetDay) {
+      this.lastGrowthDayIndex += 1;
+      const nurseryResult = this.nursery?.advanceDay?.(this.lastGrowthDayIndex);
+      const plantResult = this.plants?.advanceDay?.(this.lastGrowthDayIndex);
+      if (nurseryResult) {
+        nursery = {
+          advanced: nursery.advanced + (nurseryResult.advanced ?? 0),
+          skippedEmpty: nurseryResult.skippedEmpty ?? 0,
+          ready: nurseryResult.ready ?? 0,
+        };
+      }
+      if (plantResult) {
+        plants = {
+          advanced: plants.advanced + (plantResult.advanced ?? 0),
+        };
+      }
+      days += 1;
+    }
+    return { days, nursery, plants };
+  }
+
+  /** Restore the automatic save once all simulations and physical systems exist. */
+  restoreSession() {
+    this.lastGrowthDayIndex = this.climate?.dayIndex ?? 0;
+    const saved = this.saveSystem?.load();
+    if (!saved) return false;
+    try {
+      if (saved.climate) this.climate.restore(saved.climate);
+      if (saved.control) this.control.apply(saved.control);
+      if (saved.water) this.water.applyState(saved.water);
+      if (saved.plants?.growth) this.plants.restoreGrowth(saved.plants.growth);
+      if (saved.nursery) this.nursery.restoreGrowth(saved.nursery);
+      if (saved.player && this.player) {
+        this.player.teleport(saved.player.x, saved.player.z, saved.player.yaw);
+        this.player.pitch = saved.player.pitch ?? this.player.pitch;
+        this.player.syncCamera();
+      }
+      this.lastGrowthDayIndex = this.climate.dayIndex;
+      this.equipment.updateCrops(0, null);
+      return true;
+    } catch (error) {
+      console.warn('[Verde Block 4] Save could not be restored', error);
+      return false;
+    }
+  }
+
+  saveGame() {
+    if (!this.saveSystem || !this.climate) return null;
+    return this.saveSystem.save({
+      player: this.player,
+      settings: this.settings,
+      plants: this.plants,
+      water: this.water,
+      climate: this.climate,
+      control: this.control,
+      nursery: this.nursery,
+    });
+  }
+
+  onBeforeUnload() {
+    this.saveGame();
+  }
+
+  /**
+   * Shared by the physical selector and the on-screen developer weather button.
+   * A manual hold makes the selected outlook deterministic until AUTO resumes.
+   */
+  cycleWeather() {
+    const state = this.climate.cycleWeather();
+    const label = LAYOUT.weather?.states?.[state]?.label ?? state;
+    if (this.weatherPanel) this.weatherPanel.hmiAccumulator = 1;
+    this.ui.setClimate(this.climate.snapshot());
+    this.ui.toast(`Weather: ${label} (manual hold)`);
+    return state;
+  }
+
+  /**
+   * Developer clock jump. Climate is advanced through its normal update path so
+   * the date, sun, DLI and automatic weather schedule all stay in sync.
+   */
+  skipTime(hours = 24) {
+    const snapshot = this.climate.skipGameHours(hours);
+    const growth = this.applyCalendarGrowth();
+    this.environment?.update(0, this.climate);
+    if (this.weatherPanel) this.weatherPanel.hmiAccumulator = 1;
+    this.ui.setClimate(snapshot);
+    const growthNote =
+      growth.days > 0
+        ? ` \u00b7 ${growth.nursery.advanced} trays + ${growth.plants.advanced} crops grew`
+        : '';
+    this.ui.toast(`DEV clock +${hours} h - ${snapshot.dayLabel} \u00b7 ${snapshot.clock}${growthNote}`);
+    this.saveGame();
+    return snapshot;
+  }
+
+  /**
    * Free-flying drone view. A dedicated camera is flown with WASD/QE and the
    * walkthrough pose is left untouched, so landing returns exactly where the
    * player was standing.
    */
   enterDroneView() {
     if (!this.started || this.inspecting || this.droneView) return;
+    if (this.trayPickup?.isCarrying) {
+      this.ui.toast('Set the seedling tray down before entering drone view', 'warn');
+      return;
+    }
     this.droneView = true;
     this.ui.setTarget(null);
     this.player.setEnabled(false);
@@ -518,6 +824,7 @@ export class Game {
   setCutaway(active) {
     this.environment?.setTopView(active);
     this.greenhouse?.setTopView(active);
+    this.nursery?.setTopView(active);
     this.storage?.setTopView(active);
     this.equipment?.hydraulicNetwork?.setTopView(active);
     this.bluelab?.setTopView(active);
@@ -556,6 +863,21 @@ export class Game {
       return;
     }
 
+    // Developer controls work in both walkthrough and drone views. Ignore key
+    // repeat so holding T cannot skip several days in one key stroke.
+    if (!event.repeat && !this.ui.isModalOpen()) {
+      if (event.code === 'KeyT') {
+        event.preventDefault();
+        this.skipTime(24);
+        return;
+      }
+      if (event.code === 'KeyC') {
+        event.preventDefault();
+        this.cycleWeather();
+        return;
+      }
+    }
+
     // While flying, the drone controller owns WASD/QE/Shift; only pause keys
     // are handled here so flight cannot trigger world interactions.
     if (this.droneView) {
@@ -580,12 +902,36 @@ export class Game {
         return;
       }
       const target = this.interaction.target;
-      if (target && this.handleInteraction(target.data)) {
-        this.ui.setTarget(target);
+      const emptyPickup =
+        event.shiftKey && target?.data?.interaction === 'nursery-seed-tray'
+          ? this.trayPickup?.pickUp(target.data.trayId)
+          : null;
+      if (emptyPickup?.ok) {
+        const tray = this.trayPickup.carried;
+        this.ui.setCarry(tray);
+        this.ui.setTarget(null);
+        this.ui.toast(
+          `Carrying empty Tray ${String(tray.index + 1).padStart(2, '0')} - set it back on the bench to replant`,
+        );
+        return;
+      }
+      const actionTarget = this.decorateCarryTarget(target);
+      if (
+        actionTarget &&
+        this.handleInteraction(actionTarget.data, { shiftKey: event.shiftKey })
+      ) {
+        this.ui.setTarget(actionTarget);
         return;
       }
       if (target) this.openInspect(target.data);
-      else this.ui.toast('Nothing within reach — move closer and aim at a unit', 'warn');
+      else if (this.trayPickup?.isCarrying) {
+        this.ui.toast(
+          'Carrying a tray - aim at the nursery bench to set it down, or at an NFT table to transplant',
+          'warn',
+        );
+      } else {
+        this.ui.toast('Nothing within reach - move closer and aim at a unit', 'warn');
+      }
       return;
     }
 
@@ -627,6 +973,7 @@ export class Game {
     this.materials.applyAnisotropy(this.preset.anisotropy);
     this.environment.applyQuality(this.preset);
     this.greenhouse.setDetailVisible(this.preset.showDetail);
+    this.nursery.setDetailVisible(this.preset.showDetail);
     this.ui.setQuality(this.preset.id);
     this.ui.toast(`Quality preset: ${this.preset.label}`);
   }
@@ -686,20 +1033,27 @@ export class Game {
         else this.player.update(dt);
       }
       this.climate.update(dt);
+      this.applyCalendarGrowth();
       this.environment.update(dt, this.climate);
+      this.greenhouse.update(dt);
+      const viewer = this.droneView ? this.drone.position : this.player.position;
+      // The nursery controller advances the flood depth first so the shared
+      // water model meters the same frame's draw/return from Reservoir 2.
+      this.nursery.update(dt, viewer);
       this.water.update(dt);
       const waterSnapshot = this.water.snapshot();
-      this.greenhouse.update(dt);
       this.equipment.update(dt, waterSnapshot);
       this.storage.update(dt, waterSnapshot);
       this.bluelab.update(dt, waterSnapshot);
       this.irrigationPanel.update(dt, waterSnapshot);
       this.weatherPanel.update(dt, this.climate);
       this.plants.update(dt);
+      this.equipment.updateCrops(dt, viewer);
+      this.trayPickup.update(dt);
 
       if (!this.droneView) {
         const target = this.interaction.update();
-        if (!this.inspecting) this.ui.setTarget(target);
+        if (!this.inspecting) this.ui.setTarget(this.decorateCarryTarget(target));
       }
       this.ui.setClimate(this.climate.snapshot());
       this.ui.setPlayerState(
@@ -717,6 +1071,12 @@ export class Game {
               zone: this.player.getZone(),
             },
       );
+
+      this.saveAccumulator += dt;
+      if (this.saveAccumulator >= 30) {
+        this.saveAccumulator = 0;
+        this.saveGame();
+      }
     }
 
     this.renderer.render(this.scene, this.droneView ? this.droneCamera : this.camera);
@@ -724,18 +1084,22 @@ export class Game {
 
   dispose() {
     this.running = false;
+    this.saveGame();
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     document.removeEventListener('pointerlockerror', this.onPointerLockError);
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
     this.player?.dispose();
     this.drone?.dispose();
+    this.trayPickup?.dispose();
     this.interaction?.dispose();
     this.equipment?.dispose();
     this.bluelab?.dispose();
     this.irrigationPanel?.dispose();
     this.weatherPanel?.dispose();
     this.storage?.dispose();
+    this.nursery?.dispose();
     this.greenhouse?.dispose();
     this.environment?.dispose();
     this.materials?.dispose();

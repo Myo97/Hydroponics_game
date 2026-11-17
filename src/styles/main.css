@@ -445,14 +445,78 @@ kbd {
   color: var(--accent);
 }
 
+/* Developer controls (clock + weather) */
+.dev-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.dev-tools-label {
+  margin-right: 2px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.dev-btn {
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.dev-btn:hover {
+  color: var(--text);
+}
+
+.dev-btn--weather {
+  border-color: rgba(116, 214, 180, 0.32);
+  color: var(--accent);
+}
+
+.dev-btn--weather:hover {
+  border-color: rgba(116, 214, 180, 0.62);
+  color: var(--accent);
+}
+
+.dev-prefix {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.dev-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13px;
+  height: 14px;
+  padding: 0 3px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line-soft);
+  border-radius: 2px;
+}
+
 /* Controls strip */
 .controls-strip {
   position: absolute;
   left: 20px;
   bottom: 20px;
   display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 40px);
   align-items: center;
   gap: 14px;
+  row-gap: 8px;
   padding: 8px 13px;
   font-size: 10px;
   color: var(--muted);
@@ -611,6 +675,58 @@ kbd {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 8px rgba(116, 214, 180, 0.8);
+}
+
+/* Physical tray carry card, anchored above the bottom-centre location tag. */
+.carry-tag {
+  position: absolute;
+  left: 50%;
+  bottom: 54px;
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.carry-tag.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.carry-tag strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.carry-tag [data-carry-detail] {
+  color: var(--muted);
+}
+
+.carry-tag .carry-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 9px rgba(116, 214, 180, 0.9);
+}
+
+.carry-tag .carry-label {
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+
+.carry-tag .carry-action {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
 }
 
 /* ------------------------------------------------------------

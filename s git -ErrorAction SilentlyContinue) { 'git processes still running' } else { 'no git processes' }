@@ -1,0 +1,23 @@
+ README.md                                 | 122 [32m+++[m[31m-[m
+ scripts/smoke-equipment.mjs               | 925 [32m+++++++++++++++++++++++++++++[m[31m-[m
+ src/config/layout.js                      | 199 [32m++++++[m[31m-[m
+ src/core/Game.js                          | 390 [32m++++++++++++[m[31m-[m
+ src/interaction/InteractionSystem.js      |  73 [32m++[m[31m-[m
+ src/player/CollisionWorld.js              |  46 [32m+[m[31m-[m
+ src/player/FirstPersonController.js       |   2 [32m+[m
+ src/save/SaveSystem.js                    |  20 [32m+[m[31m-[m
+ src/simulation/GreenhouseClimate.js       |  32 [32m+[m[31m-[m
+ src/simulation/PlantSimulation.js         | 680 [32m+++++++++++++++++++++[m[31m-[m
+ src/simulation/WaterNutrientSimulation.js | 118 [32m+++[m[31m-[m
+ src/styles/main.css                       | 116 [32m++++[m
+ src/systems/GreenhouseControlSystem.js    |  65 [32m+++[m
+ src/ui/GameUI.js                          |  51 [32m+[m[31m-[m
+ src/world/EntranceDoors.js                |  82 [32m++[m[31m-[m
+ src/world/Environment.js                  |  37 [32m+[m[31m-[m
+ src/world/Equipment.js                    |  26 [32m+[m
+ src/world/Greenhouse.js                   | 595 [32m+++++++++++++[m[31m------[m
+ src/world/MaterialLibrary.js              |  85 [32m+++[m
+ src/world/NftTables.js                    |   5 [32m+[m
+ src/world/ProceduralTextures.js           |  76 [32m+++[m
+ src/world/StickyTraps.js                  |  65 [32m++[m[31m-[m
+ 22 files changed, 3495 insertions(+), 315 deletions(-)

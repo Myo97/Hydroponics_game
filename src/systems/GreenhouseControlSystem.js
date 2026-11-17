@@ -30,6 +30,23 @@ export class GreenhouseControlSystem {
     /** tableId -> { open, groupId, pumpKey, reservoirId } */
     this.tables = new Map();
 
+    /**
+     * Propagation-house state. The ebb-and-flow controller owns the stage and
+     * water depth; the shade screen reads `shadeExtended`; the water simulation
+     * reads the pump/stage and meters make-up water from Reservoir 2.
+     */
+    this.nursery = {
+      shadeExtended: true,
+      pumpOn: false,
+      stage: 'ready',
+      waterDepth: 0,
+      autoCycle: true,
+      cycles: 0,
+      drainOpen: false,
+      reservoirId: LAYOUT.nursery.irrigation.reservoirId,
+      cycleRequested: false,
+    };
+
     /** Index into storage.rotanks; the Bluelab display follows this selection. */
     this.selectedTank = 0;
 
@@ -111,6 +128,45 @@ export class GreenhouseControlSystem {
 
   releaseBayDevice(bayId, key) {
     return this.deviceLocks.delete(`${Number(bayId)}:${key}`);
+  }
+
+  /* ------------------------------------------------------- nursery controls */
+
+  /**
+   * Merge a nursery controller update. Unknown keys are ignored so equipment
+   * cannot accidentally overwrite the shared state shape.
+   */
+  setNurseryState(patch = {}) {
+    let changed = false;
+    for (const key of Object.keys(this.nursery)) {
+      if (key === 'cycleRequested') continue;
+      if (!(key in patch) || patch[key] === this.nursery[key]) continue;
+      this.nursery[key] = patch[key];
+      changed = true;
+    }
+    if (changed) this.emit('nursery', { ...this.nursery });
+    return this.nursery;
+  }
+
+  /** Extend/retract the nursery shade screen; returns the new extended state. */
+  toggleNurseryShade() {
+    this.nursery.shadeExtended = !this.nursery.shadeExtended;
+    this.emit('nursery', { ...this.nursery });
+    return this.nursery.shadeExtended;
+  }
+
+  /** Queue a manual ebb-and-flow cycle (the tidal bed consumes the request). */
+  requestNurseryCycle() {
+    this.nursery.cycleRequested = true;
+    this.emit('nursery', { ...this.nursery });
+    return true;
+  }
+
+  /** Consume a queued cycle request exactly once. */
+  consumeNurseryCycleRequest() {
+    if (!this.nursery.cycleRequested) return false;
+    this.nursery.cycleRequested = false;
+    return true;
   }
 
   setAllBays(key, value) {
@@ -309,6 +365,7 @@ export class GreenhouseControlSystem {
         Object.entries(this.dosing).map(([key, value]) => [key, { ...value }]),
       ),
       storageValves: { ...this.storageValves },
+      nursery: { ...this.nursery },
       groups: LAYOUT.irrigation.groups.map((group) => this.getGroupStatus(group.id)),
     };
   }
@@ -348,6 +405,14 @@ export class GreenhouseControlSystem {
         if (!this.dosing[key]) continue;
         if (typeof saved.enabled === 'boolean') this.dosing[key].enabled = saved.enabled;
         if (Number.isFinite(saved.output)) this.dosing[key].output = saved.output;
+      }
+    }
+    if (state.nursery) {
+      for (const key of Object.keys(this.nursery)) {
+        if (key === 'cycleRequested') continue;
+        if (typeof state.nursery[key] === typeof this.nursery[key]) {
+          this.nursery[key] = state.nursery[key];
+        }
       }
     }
     this.emit('restore');

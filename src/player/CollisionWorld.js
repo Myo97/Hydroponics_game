@@ -9,6 +9,7 @@ export class CollisionWorld {
   constructor() {
     this.boxes = [];
     this.circles = [];
+    this.footprints = [];
   }
 
   addBox({ x, z, width, depth, label = '' }) {
@@ -22,6 +23,27 @@ export class CollisionWorld {
     };
     this.boxes.push(box);
     return box;
+  }
+
+  /**
+   * Register a building footprint. Footprints are non-blocking: they describe
+   * where a structure stands so the HUD can name the current zone and future
+   * equipment can be placed relative to a house.
+   */
+  addFootprint({ x, z, width, depth, label = '', zone = 'main', buildingId = 'greenhouse' }) {
+    const footprint = {
+      x,
+      z,
+      width,
+      depth,
+      halfWidth: width / 2,
+      halfDepth: depth / 2,
+      label,
+      zone,
+      buildingId,
+    };
+    this.footprints.push(footprint);
+    return footprint;
   }
 
   addCircle({ x, z, radius, label = '' }) {
@@ -85,13 +107,33 @@ export class CollisionWorld {
     return position;
   }
 
-  /** True when a point is inside the greenhouse footprint (used for the HUD). */
+  /** True when a point is inside a registered building footprint (used for the HUD). */
   contains(x, z) {
-    return Math.abs(x) <= 12 && z >= -18 && z <= 18;
+    if (this.footprints.length === 0) {
+      // Legacy fallback for callers that have not registered footprints.
+      return Math.abs(x) <= 12 && z >= -18 && z <= 18;
+    }
+    return this.footprints.some(
+      (footprint) =>
+        Math.abs(x - footprint.x) <= footprint.halfWidth &&
+        Math.abs(z - footprint.z) <= footprint.halfDepth,
+    );
+  }
+
+  /** Footprint under a point, or null when the point is outside every house. */
+  footprintAt(x, z) {
+    return (
+      this.footprints.find(
+        (footprint) =>
+          Math.abs(x - footprint.x) <= footprint.halfWidth &&
+          Math.abs(z - footprint.z) <= footprint.halfDepth,
+      ) ?? null
+    );
   }
 
   dispose() {
     this.boxes.length = 0;
     this.circles.length = 0;
+    this.footprints.length = 0;
   }
 }

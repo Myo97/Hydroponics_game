@@ -13,13 +13,15 @@ const clamp01 = (value) => Math.max(0, Math.min(1, value));
  * clean-water distribution manifold.
  */
 export class WaterNutrientSimulation {
-  constructor({ equipment, layout = LAYOUT, control = null, climate = null } = {}) {
+  constructor({ equipment, layout = LAYOUT, control = null, climate = null, plants = null } = {}) {
     this.equipment = equipment;
     this.layout = layout;
     this.control = control;
     this.climate = climate;
+    this.plants = plants;
     this.elapsedSeconds = 0;
     this.rainInflow = 0;
+    this.cropWaterUsedLitres = 0;
     this.groupFlow = new Map();
 
     const storage = layout.storage ?? {};
@@ -79,6 +81,9 @@ export class WaterNutrientSimulation {
     this.drainAccumulator = 0;
     this.transferAccumulator = 0;
     this.rainAccumulator = 0;
+    this.nurseryDepth = control?.nursery?.waterDepth ?? 0;
+    this.nurseryFlowLps = 0;
+    this.nurseryBufferLitres = 0;
   }
 
   get selectedTank() {
@@ -142,6 +147,32 @@ export class WaterNutrientSimulation {
     return this.alarms.length > 0;
   }
 
+  get transplantedCropCount() {
+    return this.plants?.transplantedPlantCount ?? 0;
+  }
+
+  /** Crop demand assigned to the reservoir feeding each transplanted table. */
+  get cropDemandByTank() {
+    const demand = new Map();
+    if (!this.plants || !this.equipment?.tables) return demand;
+    const groups = this.layout.irrigation?.groups ?? [];
+    for (const [tableId, entry] of this.plants.transplants ?? []) {
+      const table = this.equipment.tables.find((candidate) => candidate.id === tableId);
+      const group = groups.find((candidate) => candidate.id === table?.groupId);
+      if (!group) continue;
+      const litresPerSecond = entry.plants.length * 0.0000045;
+      demand.set(group.reservoirId, (demand.get(group.reservoirId) ?? 0) + litresPerSecond);
+    }
+    return demand;
+  }
+
+  /** Lettuce evapotranspiration tied to the real transplanted crop count. */
+  get cropWaterDemandLps() {
+    let total = 0;
+    for (const value of this.cropDemandByTank.values()) total += value;
+    return total;
+  }
+
   get summary() {
     const tank = this.selectedTank;
     return {
@@ -168,6 +199,30 @@ export class WaterNutrientSimulation {
   }
 
   /**
+   * Restore the persisted water levels and session counters. Called by Game's
+   * save restore after the same climate/control snapshot has been applied.
+   */
+  applyState(state = {}) {
+    if (Number.isFinite(state.elapsedSeconds)) {
+      this.elapsedSeconds = Math.max(0, state.elapsedSeconds);
+    }
+    for (const saved of state.tanks ?? []) {
+      const tank = this.tanks.find((entry) => entry.id === saved.id);
+      if (tank && Number.isFinite(saved.level)) tank.level = clamp01(saved.level);
+    }
+    if (Number.isFinite(state.returnLevel)) {
+      this.returnTank.level = clamp01(state.returnLevel);
+    }
+    if (Number.isFinite(state.harvesterLevel)) {
+      this.harvester.level = clamp01(state.harvesterLevel);
+    }
+    if (Number.isFinite(state.rainAccumulator)) {
+      this.rainAccumulator = Math.max(0, state.rainAccumulator);
+    }
+    return this;
+  }
+
+  /**
    * Stable read-only view consumed by the HMI screens, the water storage model
    * and the HUD. Levels are fractions (0-1), EC in mS/cm, temperatures in C.
    */
@@ -189,6 +244,9 @@ export class WaterNutrientSimulation {
       rainIntensity: this.climate?.rainIntensity ?? 0,
       rainMmPerHour: this.climate?.rainMmPerHour ?? 0,
       rainInflow: this.rainInflow,
+      transplantedCropCount: this.transplantedCropCount,
+      cropWaterDemandLps: Number(this.cropWaterDemandLps.toFixed(6)),
+      cropWaterUsedLitres: Number(this.cropWaterUsedLitres.toFixed(3)),
       groups: this.groupMetrics.map((group) => ({
         id: group.id,
         name: group.name,
@@ -208,6 +266,14 @@ export class WaterNutrientSimulation {
         a: { ...(this.control?.dosing?.a ?? { enabled: true, output: 0.34 }) },
         b: { ...(this.control?.dosing?.b ?? { enabled: true, output: 0.31 }) },
         c: { ...(this.control?.dosing?.c ?? { enabled: true, output: 0.18 }) },
+      },
+      nursery: {
+        stage: this.control?.nursery?.stage ?? 'ready',
+        pumpOn: Boolean(this.control?.nursery?.pumpOn),
+        shadeExtended: this.control?.nursery?.shadeExtended ?? true,
+        waterDepth: Number((this.control?.nursery?.waterDepth ?? 0).toFixed(3)),
+        reservoirId: this.control?.nursery?.reservoirId ?? 'ro-tank-2',
+        flowLps: Number(this.nurseryFlowLps.toFixed(2)),
       },
       alarms: this.alarms,
     };
@@ -260,6 +326,52 @@ export class WaterNutrientSimulation {
         ((metric.id === 'group-1' ? 18.6 : 19.3) - metric.tank.temp) *
         Math.min(1, dt * 0.02);
     }
+
+    // Transplanted crop evapotranspiration draws a small live load from the
+    // reservoir feeding each table. Empty nursery trays and fallow tables add
+    // nothing.
+    const cropDemand = this.cropDemandByTank;
+    for (const [tankId, litresPerSecond] of cropDemand) {
+      const tank = this.tanks.find((candidate) => candidate.id === tankId);
+      if (!tank || litresPerSecond <= 0) continue;
+      const requested = litresPerSecond * Math.max(0, dt);
+      const available = tank.level * tank.capacity;
+      const used = Math.min(requested, available);
+      tank.level = clamp01(tank.level - used / tank.capacity);
+      this.cropWaterUsedLitres += used;
+    }
+
+    // The nursery flood pan draws from Reservoir 2 as its water depth rises and
+    // returns the same volume through the ebb drain, so the shared reservoir
+    // model sees a real, closed-loop load rather than decorative pipework.
+    const nurseryState = control?.nursery;
+    const nurseryDepth = Math.max(0, nurseryState?.waterDepth ?? 0);
+    const nurseryPan = this.layout.nursery?.tidalBed?.floodPan;
+    if (nurseryPan) {
+      const delta = nurseryDepth - this.nurseryDepth;
+      const litres = delta * nurseryPan.width * nurseryPan.length * 1000;
+      const tank =
+        this.tanks.find((entry) => entry.id === nurseryState?.reservoirId) ??
+        this.tanks[1] ??
+        this.tanks[0];
+      if (tank && Math.abs(litres) > 1e-6) {
+        if (litres > 0) {
+          const drawn = Math.min(litres, tank.level * tank.capacity);
+          tank.level = clamp01(tank.level - drawn / tank.capacity);
+          this.nurseryBufferLitres += drawn;
+          this.nurseryFlowLps = drawn / Math.max(1e-6, dt);
+        } else {
+          const requested = Math.min(-litres, this.nurseryBufferLitres);
+          const returned = Math.min(requested, (1 - tank.level) * tank.capacity);
+          tank.level = clamp01(tank.level + returned / tank.capacity);
+          this.nurseryBufferLitres = Math.max(0, this.nurseryBufferLitres - returned);
+          this.nurseryFlowLps = -returned / Math.max(1e-6, dt);
+        }
+      } else {
+        this.nurseryFlowLps = 0;
+      }
+    }
+    this.nurseryDepth = nurseryDepth;
 
     // Roof run-off reaches the underground harvester only while it is raining.
     const rain = this.climate;
@@ -374,6 +486,10 @@ export class WaterNutrientSimulation {
     this.transferAccumulator = 0;
     this.rainAccumulator = 0;
     this.rainInflow = 0;
+    this.cropWaterUsedLitres = 0;
+    this.nurseryDepth = 0;
+    this.nurseryFlowLps = 0;
+    this.nurseryBufferLitres = 0;
     this.groupFlow.clear();
   }
 }

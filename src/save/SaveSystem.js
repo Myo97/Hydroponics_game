@@ -1,13 +1,15 @@
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 
 /**
  * Versioned save payload.
  *
  * Version 7 stores the game clock, four-state weather selector with its manual
  * hold flag, both irrigation groups, the panel switches and the water levels in
- * addition to the original session metadata. The payload version stays at 2 so
- * saves written before the selector existed still load; the climate restore
- * maps the legacy single rain state onto heavy rain.
+ * addition to the original session metadata. Version 11 adds per-tray nursery
+ * growth and per-plant NFT growth records, including each plant's last processed
+ * calendar day so a restored save cannot replay a growth step. Version 12 stores
+ * the 20-day NFT production ages, stored biomass and harvest readiness of every
+ * plant plus the harvest inventory, lifetime totals and harvest log.
  */
 export class SaveSystem {
   constructor({ key = 'verde-block4:save', storage = window.localStorage } = {}) {
@@ -23,7 +25,7 @@ export class SaveSystem {
     }
   }
 
-  save({ player, settings, plants, water, climate, control } = {}) {
+  save({ player, settings, plants, water, climate, control, nursery } = {}) {
     const payload = {
       version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
@@ -31,7 +33,13 @@ export class SaveSystem {
         ? { x: player.position.x, z: player.position.z, yaw: player.yaw, pitch: player.pitch }
         : null,
       settings: settings ?? null,
-      plants: plants ? { elapsedSeconds: plants.elapsedSeconds } : null,
+      plants: plants
+        ? {
+            elapsedSeconds: plants.elapsedSeconds,
+            growth: plants.snapshotGrowth?.() ?? null,
+          }
+        : null,
+      nursery: nursery?.snapshotGrowth?.() ?? null,
       water: water
         ? {
             elapsedSeconds: water.elapsedSeconds,

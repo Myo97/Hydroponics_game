@@ -221,6 +221,7 @@ export class NftTables {
       const table = {
         ...plan,
         gullies,
+        group: tableGroup,
         tableWidth: install.tableWidth,
         topYStart: topY(startZ),
         topYEnd: topY(endZ),
@@ -249,6 +250,9 @@ export class NftTables {
       );
       const data = {
         id: `nft-${row}-${bay}`,
+        kind: 'nft-table',
+        tableId: table.id,
+        nftTableId: table.id,
         category: 'Growing system',
         title: `NFT table — Row ${row}, bay ${bay}`,
         description:
@@ -272,6 +276,7 @@ export class NftTables {
       };
       tableGroup.userData.interactable = data;
       tableGroup.userData.tableId = table.id;
+      table.data = data;
       this.interactables.push({ object: tableGroup, data });
     }
 

@@ -161,6 +161,8 @@ export class FirstPersonController {
 
   getZone() {
     const { x, z } = this.position;
+    const footprint = this.collisionWorld?.footprintAt?.(x, z);
+    if (footprint?.zone === 'nursery') return 'Nursery greenhouse';
     if (this.collisionWorld && !this.collisionWorld.contains(x, z)) {
       if (z > 18) return 'South yard';
       if (z < -18) return 'North service yard';

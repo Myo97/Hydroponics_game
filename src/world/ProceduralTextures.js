@@ -408,6 +408,82 @@ export function createPlasticTextures({ size = 256, seed = 77 } = {}) {
   };
 }
 
+/**
+ * 320-cell propagation tray surface: 16 x 20 moulded cells with a deterministic
+ * scatter of young seedlings. The texture is shared by all 36 nursery trays, so
+ * the cell grid reads clearly without 11,520 individual meshes.
+ */
+export function createSeedlingTrayTexture({
+  width = 512,
+  height = 1024,
+  columns = 16,
+  rows = 20,
+  seed = 137,
+  seedlings = true,
+} = {}) {
+  const rnd = mulberry32(seed);
+  const { canvas, ctx } = canvas2d(width, height);
+
+  // Dark injection-moulded tray with a slightly lighter rim.
+  ctx.fillStyle = '#252b25';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#343b32';
+  ctx.fillRect(6, 6, width - 12, height - 12);
+
+  const cellW = (width - 20) / columns;
+  const cellH = (height - 20) / rows;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const x = 10 + column * cellW;
+      const y = 10 + row * cellH;
+      const cx = x + cellW / 2;
+      const cy = y + cellH / 2;
+
+      // Recessed square cell with a darker growing hole.
+      ctx.fillStyle = '#2d332c';
+      ctx.fillRect(x + 1.5, y + 1.5, cellW - 3, cellH - 3);
+      ctx.fillStyle = '#172018';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + cellH * 0.06, cellW * 0.25, cellH * 0.23, 0, 0, TAU);
+      ctx.fill();
+
+      // Vintage versions painted permanent seedlings into the tray texture.
+      // Production trays now start genuinely empty, so the live instanced
+      // canopy is the only foliage the player sees.
+      if (seedlings) {
+        const leaves = 2 + ((row * 7 + column * 3) % 2);
+        for (let leaf = 0; leaf < leaves; leaf += 1) {
+          const angle = (leaf / leaves) * TAU + rnd() * 0.7;
+          const radius = cellW * (0.08 + rnd() * 0.1);
+          ctx.fillStyle = leaf === 0 ? '#6f9b4a' : '#89af58';
+          ctx.beginPath();
+          ctx.ellipse(
+            cx + Math.cos(angle) * radius,
+            cy + Math.sin(angle) * radius * 1.25,
+            cellW * 0.13,
+            cellH * 0.09,
+            angle,
+            0,
+            TAU,
+          );
+          ctx.fill();
+        }
+        ctx.fillStyle = '#4f7a3d';
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(1.2, cellW * 0.045), 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 /** Printed equipment label (nutrient tanks, pump skids). */
 export function createLabelTexture(
   title,

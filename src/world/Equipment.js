@@ -3,6 +3,7 @@ import { LAYOUT } from '../config/layout.js';
 import { CylinderBatch, boxMesh } from './Batches.js';
 import { DashboardDisplay } from './DashboardDisplay.js';
 import { NftTables } from './NftTables.js';
+import { NftCropLayer } from './NftCropLayer.js';
 import { HydraulicNetwork } from './HydraulicNetwork.js';
 import { HafFans } from './HafFans.js';
 
@@ -26,6 +27,8 @@ export class Equipment {
     this.fans = [];
     this.tables = [];
     this.tableSystem = null;
+    this.cropLayer = null;
+    this.plantSimulation = null;
     this.hydraulics = null;
     this.fanSystem = null;
     this.fansEnabled = true;
@@ -49,6 +52,7 @@ export class Equipment {
     this.buildControlCabinet();
     this.buildFans();
     this.buildPipework();
+    this.buildCropLayer();
 
     this.scene.add(this.group);
     return this;
@@ -1033,6 +1037,25 @@ export class Equipment {
     this.interactables.push(...(this.hydraulicNetwork.interactables ?? []));
   }
 
+  /** Visible crop layer for transplanted nursery plugs. */
+  buildCropLayer() {
+    this.cropLayer = new NftCropLayer({
+      materials: this.materials,
+      tables: this.tables,
+      layout: LAYOUT,
+    }).build(this.group);
+  }
+
+  setPlantSimulation(simulation) {
+    this.plantSimulation = simulation;
+    this.cropLayer?.attach(simulation);
+    return this.cropLayer;
+  }
+
+  updateCrops(dt, viewer = null) {
+    this.cropLayer?.update(dt, viewer);
+  }
+
   /* ------------------------------------------------------------- lifecycle */
 
   update(dt, waterSnapshot = null) {
@@ -1080,6 +1103,7 @@ export class Equipment {
 
   dispose() {
     this.dashboard?.dispose();
+    this.cropLayer?.dispose();
     if (!this.group) return;
     this.group.traverse((child) => {
       if (child.isMesh || child.isInstancedMesh) child.geometry?.dispose();
@@ -1090,6 +1114,8 @@ export class Equipment {
     this.fans.length = 0;
     this.tables.length = 0;
     this.tableSystem = null;
+    this.cropLayer = null;
+    this.plantSimulation = null;
     this.hydraulicNetwork = null;
     this.fanSystem = null;
     this.dashboard = null;

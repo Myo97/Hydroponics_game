@@ -1,19 +1,53 @@
 import * as THREE from 'three';
-import { LAYOUT, DIM } from '../config/layout.js';
+import { LAYOUT } from '../config/layout.js';
 import { boxMesh } from './Batches.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+const DEFAULT_DESCRIPTION =
+  'Two glazed aluminium leaves run on a continuous top track with a recessed stainless bottom guide. Open the entrance to walk in; the leaves park in front of the gable glazing and leave the full 3.2 m opening clear. Each leaf carries its own collision volume, so the doorway opens progressively as the leaves slide.';
+
+const DEFAULT_SIGN = {
+  title: 'MAIN ENTRANCE',
+  subtitle: 'SLIDING DOOR - KEEP CLEAR',
+};
 
 /**
  * Commercial sliding greenhouse entrance.
  * Two framed glass leaves ride a top track and a recessed bottom guide. The
  * leaves start closed, slide in opposite directions and expose a walkable
  * opening once open. A dynamic collision box fills the doorway while closed.
+ *
+ * The entrance is reusable: pass `config`, `frameZ`, origin and identity
+ * options to mount a matched door in any greenhouse gable.
  */
 export class EntranceDoors {
-  constructor({ materials, collisionWorld }) {
+  constructor({
+    materials,
+    collisionWorld,
+    config = LAYOUT.entrance,
+    frameZ = LAYOUT.greenhouse.length / 2,
+    originX = 0,
+    originZ = 0,
+    buildingId = 'greenhouse',
+    id = 'entrance-doors',
+    groupName = 'entrance-sliding-doors',
+    title = 'Main entrance - sliding doors',
+    sign = DEFAULT_SIGN,
+    description = null,
+  }) {
     this.materials = materials;
     this.collisionWorld = collisionWorld;
+    this.config = config;
+    this.frameZ = frameZ;
+    this.originX = originX;
+    this.originZ = originZ;
+    this.buildingId = buildingId;
+    this.id = id;
+    this.groupName = groupName;
+    this.title = title;
+    this.sign = sign;
+    this.description = description;
     this.interactables = [];
     this.group = null;
     this.leafLeft = null;
@@ -26,15 +60,26 @@ export class EntranceDoors {
   }
 
   build(parent) {
-    const { width, height, panelWidth, openTravel } = LAYOUT.entrance;
+    const { width, height, panelWidth, openTravel } = this.config;
     const doorHalf = width / 2;
     const leafHeight = height - 0.06;
-    const frameZ = DIM.halfLength - 0.045;
-    const panelZ = DIM.halfLength - 0.17;
+    const frameZ = this.frameZ - 0.045;
+    const panelZ = this.frameZ - 0.17;
     const alu = this.materials.aluminium;
+    // Keep the main door's proportions and scale the running gear with the
+    // opening so the nursery door does not inherit a 3.2 m track. Narrow houses
+    // can also supply explicit track/guide lengths and hanger positions.
+    const widthScale = width / LAYOUT.entrance.width;
+    const trackLength =
+      this.config.trackLength ?? (LAYOUT.entrance.width + 3.9) * widthScale;
+    const hangerOffsets = (
+      this.config.hangerOffsets ?? [-3.1, -1.68, 1.68, 3.1].map((x) => x * widthScale)
+    ).slice();
+    const guideLength =
+      this.config.guideLength ?? (LAYOUT.entrance.width + 2.9) * widthScale;
 
     const group = new THREE.Group();
-    group.name = 'entrance-sliding-doors';
+    group.name = this.groupName;
     this.group = group;
     parent.add(group);
 
@@ -53,9 +98,9 @@ export class EntranceDoors {
 
     // Continuous aluminium top track with hanger trolleys.
     group.add(
-      boxMesh(width + 3.9, 0.075, 0.09, alu, V(0, height + 0.15, panelZ), 'entrance-top-track'),
+      boxMesh(trackLength, 0.075, 0.09, alu, V(0, height + 0.15, panelZ), 'entrance-top-track'),
     );
-    for (const x of [-3.1, -1.68, 1.68, 3.1]) {
+    for (const x of hangerOffsets) {
       group.add(
         boxMesh(0.045, 0.3, 0.045, alu, V(x, height + 0.02, panelZ), 'entrance-track-hanger'),
       );
@@ -64,7 +109,7 @@ export class EntranceDoors {
     // Recessed bottom guide: two stainless guide strips and a shallow sill.
     for (const offset of [-0.028, 0.028]) {
       group.add(
-        boxMesh(width + 2.9, 0.012, 0.022, this.materials.stainless, V(0, 0.031, panelZ + offset), 'entrance-bottom-guide'),
+        boxMesh(guideLength, 0.012, 0.022, this.materials.stainless, V(0, 0.031, panelZ + offset), 'entrance-bottom-guide'),
       );
     }
 
@@ -195,7 +240,7 @@ export class EntranceDoors {
 
     const doorSign = new THREE.Mesh(
       new THREE.PlaneGeometry(0.42, 0.13),
-      this.materials.createLabelMaterial('MAIN ENTRANCE', 'SLIDING DOOR - KEEP CLEAR', {
+      this.materials.createLabelMaterial(this.sign.title, this.sign.subtitle, {
         background: '#e8ece5',
         foreground: '#1b3440',
       }),
@@ -215,13 +260,13 @@ export class EntranceDoors {
     group.add(proxy);
 
     this.data = {
-      id: 'entrance-doors',
+      id: this.id,
+      buildingId: this.buildingId,
       category: 'Access',
-      title: 'Main entrance - sliding doors',
+      title: this.title,
       interaction: 'toggle-entrance',
       interactionHint: 'Open entrance',
-      description:
-        'Two glazed aluminium leaves run on a continuous top track with a recessed stainless bottom guide. Open the entrance to walk in; the leaves park in front of the gable glazing and leave the full 3.2 m opening clear. Each leaf carries its own collision volume, so the doorway opens progressively as the leaves slide.',
+      description: this.description ?? DEFAULT_DESCRIPTION,
       specs: [
         ['Opening', `${width.toFixed(1)} m wide x ${height.toFixed(1)} m high`],
         ['Leaves', '2 x sliding aluminium-framed glass'],
@@ -237,8 +282,8 @@ export class EntranceDoors {
     // One collider per leaf, moved with the leaf so the clear opening grows.
     this.leafColliders = [this.leafLeft, this.leafRight].map((leaf) => {
       const box = this.collisionWorld?.addBox({
-        x: leaf.userData.closedX,
-        z: panelZ,
+        x: this.originX + leaf.userData.closedX,
+        z: this.originZ + panelZ,
         width: panelWidth,
         depth: 0.34,
         label: `${leaf.name} (sliding)`,
@@ -281,8 +326,9 @@ export class EntranceDoors {
     for (const { leaf, box } of this.leafColliders) {
       if (!leaf || !box) continue;
       const half = (leaf.userData.panelWidth ?? 0) / 2;
-      box.minX = leaf.position.x - half;
-      box.maxX = leaf.position.x + half;
+      const leafX = this.originX + leaf.position.x;
+      box.minX = leafX - half;
+      box.maxX = leafX + half;
       box.enabled = true;
     }
 

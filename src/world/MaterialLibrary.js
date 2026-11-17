@@ -6,6 +6,7 @@ import {
   createGlassRoughnessTexture,
   createPlasticTextures,
   createShadeClothTexture,
+  createSeedlingTrayTexture,
   createLabelTexture,
   createScreenTexture,
   createWarningLabelTexture,
@@ -38,6 +39,7 @@ export class MaterialLibrary {
       glassRoughness: createGlassRoughnessTexture({ seed: 63 }),
       plastic: createPlasticTextures({ seed: 77 }),
       shadeCloth: createShadeClothTexture({ seed: 91 }),
+      seedlingTray: createSeedlingTrayTexture({ seedlings: false }),
       screen: createScreenTexture(),
     };
   }
@@ -433,6 +435,89 @@ export class MaterialLibrary {
         depthTest: true,
         side: THREE.DoubleSide,
         toneMapped: true,
+      }),
+    );
+
+    /** Dark corrugated ABS flood pan used by the nursery ebb-and-flow bench. */
+    this.nurseryFloodTray = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'nursery-abs-flood-tray',
+        map: this.tiled(t.plastic.map, 3, 5),
+        roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 5),
+        color: 0x353b38,
+        metalness: 0.02,
+        roughness: 0.42,
+        envMapIntensity: 0.26,
+        side: THREE.DoubleSide,
+      }),
+    );
+
+    /** Shared 16 x 20 cell surface for every 320-cell seedling tray. */
+    this.nurseryTrayCells = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'nursery-seedling-tray-cells',
+        map: t.seedlingTray,
+        color: 0xffffff,
+        metalness: 0.0,
+        roughness: 0.82,
+        envMapIntensity: 0.24,
+      }),
+    );
+
+    // Green Coral Lettuce foliage. Each stage has a distinct chlorophyll tone;
+    // all are double-sided because the thin instanced leaf ribbons have no
+    // modelled underside.
+    const leafColours = [0xd4e8ad, 0x8bc34a, 0x7cb342, 0x689f38, 0x5f9f35];
+    leafColours.forEach((color, index) => {
+      this[`seedlingLeaf${index + 1}`] = this.track(
+        new THREE.MeshStandardMaterial({
+          name: `green-coral-leaf-stage-${index + 1}`,
+          color,
+          metalness: 0.0,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+          envMapIntensity: 0.34,
+        }),
+      );
+    });
+
+    // Red Oak anthocyanin palette and the paler, less chlorophyll-rich leaves
+    // used by Xiao Bai Cai and Pak Choy. Same double-sided leaf construction.
+    const redLeafColours = [0xd8a08d, 0xb95f55, 0x93433f, 0x743232, 0x5b2829];
+    redLeafColours.forEach((color, index) => {
+      this[`cropLeafRed${index + 1}`] = this.track(
+        new THREE.MeshStandardMaterial({
+          name: `red-oak-leaf-stage-${index + 1}`,
+          color,
+          metalness: 0.0,
+          roughness: 0.62,
+          side: THREE.DoubleSide,
+          envMapIntensity: 0.3,
+        }),
+      );
+    });
+    const paleLeafColours = [0xe5efbd, 0xc5dd7d, 0xb4ce69, 0xa3bf58, 0x91ad4c];
+    paleLeafColours.forEach((color, index) => {
+      this[`cropLeafPale${index + 1}`] = this.track(
+        new THREE.MeshStandardMaterial({
+          name: `pale-asian-green-leaf-stage-${index + 1}`,
+          color,
+          metalness: 0.0,
+          roughness: 0.58,
+          side: THREE.DoubleSide,
+          envMapIntensity: 0.36,
+        }),
+      );
+    });
+
+    /** Moist dark peat / rockwool plug visible during germination. */
+    this.seedlingSubstrate = this.track(
+      new THREE.MeshStandardMaterial({
+        name: 'nursery-seedling-substrate',
+        color: 0x3b2d22,
+        metalness: 0.0,
+        roughness: 0.98,
+        envMapIntensity: 0.12,
       }),
     );
 

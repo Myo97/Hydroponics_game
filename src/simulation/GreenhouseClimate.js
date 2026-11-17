@@ -210,6 +210,33 @@ export class GreenhouseClimate {
     return this.weather;
   }
 
+  /**
+   * Developer time control: advance the shared clock by a number of game hours
+   * without waiting in real time. Running the regular update path in short steps
+   * keeps date rollover, DLI, sun position, temperature/humidity and the weather
+   * schedule coherent instead of teleporting only the HUD clock.
+   */
+  skipGameHours(hours = 24) {
+    const targetHours = Number.isFinite(Number(hours)) ? Math.max(0, Number(hours)) : 0;
+    const secondsPerGameHour = this.minutesPerSecond > 0 ? 60 / this.minutesPerSecond : 0;
+    if (targetHours <= 0 || secondsPerGameHour <= 0) return this.snapshot();
+
+    const endAbsoluteHour = this.dayIndex * 24 + this.hour + targetHours;
+    let remaining = targetHours;
+    while (remaining > 1e-9) {
+      const stepHours = Math.min(0.25, remaining);
+      this.update(stepHours * secondsPerGameHour);
+      remaining -= stepHours;
+    }
+
+    // Snap to the requested endpoint so repeated clicks cannot accumulate
+    // floating-point drift in the displayed date or minute.
+    this.dayIndex = Math.floor(endAbsoluteHour / 24);
+    this.hour = endAbsoluteHour - this.dayIndex * 24;
+    this.tick(0);
+    return this.snapshot();
+  }
+
   update(dt) {
     this.elapsedSeconds += dt;
     this.hour += (dt * this.minutesPerSecond) / 60;
@@ -275,8 +302,9 @@ export class GreenhouseClimate {
   }
 
   get clockLabel() {
-    const hours = Math.floor(this.hour);
-    const minutes = Math.floor((this.hour - hours) * 60);
+    const totalMinutes = Math.floor(this.hour * 60 + 1e-6) % 1440;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   }
 

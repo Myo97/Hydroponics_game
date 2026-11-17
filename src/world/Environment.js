@@ -93,7 +93,7 @@ export class Environment {
     const sun = new THREE.DirectionalLight(config.color ?? 0xfff1d8, config.intensity ?? 2.35);
     sun.name = 'sun';
     sun.position.copy(this.sunDirection).multiplyScalar(distance);
-    sun.target.position.set(0, 1.2, 0);
+    sun.target.position.set(0, 1.2, config.shadowTargetZ ?? 0);
     sun.castShadow = true;
 
     const shadow = sun.shadow;
@@ -187,6 +187,17 @@ export class Environment {
     this.sunDisc = group;
   }
 
+  /** True when a point sits under a glasshouse roof, so rain stops at the glass. */
+  isInsideRoof(x, z, margin = 0.5) {
+    return [LAYOUT.greenhouse, LAYOUT.nursery].filter(Boolean).some((house) => {
+      const [centreX, centreZ] = house.centre ?? [0, 0];
+      return (
+        Math.abs(x - centreX) < house.width / 2 + margin &&
+        Math.abs(z - centreZ) < house.length / 2 + margin
+      );
+    });
+  }
+
   /** Stars, a drifting cloud deck and an exterior rain particle field. */
   buildWeather() {
     const starCount = this.preset?.id === 'low' ? 280 : 620;
@@ -253,10 +264,9 @@ export class Environment {
     const rainPositions = new Float32Array(rainCount * 3);
     const rainSpeeds = new Float32Array(rainCount);
     for (let i = 0; i < rainCount; i += 1) {
-      const x = (Math.random() - 0.5) * 58;
-      const z = -26 + Math.random() * 54;
-      const insideRoof = Math.abs(x) < LAYOUT.greenhouse.width / 2 + 0.5 &&
-        Math.abs(z) < LAYOUT.greenhouse.length / 2 + 0.5;
+      const x = (Math.random() - 0.5) * 64;
+      const z = -28 + Math.random() * 78;
+      const insideRoof = this.isInsideRoof(x, z);
       rainPositions[i * 3] = x;
       rainPositions[i * 3 + 1] = insideRoof ? 6 + Math.random() * 19 : Math.random() * 26;
       rainPositions[i * 3 + 2] = z;
@@ -368,13 +378,14 @@ export class Environment {
         const offset = i * 3;
         this.rainPositions[offset + 1] -= this.rainSpeeds[i] * dt;
         this.rainPositions[offset] += dt * 0.7;
-        const insideRoof =
-          Math.abs(this.rainPositions[offset]) < LAYOUT.greenhouse.width / 2 + 0.5 &&
-          Math.abs(this.rainPositions[offset + 2]) < LAYOUT.greenhouse.length / 2 + 0.5;
+        const insideRoof = this.isInsideRoof(
+          this.rainPositions[offset],
+          this.rainPositions[offset + 2],
+        );
         if (this.rainPositions[offset + 1] < (insideRoof ? 5.2 : 0)) {
           this.rainPositions[offset + 1] = 24 + Math.random() * 4;
-          this.rainPositions[offset] = (Math.random() - 0.5) * 58;
-          this.rainPositions[offset + 2] = -26 + Math.random() * 54;
+          this.rainPositions[offset] = (Math.random() - 0.5) * 64;
+          this.rainPositions[offset + 2] = -28 + Math.random() * 78;
         }
       }
       this.rain.geometry.attributes.position.needsUpdate = true;
@@ -449,13 +460,13 @@ export class Environment {
     addSlab(apronHalfWidth - halfWidth, halfLength * 2, (apronHalfWidth + halfWidth) / 2, 0);
     exterior.add(apronGroup);
 
-    // Entrance bollards.
-    for (const x of [-3.4, 3.4]) {
+    // Entrance bollards, kept clear of the nursery footprint in front.
+    for (const x of [-3.6, 3.6]) {
       const bollard = new THREE.Mesh(
         new THREE.CylinderGeometry(0.075, 0.075, 0.9, 12),
         this.materials.steel,
       );
-      bollard.position.set(x, 0.45, 24.2);
+      bollard.position.set(x, 0.45, 19.6);
       bollard.castShadow = true;
       bollard.receiveShadow = true;
       exterior.add(bollard);
