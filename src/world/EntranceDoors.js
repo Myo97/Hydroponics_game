@@ -273,7 +273,7 @@ export class EntranceDoors {
         ['Track', 'Top rollers / bottom guide'],
         ['Glazing', 'Toughened greenhouse glass'],
         ['Safety', '2 x presence sensors + beacon'],
-        ['Operation', 'E to open / close'],
+        ['Operation', 'Tap to open / close'],
       ],
     };
     group.userData.interactable = this.data;
@@ -301,6 +301,10 @@ export class EntranceDoors {
 
   get isFullyOpen() {
     return this.doorAmount > 0.98;
+  }
+
+  get isMoving() {
+    return Math.abs(this.openTarget - this.doorAmount) > 0.0015;
   }
 
   toggle() {

@@ -173,7 +173,7 @@ export class IrrigationPanel {
       category: 'Irrigation control',
       title: 'Main irrigation controller HMI',
       description:
-        'Live overview of both irrigation groups and the rainwater transfer circuit. The screen shows pump state, open table valves, flowing tables, branch flow, reservoir levels, current weather and harvester rain capture. Press E to inspect the controller.',
+        'Live overview of both irrigation groups and the rainwater transfer circuit. The screen shows pump state, open table valves, flowing tables, branch flow, reservoir levels, current weather and harvester rain capture. Tap to inspect the controller.',
       specs: [
         ['Control', '2 × group pumps + rain transfer'],
         ['Supply', 'Reservoir 1 west header · Reservoir 2 east header'],

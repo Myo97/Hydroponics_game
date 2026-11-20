@@ -1223,11 +1223,14 @@ export function getNftRootGeometry(detailed = false) {
   return geometry;
 }
 
-/** Dark slotted net pot whose top rim sits on the NFT channel plate. */
+/**
+ * Dark slotted net pot. Its rim sits just inside the 52 mm NFT planting hole,
+ * so only the dark rim shows on the channel plate and the pot body hangs below.
+ */
 export function getNftNetPotGeometry(detailed = false) {
   const key = `nft-net-pot:${detailed ? 1 : 0}`;
   if (geometryCache.has(key)) return geometryCache.get(key);
-  const radius = 0.0255;
+  const radius = 0.0242;
   const height = 0.026;
   const parts = [];
   const body = new THREE.CylinderGeometry(

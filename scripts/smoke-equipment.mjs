@@ -45,6 +45,9 @@ const { WaterNutrientSimulation } = await import('../src/simulation/WaterNutrien
 const { GreenhouseControlSystem } = await import('../src/systems/GreenhouseControlSystem.js');
 const { TrayPickupController } = await import('../src/systems/TrayPickupController.js');
 const { SeedlingTransplantController } = await import('../src/systems/SeedlingTransplantController.js');
+const { HarvestController } = await import('../src/systems/HarvestController.js');
+const { ContainerHouse } = await import('../src/world/ContainerHouse.js');
+const { FarmPerimeter } = await import('../src/world/FarmPerimeter.js');
 const { stageForDay, getPlantGeometry, GROWTH_STAGES } = await import(
   '../src/simulation/GreenCoralGrowth.js'
 );
@@ -62,13 +65,24 @@ const {
   LETTUCE_PRODUCTION_DAYS,
   LETTUCE_HARVEST_DIAMETER_M,
   LETTUCE_HARVEST_HEIGHT_M,
+  LETTUCE_ROCKWOOL_HEIGHT_M,
+  LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M,
   lettuceStageForDay,
   getLettuceHeadGeometry,
+  getLettuceRockwoolGeometry,
   referenceDayForStage,
   greenCoralPaletteForDay,
 } = await import('../src/world/lettuce.js');
 const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
+const {
+  NftHarvestGlow,
+  HARVEST_GLOW_FADE_SECONDS,
+  HARVEST_GLOW_LENGTH_M,
+  HARVEST_GLOW_LIFT_M,
+  HARVEST_GLOW_WIDTH_M,
+} = await import('../src/world/NftHarvestGlow.js');
 const { Environment } = await import('../src/world/Environment.js');
+const { StaticBatchManager } = await import('../src/world/StaticBatchManager.js');
 const { LAYOUT, NFT_INSTALLATION, FAN_INSTALLATION, GUTTER_X, FRAME_Z } = await import('../src/config/layout.js');
 const { NURSERY_DIM, NURSERY_GUTTER_X, NURSERY_RIDGE_X, NURSERY_FRAME_Z } =
   await import('../src/config/layout.js');
@@ -898,6 +912,27 @@ check(
   `${equipment.fans[0].currentSpeed.toFixed(4)} rad/s`,
 );
 equipment.setFansEnabled(true);
+const fanVisuals = equipment.fanSystem.group.children.filter((child) => child.isInstancedMesh);
+const firstRotorMatrix = new THREE.Matrix4();
+equipment.fanSystem.rotor.vaneMesh.getMatrixAt(0, firstRotorMatrix);
+equipment.update(1 / 60);
+const nextRotorMatrix = new THREE.Matrix4();
+equipment.fanSystem.rotor.vaneMesh.getMatrixAt(0, nextRotorMatrix);
+check(
+  '24 HAF fans render as shared instanced hardware',
+  fanVisuals.length >= 10 &&
+    equipment.fanSystem.rotor.hubMesh.count === 24 &&
+    equipment.fanSystem.rotor.vaneMesh.count === 24 * 5,
+  `${fanVisuals.length} instanced fan meshes`,
+);
+check(
+  'rotor matrices animate while the fan hardware stays shared',
+  !firstRotorMatrix.equals(nextRotorMatrix),
+);
+check(
+  'fan motion does not invalidate the cached shadow map',
+  equipment.hasAnimatedShadow === false,
+);
 
 equipment.toggleCabinetDoor();
 check('cabinet opens', equipment.isCabinetOpen === true);
@@ -943,6 +978,15 @@ check(
     const gap = Math.abs(trap.group.position.x - trap.mount.columnX) - section / 2;
     return Math.abs(trap.group.position.z - trap.mount.columnZ) < 1e-9 && gap > 0.005 && gap < 0.03;
   }),
+);
+const stickyVisuals = Object.values(greenhouse.stickyTraps.visuals ?? {});
+check(
+  'sticky traps share five instanced card/insect meshes',
+  stickyVisuals.length === 5 &&
+    stickyVisuals.every((mesh) => mesh.isInstancedMesh) &&
+    greenhouse.stickyTraps.visuals.cards.count === 12 &&
+    greenhouse.stickyTraps.visuals.insects.count > 50,
+  `${stickyVisuals.length} instanced visual meshes / ${greenhouse.stickyTraps.visuals?.insects.count} insects`,
 );
 const trapInspection = greenhouse.stickyTraps.inspect(2);
 check(
@@ -1208,6 +1252,19 @@ check(
     skyEnvironment.isInsideRoof(-17, 16) &&
     !skyEnvironment.isInsideRoof(-17, 25),
 );
+const rainPositions = skyEnvironment.rain.geometry.getAttribute('position');
+const rainVersion = rainPositions.version;
+const rainBytes = Array.from(rainPositions.array.slice(0, 12));
+skyEnvironment.update(1 / 60, fastClock);
+check(
+  'rain drops animate from a static GPU buffer',
+  skyEnvironment.rain.visible &&
+    skyEnvironment.rain.geometry.getAttribute('aSpeed')?.count === rainPositions.count &&
+    rainPositions.version === rainVersion &&
+    skyEnvironment.rainUniforms.uTime.value > 0 &&
+    rainBytes.every((value, index) => value === rainPositions.array[index]),
+  `t=${skyEnvironment.rainUniforms.uTime.value.toFixed(2)} s / ${rainPositions.count} drops`,
+);
 check(
   'daylight sun is above the horizon and casts light',
   skyEnvironment.sun.visible &&
@@ -1240,8 +1297,8 @@ const saved = saveSystem.save({
   settings: { quality: 'high' },
 });
 check(
-  'save payload is version 3 with manual weather and control state',
-  saved?.version === 3 &&
+  'save payload is version 4 with manual weather and control state',
+  saved?.version === 4 &&
     saved.climate?.weather === 'heavyRain' &&
     saved.climate?.weatherManual === true &&
     saved.climate?.rainMmPerHour > 10 &&
@@ -1251,7 +1308,7 @@ check(
 const loaded = saveSystem.load();
 check(
   'save round-trips through local storage',
-  loaded?.version === 3 && loaded.control.groups.length === 2,
+  loaded?.version === 4 && loaded.control.groups.length === 2,
 );
 const restoredClimate = new GreenhouseClimate();
 restoredClimate.restore(loaded.climate);
@@ -1637,13 +1694,92 @@ check(
   `Nursery ${tablePlantings[0].nurseryAgeDays} + NFT Day ${tablePlantings[0].nftAgeDays}`,
 );
 const transplantedNftEntry = equipment.cropLayer.tableGroups.get(nftTable.id);
+const tableBucketInstances = [...equipment.cropLayer.batches.values()].reduce(
+  (sum, batch) =>
+    sum + batch.items.filter((item) => item.tableId === nftTable.id).length,
+  0,
+);
 check(
   'every transplanted crown renders in a net cup and rockwool starter cube',
   transplantedNftEntry.rockwoolMesh?.count === 320 &&
     transplantedNftEntry.potMesh?.count === 320 &&
-    transplantedNftEntry.buckets.reduce((sum, entry) => sum + entry.mesh.count, 0) === 320,
-  `${transplantedNftEntry.rockwoolMesh?.count} cubes / ${transplantedNftEntry.potMesh?.count} cups`,
+    transplantedNftEntry.buckets.length > 0 &&
+    tableBucketInstances === 320,
+  `${transplantedNftEntry.rockwoolMesh?.count} cubes / ${transplantedNftEntry.potMesh?.count} cups / ${tableBucketInstances} heads`,
 );
+check(
+  'NFT crops pool globally by variety, day and LOD',
+  equipment.cropLayer.batches.size > 0 &&
+    equipment.cropLayer.batches.size < 30 &&
+    [...equipment.cropLayer.batches.values()].every(
+      (batch) => batch.mesh?.isInstancedMesh && batch.items.length > 0,
+    ),
+  `${equipment.cropLayer.batches.size} buckets for 320 plants`,
+);
+const cropLayer = equipment.cropLayer;
+const plugGeometry = getLettuceRockwoolGeometry();
+plugGeometry.computeBoundingBox();
+const plugPlant = tablePlantings[0];
+const plugHole = cropLayer.holeTransform(nftTable, plugPlant);
+const plugMatrix = cropLayer.rockwoolMatrix(plugPlant).clone();
+const potMatrix = cropLayer.potMatrix(plugPlant).clone();
+const crownMatrix = cropLayer.headMatrix(plugPlant).clone();
+const rootMatrix = cropLayer.rootMatrix(plugPlant).clone();
+const plugTop = new THREE.Vector3(0, plugGeometry.boundingBox.max.y, 0).applyMatrix4(plugMatrix);
+const plugBottom = new THREE.Vector3(0, plugGeometry.boundingBox.min.y, 0).applyMatrix4(
+  plugMatrix,
+);
+const potTop = new THREE.Vector3(
+  0,
+  getNftNetPotGeometry(true).boundingBox.max.y,
+  0,
+).applyMatrix4(potMatrix);
+const plugSize = new THREE.Vector3();
+plugGeometry.boundingBox.getSize(plugSize);
+const crownY = new THREE.Vector3().setFromMatrixPosition(crownMatrix).y;
+const rootTopY = new THREE.Vector3().setFromMatrixPosition(rootMatrix).y;
+const everyPlugInsideHole = tablePlantings.every((plant) => {
+  const hole = cropLayer.holeTransform(nftTable, plant);
+  const matrix = cropLayer.rockwoolMatrix(plant);
+  return (
+    Math.abs(matrix.elements[12] - hole.x) < 1e-6 &&
+    Math.abs(matrix.elements[14] - hole.z) < 1e-6 &&
+    matrix.elements[13] + LETTUCE_ROCKWOOL_HEIGHT_M < hole.y
+  );
+});
+check(
+  'seedling plugs sit recessed inside every gully hole',
+  everyPlugInsideHole &&
+    plugTop.y < plugHole.y &&
+    Math.abs(plugHole.y - plugTop.y - LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M) < 1e-6 &&
+    potTop.y <= plugHole.y + 1e-6 &&
+    plugSize.x <= LAYOUT.beds.holeDiameter &&
+    crownY - plugTop.y > 0.01 &&
+    rootTopY < plugBottom.y,
+  `plug top ${((plugHole.y - plugTop.y) * 1000).toFixed(1)} mm below the plate`,
+);
+cropLayer.viewerPosition = { x: nftTable.centerX, z: nftTable.centerZ };
+cropLayer.refresh();
+const nearLod = cropLayer.tableGroups.get(nftTable.id).lodFull;
+const nearDetailed = [...cropLayer.batches.values()].filter(
+  (batch) => batch.geometry.userData?.lettuce?.detailed,
+).length;
+cropLayer.viewerPosition = { x: nftTable.centerX + 3, z: nftTable.centerZ };
+cropLayer.refresh();
+const heldNearLod = cropLayer.tableGroups.get(nftTable.id).lodFull;
+cropLayer.viewerPosition = { x: nftTable.centerX + 4.2, z: nftTable.centerZ };
+cropLayer.refresh();
+const farLod = cropLayer.tableGroups.get(nftTable.id).lodFull;
+const farDetailed = [...cropLayer.batches.values()].filter(
+  (batch) => batch.geometry.userData?.lettuce?.detailed,
+).length;
+check(
+  'NFT table LOD uses a hysteresis band instead of popping at one distance',
+  nearLod && nearDetailed > 0 && heldNearLod && !farLod && farDetailed === 0,
+  `near ${nearDetailed} detailed / far ${farDetailed}`,
+);
+cropLayer.viewerPosition = { x: nftTable.centerX, z: nftTable.centerZ };
+cropLayer.refresh();
 const cropWater = new WaterNutrientSimulation({
   equipment,
   layout: LAYOUT,
@@ -1729,12 +1865,66 @@ check(
 );
 equipment.cropLayer.refresh(true);
 const matureNftEntry = equipment.cropLayer.tableGroups.get(nftTable.id);
+const harvestGlow = equipment.cropLayer.harvestGlow;
+const glowMatrix = new THREE.Matrix4();
+harvestGlow.mesh?.getMatrixAt(0, glowMatrix);
+const glowPosition = new THREE.Vector3();
+const glowScale = new THREE.Vector3();
+const glowQuaternion = new THREE.Quaternion();
+glowMatrix.decompose(glowPosition, glowQuaternion, glowScale);
+const glowHole = cropLayer.holeTransform(nftTable, harvestGlow.plants[0]);
+const glowLift = glowPosition.y - (glowHole?.y ?? 0);
 check(
-  'harvest-ready heads render a ready ring over every mature plant',
-  matureNftEntry.readyRingMesh?.count === 320 &&
-    matureNftEntry.readyPlantIds?.size === 320,
-  `${matureNftEntry.readyRingMesh?.count ?? 0} rings`,
+  'harvest-ready plants light the channel instead of drawing ring markers',
+  matureNftEntry.harvestGlowMesh === harvestGlow.mesh &&
+    harvestGlow.mesh?.count === 320 &&
+    harvestGlow.plants.length === 320 &&
+    harvestGlow.mesh.material.transparent === true &&
+    // Alpha blending keeps the white plate's relief; an additive green pool
+    // clips every channel on the bright surface and blooms out to white.
+    harvestGlow.mesh.material.blending === THREE.NormalBlending &&
+    harvestGlow.mesh.material.depthWrite === false &&
+    harvestGlow.mesh.material.toneMapped === false &&
+    harvestGlow.mesh.material.uniforms.uColor.value.g > 0.5 &&
+    harvestGlow.mesh.geometry.name === 'nft-harvest-glow-plane' &&
+    matureNftEntry.readyRingMesh === undefined &&
+    !equipment.cropLayer.supportPools.has('ready-rings') &&
+    Math.abs(glowScale.x - HARVEST_GLOW_WIDTH_M) < 1e-6 &&
+    Math.abs(glowScale.z - HARVEST_GLOW_LENGTH_M) < 1e-6 &&
+    glowScale.x <= LAYOUT.beds.gullyWidth &&
+    Math.abs(glowLift - HARVEST_GLOW_LIFT_M) < 1e-6,
+  `${harvestGlow.mesh?.count ?? 0} lit positions, ${(HARVEST_GLOW_WIDTH_M * 100).toFixed(
+    1,
+  )}x${(HARVEST_GLOW_LENGTH_M * 100).toFixed(1)} cm pool ${(glowLift * 1000).toFixed(
+    1,
+  )} mm above the plate`,
 );
+harvestGlow.update(2);
+check(
+  'harvest lighting fades in softly and never floats over the crop',
+  harvestGlow.fadeAttribute.array[0] === 1 &&
+    harvestGlow.material.uniforms.uTime.value >= 2 &&
+    harvestGlow.mesh.userData.harvestGlow === true &&
+    harvestGlow.mesh.raycast({}, []) === undefined,
+  `${harvestGlow.fadeAttribute.array[0].toFixed(2)} fade after 2 s`,
+);
+const probeGlow = new NftHarvestGlow({ matrixForPlant: () => new THREE.Matrix4() });
+probeGlow.sync([{ id: 'glow-probe' }]);
+const probeStart = probeGlow.fadeAttribute.array[0];
+probeGlow.update(HARVEST_GLOW_FADE_SECONDS * 0.35);
+const probeMid = probeGlow.fadeAttribute.array[0];
+probeGlow.update(2);
+const probeEnd = probeGlow.fadeAttribute.array[0];
+check(
+  'a new harvest light eases in instead of popping on',
+  probeStart === 0 &&
+    probeMid > 0 &&
+    probeMid < 0.3 &&
+    probeEnd === 1 &&
+    probeGlow.fading === false,
+  `fade ${probeStart.toFixed(2)} -> ${probeMid.toFixed(2)} -> ${probeEnd.toFixed(2)}`,
+);
+probeGlow.dispose();
 check(
   'every harvest-ready Coral variant measures 18-20 cm across and about 20 cm tall',
   variantSizes.every(
@@ -1787,6 +1977,15 @@ check(
     cropSimulation.harvestInventoryList[0]?.count === 1 &&
     cropSimulation.harvestReadyPlantCount === 319,
   `${harvestResult.weightG} g / ${cropSimulation.availablePositions(nftTable.id)} free holes`,
+);
+equipment.cropLayer.refresh(true);
+check(
+  'harvest clears only the harvested position light',
+  equipment.cropLayer.harvestGlow.mesh?.count === 319 &&
+    equipment.cropLayer.harvestGlow.plants.length === 319 &&
+    equipment.cropLayer.harvestGlow.plants.every((plant) => plant.id !== harvestedPlant.id) &&
+    !equipment.cropLayer.harvestGlow.fadeStarts.has(harvestedPlant.id),
+  `${equipment.cropLayer.harvestGlow.plants.length} lights / ${320 - equipment.cropLayer.harvestGlow.plants.length} released`,
 );
 const earlyHarvest = cropSimulation.getTablePlantings(nftTable.id)[0];
 earlyHarvest.nftAgeDays = NFT_PRODUCTION_DAYS - 1;
@@ -1847,6 +2046,136 @@ check(
     xiao.variety.lobes < coral.variety.lobes,
   `${xiao.variety.key} / ${coral.variety.key}`,
 );
+/* ------------------------------------------------ Version 14 harvest layer */
+const farmPerimeter = new FarmPerimeter({
+  scene,
+  materials,
+  collisionWorld,
+  camera: carryCamera,
+}).build();
+const gateInteractable = farmPerimeter
+  .getInteractables()
+  .find((entry) => entry.data?.interaction === 'farm-gate');
+check(
+  'farm perimeter fences the yard and gates the driveway',
+  Boolean(gateInteractable) &&
+    farmPerimeter.gateCollider?.enabled === true &&
+    farmPerimeter.snapshot().gateOpen === false,
+  `${farmPerimeter.getInteractables().length} interactables`,
+);
+farmPerimeter.toggleGate(true);
+check(
+  'opening the gate disables the driveway collider',
+  farmPerimeter.gateCollider.enabled === false && farmPerimeter.snapshot().gateOpen === true,
+);
+farmPerimeter.update(1.2, carryCamera);
+const gateSnapshot = farmPerimeter.snapshot();
+check(
+  'gate leaves swing to the declared open angle',
+  gateSnapshot.gateAngle > (LAYOUT.farm.gate.openAngle ?? 1.55) - 0.02,
+  `${gateSnapshot.gateAngle.toFixed(2)} rad`,
+);
+farmPerimeter.restore({ gateOpen: false, gateAngle: 0 });
+check(
+  'gate restore re-arms the collider and closes the leaves',
+  farmPerimeter.gateCollider.enabled === true && farmPerimeter.gateAngle === 0,
+);
+
+const containerHouse = new ContainerHouse({
+  scene,
+  materials,
+  collisionWorld,
+  camera: carryCamera,
+}).build();
+const houseInteractions = containerHouse.getInteractables().map((entry) => entry.data?.interaction);
+check(
+  'harvest house ships a door, vent window, bench and glass fridge',
+  Boolean(containerHouse.fridge) &&
+    containerHouse.fridge.capacity === LAYOUT.container.fridge.capacity &&
+    houseInteractions.includes('container-door') &&
+    houseInteractions.includes('container-window') &&
+    houseInteractions.includes('fridge-inspect'),
+  houseInteractions.join(' / '),
+);
+containerHouse.toggleDoor(true);
+containerHouse.toggleWindow(true);
+containerHouse.fridge.toggleDoors(true);
+containerHouse.update(1.2, carryCamera);
+const houseSnapshot = containerHouse.snapshot();
+check(
+  'container door, vent window and fridge door animate and serialise',
+  houseSnapshot.doorOpen === true &&
+    houseSnapshot.windowOpen === true &&
+    houseSnapshot.fridge.doorOpen === true &&
+    houseSnapshot.doorAngle > 1.7 &&
+    houseSnapshot.windowAngle > 0.9,
+  `${houseSnapshot.doorAngle.toFixed(2)} rad door / ${houseSnapshot.windowAngle.toFixed(2)} rad window`,
+);
+
+const packedSummaries = [];
+const harvest = new HarvestController({
+  scene,
+  camera: carryCamera,
+  materials,
+  equipment,
+  simulation: cropSimulation,
+  collisionWorld,
+  fridge: containerHouse.fridge,
+  onPacked: (summary) => packedSummaries.push(summary),
+}).build();
+check(
+  'harvest floor stages four boxes per NFT table',
+  harvest.boxes.length === equipment.tables.length * (LAYOUT.harvest.boxesPerTable ?? 4) &&
+    harvest.tableCount === equipment.tables.length &&
+    harvest.boxes.every((box) => box.capacity === LAYOUT.harvest.capacityPerBox) &&
+    harvest.interactables.length === harvest.boxes.length,
+  `${harvest.boxes.length} boxes / ${harvest.tableCount} tables`,
+);
+harvest.refreshBadges(true);
+const badgeEntries = harvest.badgeField.entries
+  .map((entry, index) => ({ ...entry, index }))
+  .filter((entry) => entry.position);
+const tableBadge = badgeEntries.find((entry) => entry.data?.tableId === nftTable.id);
+check(
+  'a clickable READY TO HARVEST badge floats above a ready table',
+  Boolean(tableBadge) &&
+    tableBadge.data.interaction === 'harvest-mode-toggle' &&
+    tableBadge.data.tableId === nftTable.id &&
+    harvest.badgeField.mesh.userData.resolveInteractable(tableBadge.index) === tableBadge.data,
+  `${badgeEntries.length} visible badges`,
+);
+const toggleOn = harvest.toggleHarvestMode(nftTable.id);
+const stagedBoxes = harvest.byTable.get(nftTable.id) ?? [];
+check(
+  'clicking the badge turns harvest mode on and stages all four boxes',
+  toggleOn.ok === true &&
+    harvest.harvestMode === true &&
+    harvest.harvestModeTableId === nftTable.id &&
+    stagedBoxes.length === 4 &&
+    stagedBoxes.every(
+      (box) => box.group.visible === true && box.hitProxy.layers.isEnabled(0) === true,
+    ),
+  `${stagedBoxes.filter((box) => box.group.visible).length} boxes staged`,
+);
+harvest.refreshBadges(true);
+const activeBadge = harvest.badgeField.entries.find(
+  (entry) => entry.data?.tableId === nftTable.id,
+);
+check(
+  'the active badge stays visible so the same tap can stop harvest mode',
+  Boolean(activeBadge?.position) && activeBadge.data.active === true,
+  activeBadge?.data?.interactionHint,
+);
+const toggleOff = harvest.toggleHarvestMode(nftTable.id);
+check(
+  'clicking the badge again hides empty boxes and clears harvest mode',
+  toggleOff.ok === true &&
+    harvest.harvestMode === false &&
+    stagedBoxes.every(
+      (box) => box.group.visible === false && box.hitProxy.layers.isEnabled(0) === false,
+    ),
+  `${stagedBoxes.filter((box) => box.group.visible).length} empty boxes left visible`,
+);
 saveSystem.save({
   climate,
   control,
@@ -1854,6 +2183,7 @@ saveSystem.save({
   plants: cropSimulation,
   nursery,
 });
+
 const savedGrowth = saveSystem.load();
 check(
   'save payload carries nursery and NFT growth records',
@@ -1887,9 +2217,144 @@ check(
 );
 carryController.dispose();
 
+/* -------------------------------- Version 14 harvest pass, carry and chilling */
+const harvestStart = harvest.harvestTable(nftTable.id);
+check(
+  'a harvest pass cuts two sequential gullies into one box',
+  harvestStart.ok === true &&
+    harvestStart.gullies.length === 2 &&
+    harvestStart.gullies[1] === harvestStart.gullies[0] + 1 &&
+    harvestStart.heads > 0 &&
+    harvestStart.heads <= LAYOUT.harvest.capacityPerBox &&
+    harvest.isPacking === true,
+  harvestStart.ok
+    ? `${harvestStart.heads} heads / gullies ${harvestStart.gullies.join(',')}`
+    : harvestStart.reason,
+);
+harvest.update(2, carryCamera);
+check(
+  'packing drains the cut heads into the box and keeps it staged until full',
+  harvest.isPacking === false &&
+    packedSummaries.length === 1 &&
+    harvestStart.box.plantCount === harvestStart.heads &&
+    harvest.lastPacked?.box === harvestStart.box &&
+    harvest.tableStatus(nftTable.id).free ===
+      harvestStart.box.capacity - harvestStart.heads,
+  `${harvestStart.box.plantCount} heads / ${harvestStart.box.weightKg.toFixed(1)} kg`,
+);
+const packPickup = harvest.pickUp(harvestStart.box);
+check(
+  'a packed box can be carried and slows the walk',
+  packPickup.ok === true &&
+    harvest.isCarrying === true &&
+    harvest.moveSpeedScale < 1 &&
+    harvest.moveSpeedScale >= (LAYOUT.harvest.minimumCarriedSpeedScale ?? 0.42),
+  `${harvest.moveSpeedScale.toFixed(3)} speed scale`,
+);
+const packStored = harvest.storeInFridge();
+check(
+  'the glass fridge chills the carried box',
+  packStored.ok === true &&
+    harvest.isCarrying === false &&
+    containerHouse.fridge.boxes.length === 1 &&
+    harvestStart.box.stored === true,
+  `${containerHouse.fridge.boxes.length}/${containerHouse.fridge.capacity} chilled`,
+);
+harvest.restore(harvest.snapshot());
+check(
+  'harvest snapshot restores chilled boxes into the fridge without duplicates',
+  harvest.isCarrying === false &&
+    containerHouse.fridge.boxes.length === 1 &&
+    harvest.byId.get(harvestStart.box.id)?.plantCount === harvestStart.heads &&
+    harvest.byId.get(harvestStart.box.id)?.stored === true,
+  `${containerHouse.fridge.boxes.length} fridge boxes`,
+);
+saveSystem.save({
+  climate,
+  control,
+  water,
+  plants: cropSimulation,
+  nursery,
+  harvest,
+  containerHouse,
+  farm: farmPerimeter,
+});
+const savedWorld = saveSystem.load();
+check(
+  'save payload carries the harvest boxes, harvest house and gate',
+  savedWorld?.version === 4 &&
+    savedWorld?.harvest?.boxes?.length === harvest.boxes.length &&
+    savedWorld?.harvest?.boxes?.filter((box) => box.stored).length === 1 &&
+    savedWorld?.containerHouse?.doorOpen === true &&
+    savedWorld?.containerHouse?.fridge?.doorOpen === true &&
+    savedWorld?.farm?.gateOpen === false,
+  `${savedWorld?.harvest?.boxes?.length ?? 0} boxes saved`,
+);
+
+/* ------------------------------------------------ static BatchedMesh pass */
+const batchScene = new THREE.Scene();
+const batchScope = new THREE.Group();
+batchScope.name = 'batch-scope';
+batchScope.userData.batchScope = true;
+batchScene.add(batchScope);
+const targetGroup = new THREE.Group();
+targetGroup.userData.interactable = { id: 'batched-target', title: 'Batched target' };
+batchScope.add(targetGroup);
+const targetMaterial = new THREE.MeshStandardMaterial({ name: 'batch-test-steel' });
+const targetGeometry = new THREE.BoxGeometry(0.4, 0.6, 0.2);
+const targetMesh = new THREE.Mesh(targetGeometry, targetMaterial);
+targetMesh.position.set(0.5, 0.3, 0);
+targetGroup.add(targetMesh);
+const dynamicGroup = new THREE.Group();
+dynamicGroup.position.set(3, 0, 0);
+batchScene.add(dynamicGroup);
+const dynamicMesh = new THREE.Mesh(targetGeometry, targetMaterial);
+dynamicGroup.add(dynamicMesh);
+const transparentMesh = new THREE.Mesh(
+  targetGeometry,
+  new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.5 }),
+);
+transparentMesh.position.set(-2, 0, 0);
+batchScene.add(transparentMesh);
+const batchManager = new StaticBatchManager({ scene: batchScene })
+  .markDynamic(dynamicGroup)
+  .build();
+const staticBatch = batchManager.batches[0];
+check(
+  'static batcher collapses opaque leaves and preserves interaction IDs',
+  batchManager.batches.length === 1 &&
+    batchManager.stats.batchedMeshes === 1 &&
+    staticBatch?.isBatchedMesh &&
+    staticBatch.instanceCount === 1 &&
+    staticBatch.material === targetMaterial &&
+    staticBatch.userData.resolveInteractable(0)?.id === 'batched-target' &&
+    staticBatch.userData.resolveHighlightBox(0)?.isEmpty() === false &&
+    targetMesh.parent === null &&
+    dynamicMesh.parent === dynamicGroup &&
+    transparentMesh.parent === batchScene,
+  `${batchManager.stats.batchedMeshes} batched / ${batchManager.stats.skippedMeshes} skipped`,
+);
+batchManager.dispose();
+check('static batcher disposes cleanly', batchManager.batches.length === 0);
+
 equipment.dispose();
 check('equipment disposed', equipment.group === null, equipment.group);
 check('tables disposed', equipment.tables.length === 0);
+harvest.dispose();
+check(
+  'harvest floor disposed',
+  harvest.boxes.length === 0 && harvest.root === null && !scene.getObjectByName('harvest-floor'),
+);
+containerHouse.dispose();
+check(
+  'harvest house disposed',
+  containerHouse.group === null && !scene.getObjectByName(LAYOUT.container.id),
+);
+farmPerimeter.dispose();
+check(
+  'farm perimeter disposed',
+  farmPerimeter.group === null && !scene.getObjectByName('farm-perimeter'),
+);
 storage.dispose();
 bluelab.dispose();
 irrigationPanel.dispose();

@@ -26,7 +26,19 @@ export const LETTUCE_PRODUCTION_DAYS =
   LETTUCE_REFERENCE_END_DAY - LETTUCE_REFERENCE_START_DAY + 1;
 export const LETTUCE_HARVEST_DIAMETER_M = 0.19;
 export const LETTUCE_HARVEST_HEIGHT_M = 0.2;
-export const LETTUCE_CROWN_OFFSET_M = 0.036;
+/**
+ * Height of the leaf crown above the NFT gully's upper plate surface. The
+ * seedling plug and net cup are recessed into the 52 mm planting hole, so the
+ * rosette emerges just above the plate instead of floating over it.
+ */
+export const LETTUCE_CROWN_OFFSET_M = 0.008;
+/** Rockwool starter cube that is inserted into the NFT planting hole. */
+export const LETTUCE_ROCKWOOL_WIDTH_M = 0.038;
+export const LETTUCE_ROCKWOOL_HEIGHT_M = 0.028;
+/** Top of the plug sits this far below the gully's upper plate surface. */
+export const LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M = 0.006;
+/** Net cup rim is recessed this far into the planting opening. */
+export const LETTUCE_NET_POT_RECESS_M = 0.004;
 export const LETTUCE_VARIANTS = 4;
 
 /** Reference day rendered for a 1-based NFT production day (1 -> 4, 17 -> 20). */
@@ -268,7 +280,6 @@ function paletteFor(variety, spec) {
 
 const headGeometryCache = new Map();
 const rockwoolGeometryCache = new Map();
-const readyRingGeometryCache = new Map();
 let sharedMaterials = null;
 
 /* --------------------------------------------------------------- head mesh */
@@ -276,18 +287,22 @@ let sharedMaterials = null;
 
 
 
-function buildHeadGeometry(spec, variety, variant, detailed) {
+function buildHeadGeometry(spec, variety, variant, detailLevel) {
   const factor = VARIANT_DIAMETER_FACTORS[variant] ?? 1;
   const diameter = spec.diameterM * factor;
   const height = spec.heightM;
   const palette = paletteFor(variety, spec);
   const referenceDay = referenceDayForStage(spec.day);
+  const level = typeof detailLevel === 'number' ? detailLevel : detailLevel ? 0 : 1;
   const merged = buildReferenceLettuceHead({
     referenceDay,
     variant,
-    detailed,
+    detailed: level === 0,
+    detailLevel: level,
     palette,
-    leafCount: 60,
+    // Close heads keep all 60 leaves. Mid/far heads are already below ~1° of
+    // screen width; fewer, larger leaves preserve silhouette and colour.
+    leafCount: level === 0 ? 60 : level === 1 ? 24 : 10,
   });
 
   merged.computeBoundingBox();
@@ -304,13 +319,14 @@ function buildHeadGeometry(spec, variety, variant, detailed) {
   merged.computeVertexNormals();
   merged.computeBoundingBox();
   merged.computeBoundingSphere();
-  merged.name = `lettuce-head-${variety.key}-day-${spec.day}-v${variant}${detailed ? '-lod0' : '-lod1'}`;
+  merged.name = `lettuce-head-${variety.key}-day-${spec.day}-v${variant}-lod${level}`;
   merged.userData.lettuce = {
     variety: variety.key,
     day: spec.day,
     referenceDay,
     variant,
-    detailed,
+    detailed: level === 0,
+    lodLevel: level,
     widthM: diameter,
     heightM: height,
     leafCount: Math.max(2, spec.leafCount),
@@ -331,10 +347,16 @@ export function getLettuceHeadGeometry(
   const variety = resolveCropVariety(varietyName);
   const spec = lettuceStageForDay(ageInDays);
   const safeVariant = Math.abs(Math.round(Number(variant) || 0)) % LETTUCE_VARIANTS;
-  const key = `${variety.key}|${spec.day}|${safeVariant}|${detailed ? 'd' : 'f'}`;
+  const level =
+    typeof detailed === 'number'
+      ? THREE.MathUtils.clamp(Math.round(detailed), 0, 2)
+      : detailed
+        ? 0
+        : 1;
+  const key = `${variety.key}|${spec.day}|${safeVariant}|lod${level}`;
   const cached = headGeometryCache.get(key);
   if (cached) return cached;
-  const geometry = buildHeadGeometry(spec, variety, safeVariant, detailed);
+  const geometry = buildHeadGeometry(spec, variety, safeVariant, level);
   headGeometryCache.set(key, geometry);
   return geometry;
 }
@@ -344,27 +366,22 @@ export function getLettuceNetCupGeometry(detailed = false) {
   return getNftNetPotGeometry(detailed);
 }
 
-/** Compact rockwool starter cube; base sits at y = 0. */
+/**
+ * Compact rockwool starter cube; base sits at y = 0. The 38 mm cube is sized to
+ * drop through the 52 mm NFT planting hole and sit inside its net cup.
+ */
 export function getLettuceRockwoolGeometry() {
   const key = 'rockwool';
   const cached = rockwoolGeometryCache.get(key);
   if (cached) return cached;
-  const geometry = new THREE.BoxGeometry(0.054, 0.038, 0.054);
-  geometry.translate(0, 0.019, 0);
+  const geometry = new THREE.BoxGeometry(
+    LETTUCE_ROCKWOOL_WIDTH_M,
+    LETTUCE_ROCKWOOL_HEIGHT_M,
+    LETTUCE_ROCKWOOL_WIDTH_M,
+  );
+  geometry.translate(0, LETTUCE_ROCKWOOL_HEIGHT_M / 2, 0);
   geometry.name = 'lettuce-rockwool-cube';
   rockwoolGeometryCache.set(key, geometry);
-  return geometry;
-}
-
-/** Flat emissive ring shown above harvest-ready heads in the table layer. */
-export function getLettuceReadyRingGeometry() {
-  const key = 'ready-ring';
-  const cached = readyRingGeometryCache.get(key);
-  if (cached) return cached;
-  const geometry = new THREE.TorusGeometry(0.032, 0.0035, 4, 18);
-  geometry.rotateX(-Math.PI / 2);
-  geometry.name = 'lettuce-harvest-ready-ring';
-  readyRingGeometryCache.set(key, geometry);
   return geometry;
 }
 
@@ -417,19 +434,6 @@ export function getLettuceRockwoolMaterial() {
   return getLettuceMaterials().rockwool;
 }
 
-export function createLettuceReadyRingMaterial() {
-  return new THREE.MeshStandardMaterial({
-    name: 'lettuce-ready-ring',
-    color: 0x8fffb0,
-    emissive: 0x2fbf5a,
-    emissiveIntensity: 0.9,
-    roughness: 0.35,
-    metalness: 0,
-    transparent: true,
-    opacity: 0.85,
-  });
-}
-
 /* -------------------------------------------------------------- plant API */
 
 function readPlantData(plant) {
@@ -473,11 +477,17 @@ export function createLettucePlant(
 
   const netCup = new THREE.Mesh(getLettuceNetCupGeometry(detailed), materials.netCup);
   netCup.name = `${variety.key}-net-cup`;
+  netCup.position.y = -LETTUCE_NET_POT_RECESS_M;
   netCup.castShadow = true;
   netCup.receiveShadow = true;
 
   const rockwool = new THREE.Mesh(getLettuceRockwoolGeometry(), materials.rockwool);
   rockwool.name = `${variety.key}-rockwool`;
+  // The group origin is the NFT plate surface: the cup and plug drop into the
+  // planting hole so the rosette emerges just above the channel.
+  rockwool.position.y = -(
+    LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M + LETTUCE_ROCKWOOL_HEIGHT_M
+  );
   rockwool.castShadow = true;
   rockwool.receiveShadow = true;
 
@@ -540,8 +550,6 @@ export function disposeLettuceGeometryCache() {
   headGeometryCache.clear();
   for (const geometry of rockwoolGeometryCache.values()) geometry.dispose();
   rockwoolGeometryCache.clear();
-  for (const geometry of readyRingGeometryCache.values()) geometry.dispose();
-  readyRingGeometryCache.clear();
 }
 
 /** Dispose the shared materials once the last renderer has been torn down. */

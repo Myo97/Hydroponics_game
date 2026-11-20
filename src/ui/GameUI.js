@@ -49,7 +49,7 @@ const HUD_MARKUP = `
 
     <div class="interaction-hint panel" id="interaction-hint">
       <span class="interaction-name" data-hint-name>Bench</span>
-      <span class="interaction-action"><kbd>E</kbd><span data-hint-action>Inspect</span></span>
+      <span class="interaction-action"><kbd data-input-key>E</kbd><span data-hint-action>Inspect</span></span>
       <span class="interaction-range" data-hint-range>1.4 m</span>
     </div>
 
@@ -59,6 +59,8 @@ const HUD_MARKUP = `
       <span><kbd>Shift</kbd> Sprint</span>
       <span class="sep"></span>
       <span><kbd>E</kbd> Interact</span>
+      <span class="sep"></span>
+      <span><kbd>G</kbd> Set down</span>
       <span class="sep"></span>
       <span><kbd>Tab</kbd> Reservoir</span>
       <span class="sep"></span>
@@ -84,7 +86,17 @@ const HUD_MARKUP = `
       <span class="carry-label">CARRYING</span>
       <strong data-carry-title>Seedling tray</strong>
       <span data-carry-detail>320 plugs &middot; Day 14</span>
-      <span class="carry-action"><kbd>E</kbd> place / transplant</span>
+      <span class="carry-action"><kbd data-input-key>E</kbd> <span data-carry-action>place / transplant</span></span>
+    </div>
+
+    <div class="harvest-mode-tag panel" id="harvest-mode-tag" aria-live="polite">
+      <span class="harvest-mode-dot" aria-hidden="true"></span>
+      <div class="harvest-mode-copy">
+        <span class="harvest-mode-label">HARVEST MODE</span>
+        <strong data-harvest-table>NFT table</strong>
+        <span data-harvest-progress>Box 01 &middot; 0/80 heads</span>
+      </div>
+      <button type="button" class="btn btn-small btn-ghost" data-action="stop-harvest">Stop</button>
     </div>
 
     <aside class="inspect-panel panel" id="inspect-panel" aria-live="polite">
@@ -99,7 +111,7 @@ const HUD_MARKUP = `
         <p class="inspect-desc" data-inspect-desc></p>
         <dl class="spec-list" data-inspect-specs></dl>
       </div>
-      <div class="inspect-foot"><kbd>E</kbd><span>close</span></div>
+      <div class="inspect-foot"><kbd data-input-key>E</kbd><span>close</span></div>
     </aside>
   </div>
 
@@ -110,7 +122,7 @@ const HUD_MARKUP = `
         <h2>Walkthrough</h2>
       </div>
       <div class="modal-body">
-        <div class="hud-row"><span>Build</span><strong>Version 10 &middot; Green Coral nursery cycle</strong></div>
+        <div class="hud-row"><span>Build</span><strong>Version 14 &middot; harvest boxes &amp; touch input</strong></div>
         <div class="hud-row"><span>Pointer</span><strong>Released</strong></div>
         <p class="hint">Resume to re-lock the mouse and continue walking the house.</p>
       </div>
@@ -148,7 +160,7 @@ const HUD_MARKUP = `
           <label class="field-label" for="fov">Field of view <output id="fov-out">68&deg;</output></label>
           <input type="range" id="fov" min="55" max="90" step="1" value="68" />
         </div>
-        <p class="hint">Changing quality rebuilds shadows and glass detail immediately. The walkthrough is desktop-only.</p>
+        <p class="hint">Changing quality rebuilds shadows and glass detail immediately. Keyboard, mouse and touch input are all supported.</p>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-action="close-settings">Back</button>
@@ -187,6 +199,10 @@ export class GameUI {
       carry: $('#carry-tag'),
       carryTitle: $('[data-carry-title]'),
       carryDetail: $('[data-carry-detail]'),
+      carryAction: $('[data-carry-action]'),
+      harvestMode: $('#harvest-mode-tag'),
+      harvestTable: $('[data-harvest-table]'),
+      harvestProgress: $('[data-harvest-progress]'),
       fps: $('[data-fps]'),
       pos: $('[data-pos]'),
       speed: $('[data-speed]'),
@@ -210,6 +226,8 @@ export class GameUI {
     this.settingsOpen = false;
     this.zoneTagTimer = null;
     this.lastZone = '';
+    this.lastTargetKey = null;
+    this.lastTargetDistance = null;
 
     this.bindEvents();
   }
@@ -234,6 +252,7 @@ export class GameUI {
       else if (action === 'close-inspect') this.handlers.onCloseInspect?.();
       else if (action === 'skip-time') this.handlers.onSkipTime?.();
       else if (action === 'cycle-weather') this.handlers.onCycleWeather?.();
+      else if (action === 'stop-harvest') this.handlers.onStopHarvest?.();
     });
 
     this.el.sensitivity.addEventListener('input', () => {
@@ -247,6 +266,18 @@ export class GameUI {
       this.el.fovOut.textContent = `${value}°`;
       this.handlers.onFovChange?.(value);
     });
+  }
+
+  /**
+   * Touch devices get "TAP" keycaps and lose the desktop key strip, so no
+   * instruction on screen asks a phone player to press E.
+   */
+  setTouchInput(enabled) {
+    const touch = Boolean(enabled);
+    this.root.classList.toggle('is-touch-input', touch);
+    for (const key of this.root.querySelectorAll('[data-input-key]')) {
+      key.textContent = touch ? 'TAP' : 'E';
+    }
   }
 
   showHud() {
@@ -307,6 +338,16 @@ export class GameUI {
   /** Crosshair + hint reflect the currently raycast equipment (or null). */
   setTarget(target) {
     const active = Boolean(target);
+    const key = active
+      ? `${target.data?.id ?? target.data?.title ?? ''}|${target.data?.interactionHint ?? ''}`
+      : null;
+    const distance = active ? target.distance : null;
+    const unchanged =
+      key === this.lastTargetKey &&
+      (distance === null || Math.abs(distance - this.lastTargetDistance) < 0.08);
+    if (unchanged) return;
+    this.lastTargetKey = key;
+    this.lastTargetDistance = distance;
     this.el.crosshair.classList.toggle('is-targeting', active);
     this.el.hint.classList.toggle('is-visible', active && !this.inspectOpen);
     if (active) {
@@ -321,6 +362,7 @@ export class GameUI {
   setCarry(tray) {
     const active = Boolean(tray);
     this.el.carry.classList.toggle('is-visible', active);
+    this.el.carry.classList.toggle('is-box', false);
     if (!active) return;
     this.el.carryTitle.textContent = `Tray ${String(tray.index + 1).padStart(2, '0')} · ${tray.cropName}`;
     this.el.carryDetail.textContent = tray.ready
@@ -328,6 +370,39 @@ export class GameUI {
       : tray.state === 'empty'
         ? 'Empty tray · ready to replant'
         : `${tray.germinated} plugs · Day ${tray.growthDay}`;
+    if (this.el.carryAction) this.el.carryAction.textContent = 'place / transplant';
+  }
+
+  /** Persistent carry card while a styrofoam harvest box is in hand. */
+  setBoxCarry(box) {
+    const active = Boolean(box);
+    this.el.carry.classList.toggle('is-visible', active);
+    this.el.carry.classList.toggle('is-box', active);
+    if (!active) return;
+    const heads = `${box.plantCount}/${box.capacity}`;
+    this.el.carryTitle.textContent = `Box ${String(box.index + 1).padStart(2, '0')} · ${heads} heads`;
+    this.el.carryDetail.textContent = box.isEmpty
+      ? 'Empty box · fill it at an NFT table'
+      : `${box.weightKg.toFixed(1)} kg gross · ${box.cropSummary
+          .map((lot) => `${lot.cropName} ${lot.heads}`)
+          .join(' · ')}`;
+    if (this.el.carryAction) this.el.carryAction.textContent = 'set down · chill';
+  }
+
+  /**
+   * Live harvest-mode card. It shows exactly which box is being filled and lets
+   * the player stop without hunting for the table badge again.
+   */
+  setHarvestMode(state = null) {
+    const active = Boolean(state?.active);
+    this.el.harvestMode.classList.toggle('is-visible', active);
+    if (!active) return;
+    this.el.harvestTable.textContent = state.tableTitle ?? state.tableId ?? 'NFT table';
+    if (state.box) {
+      this.el.harvestProgress.textContent = `Box ${String(state.box.index + 1).padStart(2, '0')} · ${state.box.plantCount}/${state.box.capacity} heads · ${state.readyHeads ?? 0} ready`;
+    } else {
+      this.el.harvestProgress.textContent = `${state.readyHeads ?? 0} heads ready · all boxes full`;
+    }
   }
 
   openInspect(data) {
@@ -351,6 +426,9 @@ export class GameUI {
     if (!this.inspectOpen) return;
     this.inspectOpen = false;
     this.el.inspect.classList.remove('is-open');
+    // Let the next setTarget call repaint the interaction hint immediately.
+    this.lastTargetKey = null;
+    this.lastTargetDistance = null;
   }
 
   toggleInspect(data) {

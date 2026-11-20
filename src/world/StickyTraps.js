@@ -1,8 +1,5 @@
 import * as THREE from 'three';
 import { LAYOUT, GUTTER_X, FRAME_Z } from '../config/layout.js';
-import { boxMesh } from './Batches.js';
-
-const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 /** Gap between the card face and the steelwork it hangs on. */
 const CARD_CLEARANCE = 0.014;
@@ -44,6 +41,8 @@ function columnMount(x, z, frame) {
   };
 }
 
+const _visualMatrix = new THREE.Matrix4();
+
 const DEFAULT_FRAME = {
   gutterXs: GUTTER_X,
   frameZs: FRAME_Z,
@@ -57,7 +56,7 @@ const DEFAULT_FRAME = {
  *
  * Each card is double-sided and holds a deterministic scatter of caught insects.
  * There is no printed label on the card: colour alone identifies the monitor.
- * Press E on a card to record an inspection; the card brightens briefly and the
+ * Tap a card to record an inspection; the card brightens briefly and the
  * caught count is reported.
  *
  * The component is reusable: pass `config` and a local `frame` grid to mount the
@@ -111,6 +110,19 @@ export class StickyTraps {
     });
     this.labelMaterials.push(edgeMaterial);
 
+    const cardGeometry = new THREE.PlaneGeometry(config.width, config.height);
+    const rimGeometry = new THREE.PlaneGeometry(config.width + 0.018, config.height + 0.018);
+    const clipGeometry = new THREE.BoxGeometry(0.05, 0.07, 0.035);
+    const wireGeometry = new THREE.TorusGeometry(0.045, 0.006, 5, 12, Math.PI * 1.35);
+    const insectGeometry = new THREE.SphereGeometry(0.0035, 5, 4);
+    const instances = {
+      cards: [],
+      rims: [],
+      clips: [],
+      wires: [],
+      insects: [],
+    };
+
     config.positions.forEach(([x, z], index) => {
       const mount = columnMount(x, z, this.frame);
       const cardY = config.cardY ?? 1.34;
@@ -120,53 +132,55 @@ export class StickyTraps {
       trap.position.set(mount.x, 0, mount.z);
       trap.rotation.y = mount.face > 0 ? Math.PI / 2 : -Math.PI / 2;
       group.add(trap);
+      trap.updateMatrix();
 
-      // Card and its darker rim, both double-sided so the trap reads from the
-      // adjacent aisle as well as from the table bay.
-      const card = new THREE.Mesh(new THREE.PlaneGeometry(config.width, config.height), cardMaterial);
+      // Invisible pick proxy; the visible card stock is instanced below.
+      const card = new THREE.Mesh(cardGeometry, cardMaterial);
       card.position.y = cardY;
-      card.castShadow = true;
+      card.visible = false;
+      card.userData.suppressHighlight = true;
       trap.add(card);
-      const rim = new THREE.Mesh(
-        new THREE.PlaneGeometry(config.width + 0.018, config.height + 0.018),
-        edgeMaterial,
-      );
-      rim.position.set(0, cardY, -0.002);
-      trap.add(rim);
 
-      // Wire hanger and clip back to the column. The clip bridges the card and
-      // the column face, which sits exactly CARD_CLEARANCE behind the card.
-      const clip = boxMesh(
-        0.05,
-        0.07,
-        0.035,
-        this.materials.stainless,
-        V(0, cardY + config.height / 2 + 0.03, -CARD_CLEARANCE / 2),
-        'trap-clip',
-      );
-      trap.add(clip);
-      const wire = new THREE.Mesh(
-        new THREE.TorusGeometry(0.045, 0.006, 5, 12, Math.PI * 1.35),
-        this.materials.stainless,
-      );
-      wire.position.set(0, cardY + config.height / 2 + 0.09, 0.02);
-      wire.rotation.z = Math.PI * 0.18;
-      trap.add(wire);
+      const local = (position, rotation = null, scale = null) =>
+        new THREE.Matrix4().compose(
+          position,
+          rotation ?? new THREE.Quaternion(),
+          scale ?? new THREE.Vector3(1, 1, 1),
+        );
+      instances.cards.push({ trapIndex: index, local: local(new THREE.Vector3(0, cardY, 0)) });
+      instances.rims.push({
+        trapIndex: index,
+        local: local(new THREE.Vector3(0, cardY, -0.002)),
+      });
+      instances.clips.push({
+        trapIndex: index,
+        local: local(new THREE.Vector3(0, cardY + config.height / 2 + 0.03, -CARD_CLEARANCE / 2)),
+      });
+      instances.wires.push({
+        trapIndex: index,
+        local: local(
+          new THREE.Vector3(0, cardY + config.height / 2 + 0.09, 0.02),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI * 0.18)),
+        ),
+      });
 
       // Caught insects: a deterministic scatter kept clear of the card centre.
       const caught = 4 + ((index * 7 + 3) % 9);
-      const insectMaterial = this.materials.steelDark;
       for (let insect = 0; insect < caught; insect += 1) {
         const angle = (insect * 2.399 + index * 1.13) % (Math.PI * 2);
         const radius = 0.028 + ((insect * 37 + index * 11) % 70) / 1000;
-        const speck = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 5, 4), insectMaterial);
-        speck.scale.set(1.5, 1, 0.4);
-        speck.position.set(
-          Math.cos(angle) * radius,
-          cardY + Math.sin(angle) * radius * 1.3,
-          0.006,
-        );
-        trap.add(speck);
+        instances.insects.push({
+          trapIndex: index,
+          local: local(
+            new THREE.Vector3(
+              Math.cos(angle) * radius,
+              cardY + Math.sin(angle) * radius * 1.3,
+              0.006,
+            ),
+            null,
+            new THREE.Vector3(1.5, 1, 0.4),
+          ),
+        });
       }
 
       const info = {
@@ -193,8 +207,58 @@ export class StickyTraps {
       this.traps.push({ index, mount, group: trap, card, caught, lastInspection: -100 });
     });
 
+    const makeInstances = (name, geometry, material, entries, castShadow = false) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
+      mesh.name = name;
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.userData.sharedGeometry = true;
+      group.add(mesh);
+      return mesh;
+    };
+    this.visuals = {
+      cards: makeInstances('sticky-cards', cardGeometry, cardMaterial, instances.cards, true),
+      rims: makeInstances('sticky-card-rims', rimGeometry, edgeMaterial, instances.rims),
+      clips: makeInstances('sticky-clips', clipGeometry, this.materials.stainless, instances.clips),
+      wires: makeInstances('sticky-wires', wireGeometry, this.materials.stainless, instances.wires),
+      insects: makeInstances(
+        'sticky-caught-insects',
+        insectGeometry,
+        this.materials.steelDark,
+        instances.insects,
+      ),
+    };
+    this.instanceData = instances;
+    this.instanceKeys = Object.keys(instances);
+    this.applyVisualMatrices();
+
     group.userData.interactables = this.interactables;
     return this;
+  }
+
+  applyVisualMatrices() {
+    if (!this.visuals || !this.instanceData) return;
+    const matrix = _visualMatrix;
+    for (const key of this.instanceKeys ?? []) {
+      const list = this.instanceData[key];
+      const mesh = this.visuals[key];
+      if (!mesh) continue;
+      for (let index = 0; index < list.length; index += 1) {
+        const entry = list[index];
+        const trap = this.traps[entry.trapIndex];
+        if (!trap) continue;
+        const pulse =
+          key === 'cards'
+            ? Math.max(0.94, trap.card?.scale.x ?? 1)
+            : 1;
+        matrix.makeScale(pulse, pulse, pulse).premultiply(entry.local);
+        matrix.premultiply(trap.group.matrix);
+        mesh.setMatrixAt(index, matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** Record a manual inspection; returns the caught count and threshold state. */
@@ -218,7 +282,9 @@ export class StickyTraps {
       trap.card.scale.setScalar(pulse);
       // Barely perceptible air movement keeps the cards alive without noise.
       trap.group.rotation.z = Math.sin(this.runningTime * 0.7 + trap.index) * 0.006;
+      trap.group.updateMatrix();
     }
+    this.applyVisualMatrices();
   }
 
   setTopView(active) {
@@ -235,6 +301,8 @@ export class StickyTraps {
       object.geometry.dispose();
     });
     this.group = null;
+    this.visuals = null;
+    this.instanceData = null;
     this.interactables.length = 0;
     this.traps.length = 0;
   }

@@ -353,6 +353,7 @@ kbd {
 .hud {
   position: absolute;
   inset: 0;
+  z-index: 5;
   opacity: 0;
   transition: opacity 400ms ease;
 }
@@ -729,6 +730,92 @@ kbd {
   color: var(--muted);
 }
 
+/* Harvest boxes borrow the same card but switch to the produce/amber accent. */
+.carry-tag.is-box {
+  border-color: rgba(232, 176, 92, 0.55);
+  background: rgba(46, 34, 18, 0.82);
+}
+
+.carry-tag.is-box .carry-dot {
+  background: #e8b05c;
+  box-shadow: 0 0 9px rgba(232, 176, 92, 0.9);
+}
+
+.carry-tag.is-box .carry-label {
+  color: #e8b05c;
+}
+
+/* Harvest-mode card: top centre so the table badge and box count stay visible
+   while both hands are busy. Amber, matching the produce boxes. */
+.harvest-mode-tag {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  transform: translate(-50%, -8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  opacity: 0;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  border-color: rgba(232, 176, 92, 0.55);
+  background: rgba(46, 34, 18, 0.86);
+}
+
+.harvest-mode-tag.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+
+.harvest-mode-tag .harvest-mode-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e8b05c;
+  box-shadow: 0 0 9px rgba(232, 176, 92, 0.9);
+}
+
+.harvest-mode-tag .harvest-mode-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.harvest-mode-tag .harvest-mode-label {
+  flex: 0 0 auto;
+  color: #e8b05c;
+  letter-spacing: 0.12em;
+}
+
+.harvest-mode-tag strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.harvest-mode-tag [data-harvest-progress] {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+
+.harvest-mode-tag .btn {
+  flex: 0 0 auto;
+}
+
 /* ------------------------------------------------------------
    Inspect panel
    ------------------------------------------------------------ */
@@ -737,6 +824,7 @@ kbd {
   position: absolute;
   top: 50%;
   right: 22px;
+  z-index: 8;
   width: min(330px, calc(100vw - 44px));
   transform: translate(24px, -50%);
   opacity: 0;
@@ -1133,4 +1221,259 @@ input[type="range"]::-moz-range-thumb {
     grid-template-columns: 1fr;
   }
 }
+/* ------------------------------------------------------------
+   Touch overlay (coarse pointers only)
+   ------------------------------------------------------------ */
 
+.touch-ui {
+  display: none;
+}
+
+/* display: contents keeps the controls in the root stacking context so the
+   HUD, inspect panel and modals keep their existing z-index order. */
+.touch-ui.is-active {
+  display: contents;
+}
+
+/* The desktop key strip and key-only footer make no sense on a phone. */
+.is-touch-input .controls-strip,
+.is-touch-input .inspect-foot {
+  display: none;
+}
+
+/* Clear the harvest-mode card anchored at the top centre. */
+.is-touch-input .touch-hint {
+  top: 72px;
+}
+
+.touch-look {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-orientation {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+  background: rgba(6, 10, 11, 0.94);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.touch-orientation strong {
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.touch-orientation-icon {
+  width: 54px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 3px rgba(116, 214, 180, 0.12);
+}
+
+.touch-stick {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  background: radial-gradient(circle, rgba(13, 18, 19, 0.55), rgba(13, 18, 19, 0.18));
+  border: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.touch-stick-ring {
+  position: absolute;
+  inset: 26px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+.touch-stick-knob {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(116, 214, 180, 0.22);
+  border: 1px solid rgba(116, 214, 180, 0.55);
+  box-shadow: 0 0 18px rgba(116, 214, 180, 0.25);
+  will-change: transform;
+}
+
+.touch-stick.is-engaged {
+  border-color: rgba(116, 214, 180, 0.5);
+}
+
+.touch-stick-label {
+  position: absolute;
+  bottom: 9px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  color: rgba(154, 166, 162, 0.6);
+}
+
+.touch-actions {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 9px;
+  pointer-events: none;
+}
+
+.touch-btn {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 78px;
+  min-height: 60px;
+  padding: 8px 12px;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  background: rgba(13, 18, 19, 0.78);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-btn span {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: none;
+}
+
+.touch-btn:active {
+  background: rgba(116, 214, 180, 0.18);
+  border-color: rgba(116, 214, 180, 0.5);
+}
+
+.touch-btn-use {
+  background: rgba(116, 214, 180, 0.16);
+  border-color: rgba(116, 214, 180, 0.42);
+}
+
+.touch-ui.has-target .touch-btn-use {
+  background: rgba(116, 214, 180, 0.3);
+  border-color: rgba(116, 214, 180, 0.75);
+}
+
+.touch-hint {
+  position: fixed;
+  left: 50%;
+  top: 12px;
+  z-index: 6;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: rgba(10, 14, 15, 0.72);
+  border: 1px solid var(--line-soft);
+  border-radius: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 400ms ease;
+}
+
+/* Landscape is required for the walking view; portrait shows a rotate card. */
+@media (orientation: portrait) {
+  .touch-orientation {
+    display: flex;
+  }
+}
+
+@media (max-height: 460px) {
+  .touch-stick {
+    left: 12px;
+    bottom: 12px;
+    width: 108px;
+    height: 108px;
+  }
+
+  .touch-stick-knob {
+    width: 44px;
+    height: 44px;
+  }
+
+  .touch-actions {
+    right: 12px;
+    bottom: 12px;
+    gap: 7px;
+  }
+
+  .touch-btn {
+    min-width: 66px;
+    min-height: 50px;
+    padding: 6px 9px;
+    font-size: 10px;
+  }
+
+  .touch-hint {
+    display: none;
+  }
+
+  .carry-tag {
+    bottom: 44px;
+    max-width: calc(100vw - 300px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 720px) {
+  .hud-block--tl {
+    max-width: 46vw;
+  }
+
+  .hud-block--tr {
+    max-width: 44vw;
+  }
+
+  .inspect-panel {
+    z-index: 8;
+    bottom: 172px;
+  }
+
+  .carry-tag {
+    font-size: 9px;
+  }
+}

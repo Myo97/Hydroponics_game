@@ -1,35 +1,42 @@
 # Verde Block 4 — Hydroponic Glasshouse
 
 A first-person, real-scale walkthrough of a 24 x 36 m Venlo glasshouse running NFT
-lettuce benches. Version 13 adds the Red Coral Lettuce nursery selection and the
-reference Day 4-20 coral lettuce production model. Seedlings still grow through
-five stages from Day 1 to Day 14, then transplant into an NFT table with their
-14-day nursery age frozen and a fresh NFT production Day 1, which renders the
-reference file's Day 4 plant. The 17-day NFT cycle advances one reference growth
-day at a time through Day 20 and ends at a 100 g harvest-ready coral head roughly
-18–20 cm across and 20 cm tall. Aim at a mature plant and press E to harvest it
-into the persistent inventory, or Shift+E to inspect its nursery age, NFT day,
-stage, biomass and readiness. Version 11's
-calendar-driven growth, crop-specific leaf morphology and per-plant variation are
-retained. Version 10's 36 independent 320-cell trays, physical tray carrying and
-direct transplantation are retained, now with 100% germination so every tray
-fills its table exactly. Version 9's commercial 36-tray ebb-and-flow bench,
-automatic flood/drain irrigation from Reservoir 2, sticky traps and retractable
-shade screen are retained. Version 7's four-position weather selector, static NFT
-gully water films and calmer water materials are retained. The deterministic
-weather schedule still drives the sky, sun, exterior rain field and roof-water
-harvesting. Version 6's full day/night cycle, two independently pumped irrigation
-groups, three-switch Main Irrigation Controller Panel and 360° drone orbit are
-retained, along with the earlier configurable sun, 24-switch bay cabinet, 28° roof
-vents, sliding entrance, underground reservoirs, Bluelab dosing station, sticky
-traps and 24 HAF fans.
+lettuce benches. Version 14 adds the harvest chain and touch input: every NFT table
+carries a clickable READY TO HARVEST badge and four staged styrofoam boxes. Tapping
+the badge starts harvest mode, each tap on a lit head packs it into the open box,
+and the mode stops automatically once all four boxes are full. Packed boxes are
+carried at a walk-speed penalty to a container harvest house and chilled in a
+glass-door refrigerator. The yard is fenced with a working farm gate, and coarse-
+pointer devices get a stick/look/tap overlay. Version 13 adds the Red Coral Lettuce
+nursery selection and the reference Day 4-20 coral lettuce production model.
+Seedlings still grow through five stages from Day 1 to Day 14, then transplant
+into an NFT table with their 14-day nursery age frozen and a fresh NFT production
+Day 1, which renders the reference file's Day 4 plant. The 17-day NFT cycle
+advances one reference growth day at a time through Day 20 and ends at a 100 g
+harvest-ready coral head roughly 18–20 cm across and 20 cm tall. Aim at a mature
+plant, tap its table badge and then the lit heads to pack them into a staged box;
+a long press or Shift+E inspects its nursery age, NFT day, stage, biomass and
+readiness instead. Version 11's calendar-driven growth, crop-specific leaf
+morphology and per-plant variation are retained. Version 10's 36 independent
+320-cell trays, physical tray carrying and direct transplantation are retained,
+now with 100% germination so every tray fills its table exactly. Version 9's
+commercial 36-tray ebb-and-flow bench, automatic flood/drain irrigation from
+Reservoir 2, sticky traps and retractable shade screen are retained. Version 7's
+four-position weather selector, static NFT gully water films and calmer water
+materials are retained. The deterministic weather schedule still drives the sky,
+sun, exterior rain field and roof-water harvesting. Version 6's full day/night
+cycle, two independently pumped irrigation groups, three-switch Main Irrigation
+Controller Panel and 360° drone orbit are retained, along with the earlier
+configurable sun, 24-switch bay cabinet, 28° roof vents, sliding entrance,
+underground reservoirs, Bluelab dosing station, sticky traps and 24 HAF fans.
 
 Built with **Three.js** (r187) and **Vite** — no other runtime dependencies.
 
 ## Requirements
 
 - Node.js 20.19+ (or 22.12+); Vite 8 requires an up-to-date Node LTS
-- A desktop browser with WebGL 2 (Chrome, Edge or Firefox). Mouse + keyboard.
+- A browser with WebGL 2 (Chrome, Edge or Firefox). Mouse + keyboard on desktop,
+  or a landscape phone / tablet with a coarse pointer for the touch overlay.
 
 ## Run it
 
@@ -58,8 +65,9 @@ greenhouse** button starts the walkthrough and captures the mouse.
 | `W` `A` `S` `D`  | Walk (collision-aware, slides along walls and beds)  |
 | `Shift`          | Sprint                                              |
 | Mouse            | Look (pointer lock)                                 |
-| `E`              | Interact: operate a unit, inspect it, or harvest a ready NFT head |
-| `Shift` + `E`    | Inspect a ready NFT plant without harvesting; pick up an empty tray |
+| `E` / left click | Interact: operate a unit, toggle a harvest badge, pack a lit head, or pick up a packed box |
+| Hold click / `Shift` + `E` | Inspect without triggering the action; pick up an empty propagation tray |
+| `G`              | Set the carried styrofoam box down ahead of you      |
 | `Tab`            | Cycle the monitored reservoir (Reservoir 1 / Reservoir 2) |
 | `V`              | Enter / leave the drone view                        |
 | `T`              | Developer: skip 24 game hours (advance date, clock and plant growth) |
@@ -72,6 +80,13 @@ greenhouse** button starts the walkthrough and captures the mouse.
 If a browser or embed refuses pointer lock, the game warns once and falls back to
 **click-drag look** — hold the left mouse button and drag to turn — so the walkthrough
 still works; `Esc` then opens the pause menu directly.
+
+On a coarse-pointer device the Version 14 overlay takes over: the left stick walks,
+dragging the view looks, a short tap acts on whatever you tapped (toggle a harvest
+badge, pack a lit head, pick up a box), and a press-and-hold inspects or lifts an
+empty propagation tray. **USE / DROP / DRONE / MENU** mirror `E`, `G`, `V` and `Esc`.
+Pointer lock is never requested there, so the centre-screen raycast keeps running
+for the USE button.
 
 ## What the simulator contains
 
@@ -179,14 +194,20 @@ still works; `Esc` then opens the pause menu directly.
   golden-angle rosette, expand and ruffle over time, and finish as a 60-leaf,
   deeply frilled head. Green Coral uses a dedicated dark-green palette that
   deepens across five growth stages, from a young seedling green to deep forest
-  green at harvest. Each crown sits in a rockwool starter cube and net cup,
-  with roots below the channel plate; harvest-ready heads carry an emissive green
-  ring. The mature plant measures 19 cm across and 20 cm tall at 100 g (14 nursery
+  green at harvest. Each crown grows from a 38 mm rockwool cube and net cup that
+  drop into the 52 mm planting hole, so the plug top sits 6 mm below the channel
+  plate with its roots hanging under it. Harvest-ready heads tint their gully
+  surface with a soft green pool that follows the 1.2° channel fall and mixes
+  over the white plate instead of blooming it out to white; there are no
+  floating ring markers, real-time lights or per-plant draw calls.
+  The mature plant measures 19 cm across and 20 cm tall at 100 g (14 nursery
   days + 17 NFT days = total crop age 31). Plants are bucketed by crop, NFT day and
   visual variant for efficient instanced rendering. Aim at a mature plant for the
-  `READY FOR HARVEST` hint and press E to harvest one head; Shift+E opens the
-  inspect panel instead. Harvested weight is added to a persistent per-crop
-  inventory and lifetime total while the freed hole can be replanted.
+  `READY FOR HARVEST` hint; a tap only packs a head while its table badge has
+  harvest mode on. A long press or Shift+E opens the inspect panel instead. Each
+  packed head is removed from its hole, added to the open styrofoam box and still
+  banked in the persistent per-crop inventory and lifetime total, so the freed
+  hole can be replanted.
 - **Main-house daily crop growth:** each plant owns its age and visual variation
   and is rendered from a day-specific crop mesh. Existing leaves lengthen and
   widen, new leaves emerge from the growing centre, height and canopy spread
@@ -207,15 +228,20 @@ still works; `Esc` then opens the pause menu directly.
   and walls block movement; the doorway clears automatically as the doors open.
 - Centre-screen raycast interaction with a highlight box, HUD hint (name + action +
   distance) and an inspect panel with category, description and spec sheet per unit.
-- 145 inspectable units, including 18 NFT tables, 18 table isolation valves, 24 HAF
-  fans, the 24-switch climate cabinet, 15 Bluelab / dosing points, 9 water-storage
-  points, the 3-switch irrigation panel, the 7-point weather panel, 16 sticky traps,
-  the nursery tidal bed and shade screen, 2 group pumps and both sliding entrances.
-- `E` operates the entrances, cabinet door, all 24 bay switches, table and storage
-  valves, group pumps, rain transfer pump, weather selector / state lamps / AUTO key,
-  Bluelab HMI and dosing pumps, the nursery flood cycle and shade screen, harvests a
-  ready NFT head, and inspects the bay screens, vents and sticky traps. Shift+E on a
-  ready crop opens its inspect sheet without harvesting.
+- 184 inspectable units, including 18 NFT tables, 18 harvest-table badges, 72
+  styrofoam harvest boxes, 18 table isolation valves, 24 HAF fans, the 24-switch
+  climate cabinet, 15 Bluelab / dosing points, 9 water-storage points, the 3-switch
+  irrigation panel, the 7-point weather panel, 16 sticky traps, the nursery tidal
+  bed and shade screen, 2 group pumps, both sliding entrances, the harvest-house
+  door / vent window / fridge and the driveway farm gate.
+- `E` or a click/tap operates the entrances, cabinet door, all 24 bay switches, table
+  and storage valves, group pumps, rain transfer pump, weather selector / state lamps
+  / AUTO key, Bluelab HMI and dosing pumps, the nursery flood cycle and shade screen,
+  toggles a table's READY TO HARVEST badge, packs a lit head into its open box, picks
+  boxes up and down, stores them in the harvest-house fridge, opens the container
+  door and vent window and swings the farm gate, and inspects the bay screens, vents
+  and sticky traps. A long press or Shift+E on a ready crop opens its inspect sheet
+  without packing the head.
   `Tab` cycles the monitored reservoir from anywhere in the walkthrough.
 - Live HUD climate readout (game clock, weather label plus mm/h rain rate and HOLD /
   AUTO mode, air temperature, humidity, EC/pH and controller status) driven by the
@@ -229,6 +255,26 @@ still works; `Esc` then opens the pause menu directly.
   and valve state; changes propagate to the irrigation HMI, Bluelab HMI and gauges.
 - Pause menu (resume / settings / respawn) and toast notifications.
 
+**Version 14: harvest boxes, container chiller and touch input**
+
+- Every NFT table now carries a floating READY TO HARVEST badge and four staged
+  styrofoam boxes. Tapping the badge toggles harvest mode for that table; each tap
+  on a lit head packs it into the open box. A box holds one two-gully pass (80 heads
+  / 8.3 kg), and the mode stops automatically once all four boxes are full. The
+  active badge stays clickable, so tapping it again (or the HUD stop button) ends
+  the mode early. Packed boxes stay on the floor beside their table.
+- Boxes can be picked up (click/tap or `E` on a packed box), carried at chest height
+  with a 0.72× walk-speed penalty, and set down again with `G` (or the touch DROP
+  button). The HUD carry card switches to a box readout with fill, gross weight and
+  crop mix.
+- A container harvest house stands south of the glasshouse with a sliding door, a
+  vent window, a packing bench and a glass-door refrigerator. Aiming at an open
+  fridge while carrying stores the box at 3.5 °C; aiming at a loaded open fridge
+  without a box takes the last chilled box back out.
+- A galvanised farm perimeter fences the yard and gates the driveway. The gate
+  leaves swing open on `E` and its collider is disabled while open, so the yard
+  and the container house can be reached without clipping through the fence.
+
 **Settings & persistence**
 
 - Quality presets (low / medium / high) change pixel ratio, shadow map size, texture
@@ -238,9 +284,11 @@ still works; `Esc` then opens the pause menu directly.
 - The automatic save stores the climate clock, all 36 nursery tray records and every
   per-hole NFT plant, including crop variety, nursery age, NFT production day,
   biomass, harvest readiness and last-growth day, plus the harvest inventory,
-  lifetime totals and log. It is written on pause, every 30 s, after a developer
-  time skip, and before the page unloads; growth resumes from the saved day without
-  replaying missed growth.
+  lifetime totals and log. Version 14 adds all 72 harvest boxes (fill, crop mix,
+  carried/stored flags and floor position), the harvest house's door, vent window,
+  fridge door and chilled stock, and the farm gate state. It is written on pause,
+  every 30 s, after a developer time skip, and before the page unloads; growth
+  resumes from the saved day without replaying missed growth.
 
 ## Source map
 
@@ -258,9 +306,16 @@ src/world/NurseryTable.js  36-tray ebb-and-flow bench, pipework, pump, SEED/GROW
 src/world/SeedlingTray.js  independent 320-cell tray record, interaction, picked-up tray view
 src/world/SeedlingPlantLayer.js  instanced stage/LOD canopy for one tray
 src/world/NurseryShadeScreen.js  retractable nursery shade deck and drive
-src/world/NftCropLayer.js  instanced 17-stage NFT lettuce heads, rockwool, net pots, roots and ready rings
+src/world/NftCropLayer.js  instanced 17-stage NFT lettuce heads, recessed plugs, net pots, roots and harvest lighting
+src/world/NftHarvestGlow.js  instanced, fading green light pools on the NFT channel for ready plants
 src/world/lettuce.js      cached 17-stage lettuce head geometry, leaf palettes, net cups and rockwool
 src/world/EntranceDoors.js twin-leaf sliding entrance, animation + collision
+src/world/FarmPerimeter.js  galvanised yard fence, city backdrop, swinging driveway gate + collider
+src/world/ContainerHouse.js  harvest house shell, sliding door, vent window, bench, signs
+src/world/GlassRefrigerator.js  glass-door 3.5 °C chiller, box slots and carry-context interaction
+src/world/harvest/HarvestBox.js  one styrofoam box record, staged/carried/stored states and inspect data
+src/world/BillboardLabels.js  instanced billboard label field used by harvest badges and signs
+src/world/StaticBatchManager.js  merges leftover static meshes into batched draw calls
 src/world/BayScreens.js    6 shade panels, 6 energy panels, 12 ridge-vent leaves
 src/world/StickyTraps.js   12 column-mounted pest-monitoring cards
 src/world/Equipment.js     tables, pumps, cabinet, fans, hydraulic + interaction wiring
@@ -278,6 +333,8 @@ src/player/DroneController.js        free-flying 360° drone camera with orbit a
 src/player/CollisionWorld.js         circle-vs-box/circle resolution
 src/interaction/InteractionSystem.js centre-screen raycast, highlight box
 src/ui/GameUI.js           HUD, hints, inspect panel, modals, toasts
+src/ui/TouchControls.js     landscape touch overlay: stick, look area, USE/DROP/DRONE/MENU
+src/systems/HarvestController.js  table badges, gully packing, box carry/set-down and fridge handoff
 src/systems/GreenhouseControlSystem.js shared bay, pump, valve, tank and dosing state
 src/systems/NurseryGrowthController.js  sowing, calendar-day growth, GROW shortcut and stock summaries
 src/systems/TrayPickupController.js     first-person tray carrying and bench placement
@@ -287,27 +344,31 @@ src/simulation/GreenCoralGrowth.js  five-stage nursery model, 17-day NFT product
 src/world/referenceLettuce.js  port of the standalone Green Coral Lettuce three.js generator
 src/simulation/WaterNutrientSimulation.js  tank levels, flows, dosing and alarms
 src/simulation/PlantSimulation.js    calendar-driven NFT ages, 100 g harvest records, inventory and save snapshots
-src/save/SaveSystem.js     versioned localStorage save payload (v3)
+src/save/SaveSystem.js     versioned localStorage save payload (v4)
 src/styles/main.css        boot, HUD, panels and modal styling
 scripts/smoke-equipment.mjs  headless structure/water/control/UI regression check
 ```
 
 ## Notes and limitations
 
-- Desktop only; there is no touch/mobile control scheme yet.
+- Desktop play is mouse + keyboard. Phones and tablets get the touch overlay only in
+  landscape and only when the browser reports a coarse pointer; hybrids with a fine
+  pointer keep the desktop UI.
 - Crop growth is a lightweight procedural model rather than a calibrated crop
   process model: daily age drives leaf count, height, canopy spread and geometry,
   while the water/nutrient model remains deterministic and tracks levels, dosing,
   flows and alarms rather than individual gully hydraulics.
 - The shared control system supports independent per-bay screens, vents and fans;
   the cabinet exposes one switch per bay circuit, with no master override.
-- `SaveSystem` is a version-3 payload: it stores the clock, four-state weather with
+- `SaveSystem` is a version-4 payload: it stores the clock, four-state weather with
   its manual-hold flag and roof-capture rate, pump/valve state, reservoir/return/
   harvester levels, every nursery tray and every NFT crop's nursery age, NFT day,
-  biomass and readiness, plus the harvest inventory, lifetime totals and harvest
-  log and the player pose. Legacy saves that stored the single `rain` state restore
-  as heavy rain on the automatic schedule. Older saves without growth records start
-  with the current nursery and crop state; UI settings persist separately.
+  biomass and readiness, all harvest boxes with their contents and carried/stored
+  state, the harvest house openings and chilled stock, the farm gate, plus the
+  harvest inventory, lifetime totals and harvest log and the player pose. Legacy
+  saves that stored the single `rain` state restore as heavy rain on the automatic
+  schedule. Older saves without growth records start with the current nursery and
+  crop state; UI settings persist separately.
 - VERSION_6_REPORT.md summarises the irrigation, climate, drone, harvester and panel
   changes and the regression coverage added for them.
 - `window.verdeGame` exposes the live `Game` instance for debugging from the console.

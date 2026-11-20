@@ -484,7 +484,7 @@ export class NurseryTable {
       -0.19,
       'CROP',
       'nursery-cycle-crop',
-      'Crop: Green Coral Lettuce - click to switch',
+      'Crop: Green Coral Lettuce - tap to switch',
       'Bench crop selector: choose the lettuce variety loaded in the seed drill. Green Coral and Red Coral Lettuce share the same reference Day 4-20 morphology but use different leaf palettes.',
     );
     this.buttons.seed = makeButton(
@@ -524,7 +524,7 @@ export class NurseryTable {
       this.buttons.crop.cap.material = redCoral
         ? this.materials.ledRed
         : this.materials.ledGreen;
-      this.buttonInfo.crop.interactionHint = `Crop: ${cropLabel} - click to switch`;
+      this.buttonInfo.crop.interactionHint = `Crop: ${cropLabel} - tap to switch`;
       this.buttonInfo.crop.specs = [
         ['Loaded crop', cropLabel],
         ['Available', 'Green Coral Lettuce · Red Coral Lettuce'],
@@ -844,7 +844,7 @@ export class NurseryTable {
       interaction: 'nursery-start-cycle',
       interactionHint: 'Start ebb & flow cycle',
       description:
-        'A commercial rolling nursery bench with one corrugated ABS flood pan. Thirty-six 320-cell propagation trays sit in a symmetrical 6 x 6 block; the pump floods the pan from Reservoir 2, holds the water at the tray drainage holes, then opens the return valve and drains back to the reservoir. Press E to start a manual cycle; automatic cycles also run on the propagation timer.',
+        'A commercial rolling nursery bench with one corrugated ABS flood pan. Thirty-six 320-cell propagation trays sit in a symmetrical 6 x 6 block; the pump floods the pan from Reservoir 2, holds the water at the tray drainage holes, then opens the return valve and drains back to the reservoir. Tap to start a manual cycle; automatic cycles also run on the propagation timer.',
       specs: [
         ['Bench', `${length.toFixed(2)} x ${width.toFixed(2)} m - single layer`],
         ['Trays', `${trays.count} - ${trays.rows} x ${trays.columns} grid`],

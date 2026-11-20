@@ -347,8 +347,8 @@ export class PlantSimulation {
       action: harvestReady ? 'Harvest crop' : 'Inspect crop',
       interaction: harvestReady ? 'harvest-crop' : 'inspect-crop',
       interactionHint: harvestReady
-        ? 'E  Harvest head   Shift+E  Inspect'
-        : 'E  Inspect plant',
+        ? 'Tap to pack head · hold to inspect'
+        : 'Tap to inspect plant',
       harvestReady,
       ready: harvestReady,
       stage: plant.growthStage,

@@ -16,6 +16,33 @@ export class Environment {
     this.sunDirection = new THREE.Vector3();
     this.envRenderTarget = null;
     this.lights = [];
+    this.shadowSunElevation = null;
+    this.shadowSunAzimuth = null;
+    this.shadowSunVisible = null;
+    this.sunChanged = true;
+    const greenhouse = LAYOUT.greenhouse ?? {};
+    const nursery = LAYOUT.nursery ?? {};
+    this.rainUniforms = {
+      uTime: { value: 0 },
+      uHouseA: {
+        value: new THREE.Vector4(
+          greenhouse.centre?.[0] ?? 0,
+          greenhouse.centre?.[1] ?? 0,
+          (greenhouse.width ?? 0) / 2 + 0.5,
+          (greenhouse.length ?? 0) / 2 + 0.5,
+        ),
+      },
+      uHouseB: {
+        value: new THREE.Vector4(
+          nursery.centre?.[0] ?? 1000,
+          nursery.centre?.[1] ?? 1000,
+          (nursery.width ?? 0) / 2 + 0.5,
+          (nursery.length ?? 0) / 2 + 0.5,
+        ),
+      },
+    };
+    this.nightFogColor = new THREE.Color(0x0b1420);
+    this.rainFogColor = new THREE.Color(0x87969b);
   }
 
   build() {
@@ -274,6 +301,7 @@ export class Environment {
     }
     const rainGeometry = new THREE.BufferGeometry();
     rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    rainGeometry.setAttribute('aSpeed', new THREE.BufferAttribute(rainSpeeds, 1));
     const rainMaterial = new THREE.PointsMaterial({
       color: 0xb7d6e2,
       size: 0.075,
@@ -283,6 +311,33 @@ export class Environment {
       depthWrite: false,
       fog: true,
     });
+    // Wrap each drop on the GPU. Static positions stay uploaded; only uTime
+    // changes per frame, so rain no longer rewrites/uploads 1,500 positions.
+    rainMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.rainUniforms.uTime;
+      shader.uniforms.uHouseA = this.rainUniforms.uHouseA;
+      shader.uniforms.uHouseB = this.rainUniforms.uHouseB;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uTime;
+          uniform vec4 uHouseA;
+          uniform vec4 uHouseB;
+          attribute float aSpeed;`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `vec3 transformed = vec3(position);
+          transformed.x = mod(position.x + uTime * 0.7 + 32.0, 64.0) - 32.0;
+          float rainFloor = 0.0;
+          if (abs(transformed.x - uHouseA.x) < uHouseA.z && abs(transformed.z - uHouseA.y) < uHouseA.w) rainFloor = 5.2;
+          if (abs(transformed.x - uHouseB.x) < uHouseB.z && abs(transformed.z - uHouseB.y) < uHouseB.w) rainFloor = 5.2;
+          float rainSpan = 26.0 - rainFloor;
+          transformed.y = rainFloor + mod(position.y - rainFloor - uTime * aSpeed, rainSpan);`,
+        );
+    };
+    rainMaterial.customProgramCacheKey = () => 'verde-gpu-rain-v1';
     const rain = new THREE.Points(rainGeometry, rainMaterial);
     rain.name = 'rain-field';
     rain.visible = false;
@@ -315,7 +370,17 @@ export class Environment {
       (azimuth + 90) % 360,
     );
 
-    this.sun.visible = elevation > -1;
+    const sunVisible = elevation > -1;
+    this.sunChanged =
+      !Number.isFinite(this.shadowSunElevation) ||
+      Math.abs(elevation - this.shadowSunElevation) > 0.04 ||
+      Math.abs(azimuth - this.shadowSunAzimuth) > 0.04 ||
+      sunVisible !== this.shadowSunVisible;
+    this.shadowSunElevation = elevation;
+    this.shadowSunAzimuth = azimuth;
+    this.shadowSunVisible = sunVisible;
+
+    this.sun.visible = sunVisible;
     this.sun.intensity = this.sunBaseIntensity * directAmount * weatherFactor;
     this.sun.color.setHSL(
       0.105 - night * 0.04,
@@ -374,29 +439,13 @@ export class Environment {
     this.rain.visible = rainIntensity > 0.02 && !this.topView;
     this.rainMaterial.opacity = 0.22 + rainIntensity * 0.5;
     if (this.rain.visible && dt > 0) {
-      for (let i = 0; i < this.rainSpeeds.length; i += 1) {
-        const offset = i * 3;
-        this.rainPositions[offset + 1] -= this.rainSpeeds[i] * dt;
-        this.rainPositions[offset] += dt * 0.7;
-        const insideRoof = this.isInsideRoof(
-          this.rainPositions[offset],
-          this.rainPositions[offset + 2],
-        );
-        if (this.rainPositions[offset + 1] < (insideRoof ? 5.2 : 0)) {
-          this.rainPositions[offset + 1] = 24 + Math.random() * 4;
-          this.rainPositions[offset] = (Math.random() - 0.5) * 64;
-          this.rainPositions[offset + 2] = -28 + Math.random() * 78;
-        }
-      }
-      this.rain.geometry.attributes.position.needsUpdate = true;
+      this.rainUniforms.uTime.value += dt;
     }
 
     const fogColor = this.scene.fog?.color;
     if (fogColor) {
-      fogColor.setHex(0xc6d2d2).lerp(new THREE.Color(0x0b1420), night * 0.88);
-      if (raining) {
-        fogColor.lerp(new THREE.Color(0x87969b), 0.35);
-      }
+      fogColor.setHex(0xc6d2d2).lerp(this.nightFogColor, night * 0.88);
+      if (raining) fogColor.lerp(this.rainFogColor, 0.35);
     }
     if (this.scene.fog) {
       this.scene.fog.near = raining ? 38 : this.preset?.id === 'low' ? 48 : 62;

@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { CylinderBatch, boxMesh } from './Batches.js';
 import { DashboardDisplay } from './DashboardDisplay.js';
@@ -738,7 +738,7 @@ export class Equipment {
             ['Circuit', entry.label],
             ['State', on ? 'ON' : 'OFF'],
             ['Interlock', lockMs ? `${(lockMs / 1000).toFixed(1)} s travel` : 'Instant'],
-            ['Action', 'E to toggle this circuit'],
+            ['Action', 'Tap to toggle this circuit'],
           ],
           interactionHint: `Turn ${entry.label.toLowerCase()} ${on ? 'off' : 'on'}`,
           interaction: 'toggle-bay-device',
@@ -972,7 +972,7 @@ export class Equipment {
       category: 'Climate control',
       title: 'Climate control cabinet CC-4',
       description:
-        'The greenhouse controller, safety interlocks and variable-speed drives. The hinged door gives access to the HMI, which is showing live air temperature, humidity, VPD, PPFD, DLI, EC and pH. Press E near the cabinet to swing the door open or closed.',
+        'The greenhouse controller, safety interlocks and variable-speed drives. The hinged door gives access to the HMI, which is showing live air temperature, humidity, VPD, PPFD, DLI, EC and pH. Tap near the cabinet to swing the door open or closed.',
       specs: [
         ['Controller', 'GreenCtrl 400 · 7-channel'],
         ['Sensors', 'Air temp / RH · PAR · EC / pH'],
@@ -1054,6 +1054,18 @@ export class Equipment {
 
   updateCrops(dt, viewer = null) {
     this.cropLayer?.update(dt, viewer);
+  }
+
+  /**
+   * True while an animated component changes the sun shadow silhouette.
+   * Fan rotors are deliberately excluded: their motion is enclosed by the guard
+   * and shroud, so updating the whole shadow map for it would undo the cache.
+   */
+  get hasAnimatedShadow() {
+    return Boolean(
+      this.cropLayer?.activeTransitions ||
+        Math.abs(this.doorTarget - this.doorAmount) > 0.002,
+    );
   }
 
   /* ------------------------------------------------------------- lifecycle */

@@ -659,6 +659,96 @@ export const LAYOUT = {
     acceleration: 12,
   },
 
+  /**
+   * Version 14 harvest floor. Four styrofoam boxes are provisioned beside every
+   * NFT table; they fill sequentially, two gullies at a time, and can be carried
+   * to the container house or left in place.
+   */
+  harvest: {
+    boxesPerTable: 4,
+    capacityPerBox: 80,
+    plantsPerGully: 40,
+    tareWeightG: 380,
+    box: { width: 0.44, depth: 0.62, height: 0.26, wall: 0.022 },
+    slotOffsets: [-1.95, -0.65, 0.65, 1.95],
+    aisleOffset: 1.18,
+    carriedSpeedScale: 0.82,
+    carriedSpeedLossPerKg: 0.012,
+    minimumCarriedSpeedScale: 0.42,
+    carryPose: { forward: 0.62, right: 0.2, down: 0.4 },
+    dropForward: 0.95,
+    fillSecondsPerHead: 0.045,
+    liftSeconds: 0.55,
+  },
+
+  /**
+   * Insulated site container used as the harvest house: a 40 ft shell with a
+   * personnel door, an awning window, workbench, table and a glass-door
+   * refrigerator that stores filled boxes.
+   */
+  container: {
+    id: 'container-house',
+    label: 'Harvest House',
+    zone: 'container-house',
+    centre: [17.2, 12],
+    width: 3.4,
+    length: 6.4,
+    height: 2.72,
+    floorY: 0.12,
+    wallThickness: 0.09,
+    door: { z: 1.55, width: 1.0, height: 2.12, openAngle: 1.82 },
+    window: { z: 2.55, width: 1.35, height: 0.72, sillY: 1.32, openAngle: 0.95 },
+    fridge: {
+      offset: [0.98, -1.72],
+      width: 0.92,
+      depth: 0.72,
+      height: 2.02,
+      capacity: 8,
+      doorOpenAngle: 1.95,
+    },
+    signage: {
+      title: 'HARVEST HOUSE',
+      subtitle: 'GRADE · WEIGH · CHILL',
+      y: 2.5,
+    },
+  },
+
+  /**
+   * Fenced farm perimeter, vehicle gate and the surrounding city block. The
+   * fence line doubles as the player movement clamp.
+   */
+  farm: {
+    bounds: { minX: -24, maxX: 24, minZ: -25, maxZ: 46 },
+    fence: { height: 2.35, postSpacing: 2.4, thickness: 0.1 },
+    gate: {
+      width: 4.6,
+      height: 2.15,
+      leafCount: 2,
+      openAngle: 1.55,
+      postSize: 0.28,
+    },
+    city: {
+      roadZ: 50,
+      roadWidth: 9,
+      sidewalkWidth: 3,
+      buildings: [
+        { x: -44, z: 64, width: 18, depth: 14, height: 14, tint: '#2b3a41' },
+        { x: -22, z: 69, width: 16, depth: 16, height: 21, tint: '#33454c' },
+        { x: -2, z: 62, width: 15, depth: 12, height: 11, tint: '#3a4038' },
+        { x: 18, z: 67, width: 20, depth: 15, height: 18, tint: '#2c3944' },
+        { x: 41, z: 62, width: 17, depth: 13, height: 9, tint: '#3b3933' },
+        { x: -58, z: 80, width: 22, depth: 20, height: 27, tint: '#26333a' },
+        { x: -28, z: 84, width: 20, depth: 18, height: 16, tint: '#303a3d' },
+        { x: 4, z: 82, width: 24, depth: 20, height: 24, tint: '#2a353b' },
+        { x: 34, z: 86, width: 20, depth: 18, height: 13, tint: '#383b34' },
+        { x: 58, z: 78, width: 18, depth: 16, height: 19, tint: '#2c383e' },
+        { x: -46, z: 47, width: 10, depth: 12, height: 7, tint: '#41423a' },
+        { x: 48, z: 48, width: 12, depth: 12, height: 8, tint: '#37403c' },
+      ],
+    },
+    signage: { title: 'GREENHOUSE 14', subtitle: 'HYDROPONIC FARM', y: 3.1 },
+  },
+
   exterior: {
     apronHalfWidth: 21,
     apronHalfDepth: 26,

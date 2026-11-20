@@ -268,7 +268,7 @@ export class NftTables {
           ['Table width', `${install.tableWidth.toFixed(2)} m`],
           ['Working height', `${table.topYStart.toFixed(2)} m at head`],
           ['Falling slope', `${beds.slopeDegrees.toFixed(1)}°`],
-          ['Supply valve', 'Dedicated PVC ball valve - E to isolate'],
+          ['Supply valve', 'Dedicated PVC ball valve - tap to isolate'],
           ['Supply / return', 'Dedicated DN50 / DN80'],
         ],
         groupId: group?.id ?? null,

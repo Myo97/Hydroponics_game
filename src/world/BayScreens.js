@@ -53,6 +53,7 @@ export class BayScreens {
     this.vents = [];
     this.screen = null;
     this.interactables = [];
+    this.motion = false;
     this.ventMeshMaterial = new THREE.MeshBasicMaterial({
       color: 0x1d2a24,
       transparent: true,
@@ -406,6 +407,11 @@ export class BayScreens {
         vent.sign * (vent.openAmount * LAYOUT.vents.openingAngle - vent.slopeDown);
       vent.mesh.visible = vent.openAmount > 0.001;
     }
+
+    this.motion =
+      this.shadePanels.some((panel) => panel.tween.value !== panel.tween.target) ||
+      this.energyPanels.some((panel) => panel.tween.value !== panel.tween.target) ||
+      this.vents.some((vent) => vent.tween.value !== vent.tween.target);
   }
 
   setTopView(active) {

@@ -1022,7 +1022,7 @@ export class WaterStorage {
       category: 'Water storage',
       title: 'Rainwater transfer pump',
       description:
-        'Booster set lifting stored roof water from the underground harvester into the clean distribution manifold. The discharge tee feeds one isolation valve per reservoir, so either tank can be isolated for maintenance without stopping the other fill. Press E at the starter to toggle the pump.',
+        'Booster set lifting stored roof water from the underground harvester into the clean distribution manifold. The discharge tee feeds one isolation valve per reservoir, so either tank can be isolated for maintenance without stopping the other fill. Tap at the starter to toggle the pump.',
       specs: [
         ['Duty', '6.0 m³ h⁻¹ at 2.4 bar'],
         ['Motor', '0.75 kW · 230 V single phase'],

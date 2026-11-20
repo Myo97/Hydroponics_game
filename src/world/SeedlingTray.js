@@ -294,17 +294,17 @@ export class SeedlingTray {
       this.info.interaction = 'nursery-seed-tray';
       this.info.interactionHint = `Plant ${benchVariety.label} seeds`;
       this.info.description =
-        `An empty 550 x 280 mm, 320-cell propagation tray on the nursery bench. Press E to sow ${benchVariety.label}; germination is 100% and is generated once, then preserved as the tray grows. Hold Shift and press E to pick the empty tray up for staging or return.`;
+        `An empty 550 x 280 mm, 320-cell propagation tray on the nursery bench. Tap to sow ${benchVariety.label}; germination is 100% and is generated once, then preserved as the tray grows. Hold to pick the empty tray up for staging or return.`;
     } else if (this.ready) {
       this.info.interaction = 'nursery-pickup-tray';
       this.info.interactionHint = 'Pick up transplant-ready tray';
       this.info.description =
-        `Tray ${String(this.index + 1).padStart(2, '0')} carries ${this.germinated} ${this.cropName} plugs at Day ${this.growthDay}. The canopy is a dense, frilled coral rosette and is ready to carry to an NFT gully. Press E to pick up the tray.`;
+        `Tray ${String(this.index + 1).padStart(2, '0')} carries ${this.germinated} ${this.cropName} plugs at Day ${this.growthDay}. The canopy is a dense, frilled coral rosette and is ready to carry to an NFT gully. Tap to pick up the tray.`;
     } else {
       this.info.interaction = 'inspect';
       this.info.interactionHint = `Inspect tray - Day ${this.growthDay}`;
       this.info.description =
-        `${this.cropName} propagation tray at Day ${this.growthDay} of 14. ${this.germinated} cells have germinated and ${this.emptyCells} remain empty. The seedling canopy is at the ${label.toLowerCase()} stage. Press E to inspect the full tray record.`;
+        `${this.cropName} propagation tray at Day ${this.growthDay} of 14. ${this.germinated} cells have germinated and ${this.emptyCells} remain empty. The seedling canopy is at the ${label.toLowerCase()} stage. Tap to inspect the full tray record.`;
     }
 
     this.info.specs = [

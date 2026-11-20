@@ -211,7 +211,7 @@ export class DashboardDisplay {
         value: tank?.name ?? tank?.code ?? 'Reservoir 1',
         unit: '',
         tone: '#65e0bc',
-        sub: `LEVEL ${Math.round(tankLevel * 100)} % \u00B7 E SELECT`,
+        sub: `LEVEL ${Math.round(tankLevel * 100)} % \u00B7 TAP SELECT`,
         valueSize: 30,
         bar: tankLevel,
       },
@@ -353,7 +353,7 @@ export class DashboardDisplay {
     ctx.fillStyle = alarm ? '#f2b24b' : '#65e0bc';
     ctx.font = '700 18px Consolas, "Courier New", monospace';
     ctx.fillText(
-      `${tank?.name ?? 'Reservoir 1'} \u00B7 E CYCLE`,
+      `${tank?.name ?? 'Reservoir 1'} \u00B7 TAP CYCLE`,
       stripX + stripW - 16,
       stripY + 33,
     );

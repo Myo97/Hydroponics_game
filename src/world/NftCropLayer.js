@@ -8,29 +8,45 @@ import {
 } from '../simulation/GreenCoralGrowth.js';
 import {
   LETTUCE_CROWN_OFFSET_M,
-  createLettuceReadyRingMaterial,
+  LETTUCE_NET_POT_RECESS_M,
+  LETTUCE_ROCKWOOL_HEIGHT_M,
+  LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M,
   getLettuceHeadGeometry,
   getLettuceLeafMaterial,
   getLettuceNetCupMaterial,
-  getLettuceReadyRingGeometry,
   getLettuceRockwoolGeometry,
   getLettuceRockwoolMaterial,
   lettuceStageForDay,
 } from './lettuce.js';
+import {
+  HARVEST_GLOW_LENGTH_M,
+  HARVEST_GLOW_LIFT_M,
+  HARVEST_GLOW_WIDTH_M,
+  NftHarvestGlow,
+} from './NftHarvestGlow.js';
 
 const temp = new THREE.Object3D();
 const ease = (value) => value * value * (3 - 2 * value);
-const DETAILED_VARIANTS = 4;
+const DETAILED_VARIANTS = 3;
+// Per-plant detail bands. Full 60-leaf geometry is reserved for heads within
+// arm's reach; mid/far heads use cached 24/10-leaf silhouettes.
+const NEAR_DISTANCE_M = 2.5;
+const MID_DISTANCE_M = 8;
+const NEAR_HYSTERESIS_M = 0.75;
+const LOD_ANCHOR_STEP_M = 1;
+
+function pooledCapacity(count) {
+  return Math.max(8, 2 ** Math.ceil(Math.log2(Math.max(1, count))));
+}
 
 /**
  * Renders the real per-hole NFT production plants held by PlantSimulation.
  *
- * Each plant is bucketed by (crop, local NFT day, deterministic variant), so a
- * table needs only a few InstancedMeshes while still showing 320 independently
- * aged individuals. Every bucket reuses one cached merged lettuce geometry, a
- * vertex-coloured shared leaf material, one net cup and one rockwool cube.
- * Geometry is rebuilt only when a table's actual plants or day buckets change;
- * a short eased scale bridges the one-day growth step.
+ * Plants are pooled globally by (crop, local NFT day, variant, LOD) rather than
+ * per table. A full 5,760-plant house therefore uses a few dozen InstancedMeshes
+ * instead of hundreds, while still showing individually aged and varied plants.
+ * Geometry comes from the shared lettuce cache; only matrices are rebuilt when
+ * the simulation version or the per-table LOD changes.
  */
 export class NftCropLayer {
   constructor({ materials, tables, layout }) {
@@ -40,7 +56,14 @@ export class NftCropLayer {
     this.simulation = null;
     this.group = null;
     this.tableGroups = new Map();
-    this.signatures = new Map();
+    this.tablesById = new Map();
+    this.batches = new Map();
+    this.supportPools = new Map();
+    this.viewerPosition = null;
+    this.lodAnchor = null;
+    this.lodSignature = '';
+    this.lastVersion = -1;
+    this.activeTransitions = false;
 
     this.leafMaterial = getLettuceLeafMaterial();
     this.rootMaterial = new THREE.MeshStandardMaterial({
@@ -52,8 +75,9 @@ export class NftCropLayer {
     });
     this.netPotMaterial = getLettuceNetCupMaterial();
     this.rockwoolMaterial = getLettuceRockwoolMaterial();
-    this.readyRingMaterial = createLettuceReadyRingMaterial();
-    this.lastVersion = -1;
+    this.harvestGlow = new NftHarvestGlow({
+      matrixForPlant: (plant) => this.harvestGlowMatrix(plant),
+    });
   }
 
   build(parent) {
@@ -61,82 +85,126 @@ export class NftCropLayer {
     this.group.name = 'nft-crop-layer';
     parent.add(this.group);
     for (const table of this.tables) {
-      const tableGroup = table.group;
-      if (!tableGroup) continue;
+      if (!table.group) continue;
+      this.tablesById.set(table.id, table);
       this.tableGroups.set(table.id, {
-        group: tableGroup,
+        table,
         meshes: [],
         buckets: [],
         plants: [],
-        rootMesh: null,
-        potMesh: null,
-        rockwoolMesh: null,
-        readyRingMesh: null,
         ageById: new Map(),
         fromAgeById: new Map(),
         transitionElapsed: 1,
         transitionDuration: 1.4,
+        lodFull: false,
+        rootMesh: null,
+        potMesh: null,
+        rockwoolMesh: null,
+        harvestGlowMesh: null,
       });
-      this.signatures.set(table.id, '');
     }
+    this.harvestGlow.build(this.group);
     return this;
   }
 
   attach(simulation) {
     this.simulation = simulation;
     this.lastVersion = -1;
+    this.lodAnchor = null;
     this.refresh(true);
+  }
+
+  getInteractables() {
+    return this.group ? [{ object: this.group }] : [];
+  }
+
+  /**
+   * Recompute which tables are close enough for the detailed (four-variant)
+   * geometry. The 1.5 m hysteresis prevents rapid bucket churn at the boundary.
+   */
+  updateTableLods() {
+    let changed = false;
+    const viewer = this.viewerPosition;
+    for (const entry of this.tableGroups.values()) {
+      const table = entry.table;
+      const distance = viewer
+        ? Math.hypot(viewer.x - table.centerX, viewer.z - table.centerZ)
+        : Infinity;
+      const threshold = entry.lodFull
+        ? NEAR_DISTANCE_M + NEAR_HYSTERESIS_M
+        : NEAR_DISTANCE_M;
+      const full = distance <= threshold;
+      if (full !== entry.lodFull) {
+        entry.lodFull = full;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Rebuild per-plant LOD only after the viewer walks ~1 m. This keeps buckets
+   * stable while standing still and avoids a full 5,760-plant rebuild each frame.
+   */
+  updateLodAnchor() {
+    const viewer = this.viewerPosition;
+    if (!viewer) return false;
+    if (
+      this.lodAnchor &&
+      Math.hypot(viewer.x - this.lodAnchor.x, viewer.z - this.lodAnchor.z) <
+        LOD_ANCHOR_STEP_M
+    ) {
+      return false;
+    }
+    this.lodAnchor = { x: viewer.x, z: viewer.z };
+    return true;
+  }
+
+  /** 0 = close detail, 1 = mid, 2 = far silhouette. */
+  plantLod(table, plant) {
+    const viewer = this.lodAnchor ?? this.viewerPosition;
+    if (!viewer) return 2;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return 2;
+    const distance = Math.hypot(viewer.x - hole.x, viewer.z - hole.z);
+    if (distance <= NEAR_DISTANCE_M) return 0;
+    if (distance <= MID_DISTANCE_M) return 1;
+    return 2;
   }
 
   refresh(force = false) {
     if (!this.group) return;
-    if (this.simulation) this.lastVersion = this.simulation.version;
-    for (const table of this.tables) {
-      const entry = this.tableGroups.get(table.id);
-      if (!entry) continue;
-      const plantings = this.simulation?.getTablePlantings(table.id) ?? [];
-      if (plantings.length === 0) {
-        if (entry.meshes.length) this.clearTable(entry);
-        entry.plants = [];
+    const version = this.simulation?.version ?? 0;
+    const moved = this.updateLodAnchor();
+    const tableLodChanged = moved ? this.updateTableLods() : false;
+    const lodChanged = tableLodChanged || moved;
+    const versionChanged = force || version !== this.lastVersion;
+    if (!versionChanged && !lodChanged) return;
+
+    if (versionChanged) {
+      for (const entry of this.tableGroups.values()) {
+        const plantings = this.simulation?.getTablePlantings(entry.table.id) ?? [];
+        const hadPlants = entry.plants.length > 0;
+        entry.fromAgeById = new Map(entry.ageById);
         entry.ageById.clear();
-        this.signatures.set(table.id, '');
-        continue;
-      }
-      const detailed = this.viewerIsNear(table);
-      const variantCount = detailed ? DETAILED_VARIANTS : 1;
-      const buckets = new Map();
-      const bucketKeys = [];
-      let idHash = 0;
-      for (const plant of plantings) {
-        const development = nftDevelopmentForDay(this.nftDayForPlant(plant), plant.cropName);
-        const variety = resolveCropVariety(plant.cropName);
-        const variant = Math.min(
-          variantCount - 1,
-          Math.floor((plant.variantSeed ?? 0) * variantCount),
-        );
-        const key = `${variety.key}:${development.day}:${variant}`;
-        if (!buckets.has(key)) {
-          buckets.set(key, {
-            day: development.day,
-            variant,
-            variety,
-            detailed,
-            plants: [],
-          });
-        }
-        buckets.get(key).plants.push(plant);
-        for (let index = 0; index < plant.id.length; index += 1) {
-          idHash = (idHash * 31 + plant.id.charCodeAt(index)) >>> 0;
+        entry.plants = plantings;
+        entry.transitionElapsed = hadPlants ? 0 : 1.4;
+        entry.transitionDuration = 1.4;
+        for (const plant of plantings) {
+          entry.ageById.set(plant.id, this.nftDayForPlant(plant));
         }
       }
-      bucketKeys.push(...buckets.keys());
-      const signature = `${detailed ? 1 : 0}:${plantings.length}:${idHash}:${bucketKeys.join('|')}`;
-      if (!force && signature === this.signatures.get(table.id)) {
-        continue;
-      }
-      this.signatures.set(table.id, signature);
-      this.rebuildTable(table, entry, buckets, detailed, plantings);
+      this.lastVersion = version;
     }
+
+    this.rebuildBatches(versionChanged);
+    this.lodSignature = this.currentLodSignature();
+  }
+
+  currentLodSignature() {
+    return this.tables
+      .map((table) => (this.tableGroups.get(table.id)?.lodFull ? '1' : '0'))
+      .join('');
   }
 
   nftDayForPlant(plant) {
@@ -149,140 +217,222 @@ export class NftCropLayer {
   }
 
   viewerIsNear(table) {
-    const viewer = this.viewerPosition;
-    if (!viewer) return false;
-    return Math.hypot(viewer.x - table.centerX, viewer.z - table.centerZ) < 7.5;
+    return Boolean(this.tableGroups.get(table.id)?.lodFull);
   }
 
-  rebuildTable(table, entry, buckets, detailed, plantings) {
-    const previousAges = new Map(entry.ageById);
-    const hadPlants = entry.plants.length > 0;
-    this.clearTable(entry);
-    entry.plants = plantings;
-    entry.fromAgeById = previousAges;
-    entry.ageById.clear();
-    entry.transitionElapsed = hadPlants ? 0 : 1.4;
-    entry.transitionDuration = 1.4;
+  /**
+   * Rebuild bucket membership only when plant data or table LOD changes.
+   * Instance buffers grow geometrically and are reused across day transitions.
+   */
+  rebuildBatches(versionChanged) {
+    const desired = new Map();
+    const roots = [];
+    const detailSupports = [];
+    const farSupports = [];
+    const readyPlants = [];
 
-    for (const bucket of buckets.values()) {
-      const geometry = getLettuceHeadGeometry(
+    for (const entry of this.tableGroups.values()) {
+      entry.buckets.length = 0;
+      for (const plant of entry.plants) {
+        const day = this.nftDayForPlant(plant);
+        const variety = resolveCropVariety(plant.cropName);
+        const lod = this.plantLod(entry.table, plant);
+        const variantCount = lod === 0 ? DETAILED_VARIANTS : 1;
+        const variant = Math.min(
+          variantCount - 1,
+          Math.floor((plant.variantSeed ?? 0.5) * variantCount),
+        );
+        // Per-table buckets give every batch a tight bounding sphere, so
+        // InstancedMesh frustum culling can reject tables behind the camera
+        // instead of submitting all 5,760 plants.
+        const key = `${entry.table.id}:${variety.key}:${day}:${variant}:${lod}`;
+        let bucket = desired.get(key);
+        if (!bucket) {
+          bucket = {
+            key,
+            day,
+            variant,
+            variety,
+            lod,
+            detailed: lod === 0,
+            items: [],
+          };
+          desired.set(key, bucket);
+        }
+        bucket.items.push({ plant, tableId: plant.tableId });
+        if (lod < 2) roots.push(plant);
+        if (lod < 2) detailSupports.push(plant);
+        else farSupports.push(plant);
+        if (plant.harvestReady || day >= NFT_PRODUCTION_DAYS) readyPlants.push(plant);
+      }
+    }
+
+    for (const [key, bucket] of desired) {
+      let batch = this.batches.get(key);
+      if (!batch) {
+        batch = { key, geometry: null, mesh: null, capacity: 0, items: [] };
+        this.batches.set(key, batch);
+      }
+      bucket.geometry = getLettuceHeadGeometry(
         bucket.variety.name,
         bucket.day,
         bucket.variant,
-        detailed,
+        bucket.lod,
       );
-      const mesh = new THREE.InstancedMesh(geometry, this.leafMaterial, bucket.plants.length);
-      mesh.name = `${table.id}-${bucket.variety.key}-lettuce-day-${bucket.day}-v${bucket.variant}`;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
-      mesh.userData.sharedGeometry = true;
-      mesh.userData.suppressHighlight = true;
-      if (table.data) {
-        mesh.userData.interactable = table.data;
-        mesh.userData.tableId = table.id;
-        mesh.userData.resolveInteractable = (instanceId) =>
-          this.describePlant(bucket.plants[instanceId], table);
-      }
-      entry.group.add(mesh);
-      entry.meshes.push(mesh);
-      entry.buckets.push({ mesh, bucket });
-      for (const plant of bucket.plants) {
-        entry.ageById.set(plant.id, this.nftDayForPlant(plant));
+      batch.geometry = bucket.geometry;
+      batch.items = bucket.items;
+      this.ensureBatchMesh(batch, bucket);
+      const tableIds = new Set(bucket.items.map((item) => item.tableId));
+      for (const tableId of tableIds) {
+        this.tableGroups.get(tableId)?.buckets.push({ mesh: batch.mesh, bucket });
       }
     }
 
-    const count = plantings.length;
-    const rootMesh = new THREE.InstancedMesh(getNftRootGeometry(), this.rootMaterial, count);
-    rootMesh.name = `${table.id}-nft-production-roots`;
-    rootMesh.castShadow = false;
-    rootMesh.receiveShadow = true;
-    rootMesh.frustumCulled = false;
-    rootMesh.userData.sharedGeometry = false;
-    rootMesh.userData.suppressHighlight = true;
-    if (table.data) {
-      rootMesh.userData.interactable = table.data;
-      rootMesh.userData.tableId = table.id;
+    for (const [key, batch] of this.batches) {
+      if (desired.has(key)) continue;
+      batch.mesh?.removeFromParent();
+      this.batches.delete(key);
     }
-    entry.group.add(rootMesh);
-    entry.meshes.push(rootMesh);
-    entry.rootMesh = rootMesh;
 
-    const potMesh = new THREE.InstancedMesh(getNftNetPotGeometry(), this.netPotMaterial, count);
-    potMesh.name = `${table.id}-nft-net-pots`;
-    potMesh.castShadow = detailed;
-    potMesh.receiveShadow = true;
-    potMesh.frustumCulled = false;
-    potMesh.userData.sharedGeometry = false;
-    potMesh.userData.suppressHighlight = true;
-    if (table.data) {
-      potMesh.userData.interactable = table.data;
-      potMesh.userData.tableId = table.id;
-    }
-    entry.group.add(potMesh);
-    entry.meshes.push(potMesh);
-    entry.potMesh = potMesh;
 
-    const rockwoolMesh = new THREE.InstancedMesh(
+    this.ensureSupportPool(
+      'roots',
+      getNftRootGeometry(),
+      this.rootMaterial,
+      roots,
+      { castShadow: false, receiveShadow: true },
+      (plant) => this.rootMatrix(plant),
+    );
+    this.ensureSupportPool(
+      'pots-detail',
+      getNftNetPotGeometry(),
+      this.netPotMaterial,
+      detailSupports,
+      { castShadow: true, receiveShadow: true },
+      (plant) => this.potMatrix(plant),
+    );
+    this.ensureSupportPool(
+      'pots-far',
+      getNftNetPotGeometry(),
+      this.netPotMaterial,
+      farSupports,
+      { castShadow: false, receiveShadow: true },
+      (plant) => this.potMatrix(plant),
+    );
+    this.ensureSupportPool(
+      'rockwool-detail',
       getLettuceRockwoolGeometry(),
       this.rockwoolMaterial,
-      count,
+      detailSupports,
+      { castShadow: true, receiveShadow: true },
+      (plant) => this.rockwoolMatrix(plant),
     );
-    rockwoolMesh.name = `${table.id}-lettuce-rockwool-cubes`;
-    rockwoolMesh.castShadow = detailed;
-    rockwoolMesh.receiveShadow = true;
-    rockwoolMesh.frustumCulled = false;
-    rockwoolMesh.userData.sharedGeometry = true;
-    rockwoolMesh.userData.suppressHighlight = true;
-    if (table.data) {
-      rockwoolMesh.userData.interactable = table.data;
-      rockwoolMesh.userData.tableId = table.id;
-    }
-    entry.group.add(rockwoolMesh);
-    entry.meshes.push(rockwoolMesh);
-    entry.rockwoolMesh = rockwoolMesh;
+    this.ensureSupportPool(
+      'rockwool-far',
+      getLettuceRockwoolGeometry(),
+      this.rockwoolMaterial,
+      farSupports,
+      { castShadow: false, receiveShadow: true },
+      (plant) => this.rockwoolMatrix(plant),
+    );
+    this.harvestGlow.sync(readyPlants);
 
-    const readyPlants = plantings.filter(
-      (plant) => plant.harvestReady || this.nftDayForPlant(plant) >= NFT_PRODUCTION_DAYS,
-    );
-    if (readyPlants.length > 0) {
-      const ringMesh = new THREE.InstancedMesh(
-        getLettuceReadyRingGeometry(),
-        this.readyRingMaterial,
-        readyPlants.length,
-      );
-      ringMesh.name = `${table.id}-lettuce-harvest-ready-rings`;
-      ringMesh.castShadow = false;
-      ringMesh.receiveShadow = false;
-      ringMesh.frustumCulled = false;
-      ringMesh.userData.sharedGeometry = true;
-      ringMesh.userData.suppressHighlight = true;
-      if (table.data) {
-        ringMesh.userData.interactable = table.data;
-        ringMesh.userData.tableId = table.id;
-      }
-      entry.group.add(ringMesh);
-      entry.meshes.push(ringMesh);
-      entry.readyRingMesh = ringMesh;
-      entry.readyPlantIds = new Set(readyPlants.map((plant) => plant.id));
-    } else {
-      entry.readyRingMesh = null;
-      entry.readyPlantIds = null;
+    this.applyAllMatrices();
+
+    for (const entry of this.tableGroups.values()) {
+      entry.rootMesh = this.supportPools.get('roots')?.mesh ?? null;
+      entry.potMesh =
+        this.supportPools.get(entry.lodFull ? 'pots-detail' : 'pots-far')?.mesh ?? null;
+      entry.rockwoolMesh =
+        this.supportPools.get(entry.lodFull ? 'rockwool-detail' : 'rockwool-far')?.mesh ?? null;
+      entry.harvestGlowMesh = this.harvestGlow.mesh;
+      entry.meshes = [
+        ...new Set(
+          entry.buckets
+            .map((bucket) => bucket.mesh)
+            .concat(
+              [entry.rootMesh, entry.potMesh, entry.rockwoolMesh, entry.harvestGlowMesh].filter(
+                Boolean,
+              ),
+            ),
+        ),
+      ];
     }
 
-    this.placeTablePlants(table, entry);
+    if (versionChanged) this.activeTransitions = this.hasActiveTransitions();
   }
 
-  /** Interpolated NFT day is only a visual bridge; the plant's stored day is exact. */
-  displayAge(entry, plant) {
-    const target = this.nftDayForPlant(plant);
-    const from = entry.fromAgeById.get(plant.id);
-    if (!Number.isFinite(from) || from >= target) return target;
-    const t = ease(
-      Math.min(1, entry.transitionElapsed / Math.max(0.001, entry.transitionDuration)),
-    );
-    return from + (target - from) * t;
+  ensureBatchMesh(batch, bucket) {
+    const count = bucket.items.length;
+    if (batch.mesh && batch.capacity >= count) {
+      batch.mesh.count = count;
+      batch.mesh.visible = count > 0;
+      return;
+    }
+    batch.mesh?.removeFromParent();
+    batch.capacity = pooledCapacity(count);
+    const mesh = new THREE.InstancedMesh(bucket.geometry, this.leafMaterial, batch.capacity);
+    const tableId = bucket.items[0]?.tableId ?? 'table';
+    mesh.name = `nft-crop-${tableId}-${bucket.variety.key}-day-${bucket.day}-v${
+      bucket.variant
+    }-${bucket.detailed ? 'near' : 'far'}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = true;
+    mesh.count = count;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.userData.sharedGeometry = true;
+    mesh.userData.suppressHighlight = true;
+    mesh.userData.cropBucket = true;
+    mesh.userData.resolveInteractable = (instanceId) => {
+      const item = batch.items[instanceId];
+      if (!item) return null;
+      const table = this.tablesById.get(item.tableId);
+      return table ? this.describePlant(item.plant, table) : null;
+    };
+    this.group.add(mesh);
+    batch.mesh = mesh;
   }
+
+  ensureSupportPool(key, geometry, material, plants, options, matrixForPlant) {
+    let pool = this.supportPools.get(key);
+    if (!pool) {
+      pool = {
+        key,
+        geometry,
+        material,
+        mesh: null,
+        capacity: 0,
+        plants: [],
+        options,
+        matrixForPlant,
+      };
+      this.supportPools.set(key, pool);
+    }
+    pool.plants = plants;
+    pool.matrixForPlant = matrixForPlant;
+    const count = plants.length;
+    if (pool.mesh && pool.capacity >= count) {
+      pool.mesh.count = count;
+      pool.mesh.visible = count > 0;
+      return;
+    }
+    pool.mesh?.removeFromParent();
+    pool.capacity = pooledCapacity(count);
+    const mesh = new THREE.InstancedMesh(geometry, material, pool.capacity);
+    mesh.name = `nft-crop-${key}`;
+    mesh.castShadow = options.castShadow;
+    mesh.receiveShadow = options.receiveShadow;
+    mesh.frustumCulled = false;
+    mesh.count = count;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.userData.sharedGeometry = true;
+    mesh.userData.suppressHighlight = true;
+    mesh.userData.cropSupport = key;
+    this.group.add(mesh);
+    pool.mesh = mesh;
+  }
+
 
   holeTransform(table, plant) {
     const beds = this.layout.beds;
@@ -295,84 +445,167 @@ export class NftCropLayer {
     return { x: gully.x, y: topY, z };
   }
 
-  placeTablePlants(table, entry) {
-    const { rootMesh, potMesh, rockwoolMesh, readyRingMesh } = entry;
-    for (const { mesh, bucket } of entry.buckets) {
-      bucket.plants.forEach((plant, instance) => {
-        const hole = this.holeTransform(table, plant);
-        if (!hole) return;
-        const displayAge = this.displayAge(entry, plant);
-        const targetAge = this.nftDayForPlant(plant);
-        // Bridge the one-day step using the same diameter curve as the rendered
-        // head, so a new stage starts at yesterday's width and eases to today's.
-        const correction = THREE.MathUtils.clamp(
-          lettuceStageForDay(displayAge).diameterM /
-            Math.max(0.0001, lettuceStageForDay(targetAge).diameterM),
-          0.82,
-          1,
-        );
-        const variantScale = 0.985 + (plant.variantSeed ?? 0.5) * 0.03;
-        temp.position.set(hole.x, hole.y + LETTUCE_CROWN_OFFSET_M, hole.z);
-        temp.rotation.set(0, plant.growthSeed ?? (plant.variantSeed ?? 0.5) * Math.PI * 2, 0);
-        temp.scale.setScalar(correction * variantScale);
-        temp.updateMatrix();
-        mesh.setMatrixAt(instance, temp.matrix);
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
+  displayAge(entry, plant) {
+    const target = this.nftDayForPlant(plant);
+    const from = entry?.fromAgeById.get(plant.id);
+    if (!Number.isFinite(from) || from >= target) return target;
+    if (!entry || entry.transitionElapsed >= entry.transitionDuration) return target;
+    const t = ease(
+      Math.min(1, entry.transitionElapsed / Math.max(0.001, entry.transitionDuration)),
+    );
+    return from + (target - from) * t;
+  }
+
+  headMatrix(plant, tableId = plant.tableId) {
+    const entry = this.tableGroups.get(tableId);
+    const table = entry?.table ?? this.tablesById.get(tableId);
+    if (!table) return null;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return null;
+    const displayAge = entry ? this.displayAge(entry, plant) : this.nftDayForPlant(plant);
+    const targetAge = this.nftDayForPlant(plant);
+    const correction = THREE.MathUtils.clamp(
+      lettuceStageForDay(displayAge).diameterM /
+        Math.max(0.0001, lettuceStageForDay(targetAge).diameterM),
+      0.82,
+      1,
+    );
+    const variantScale = 0.985 + (plant.variantSeed ?? 0.5) * 0.03;
+    temp.position.set(hole.x, hole.y + LETTUCE_CROWN_OFFSET_M, hole.z);
+    temp.rotation.set(0, plant.growthSeed ?? (plant.variantSeed ?? 0.5) * Math.PI * 2, 0);
+    temp.scale.setScalar(correction * variantScale);
+    temp.updateMatrix();
+    return temp.matrix;
+  }
+
+  rootMatrix(plant) {
+    const table = this.tablesById.get(plant.tableId);
+    if (!table) return null;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return null;
+    const seed = plant.variantSeed ?? 0.5;
+    const development = nftDevelopmentForDay(this.nftDayForPlant(plant), plant.cropName);
+    const rootDepth = development.rootDepthM * (0.94 + seed * 0.12);
+    const plugBase =
+      hole.y -
+      (LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M + LETTUCE_ROCKWOOL_HEIGHT_M);
+    temp.position.set(hole.x, plugBase - 0.002, hole.z);
+    temp.rotation.set(0, (plant.growthSeed ?? 0) * 0.6, 0);
+    temp.scale.set(0.9 + seed * 0.16, Math.max(0.02, rootDepth), 0.9 + seed * 0.16);
+    temp.updateMatrix();
+    return temp.matrix;
+  }
+
+  potMatrix(plant) {
+    const table = this.tablesById.get(plant.tableId);
+    if (!table) return null;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return null;
+    const seed = plant.variantSeed ?? 0.5;
+    // The net cup drops into the 52 mm opening; only its dark rim shows.
+    temp.position.set(hole.x, hole.y - LETTUCE_NET_POT_RECESS_M, hole.z);
+    temp.rotation.set(0, seed * Math.PI, 0);
+    temp.scale.setScalar(1);
+    temp.updateMatrix();
+    return temp.matrix;
+  }
+
+  rockwoolMatrix(plant) {
+    const table = this.tablesById.get(plant.tableId);
+    if (!table) return null;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return null;
+    const seed = plant.variantSeed ?? 0.5;
+    // The plug top sits 6 mm below the plate, fully inside the hole.
+    temp.position.set(
+      hole.x,
+      hole.y - (LETTUCE_ROCKWOOL_TOP_BELOW_SURFACE_M + LETTUCE_ROCKWOOL_HEIGHT_M),
+      hole.z,
+    );
+    temp.rotation.set(0, seed * Math.PI * 0.5, 0);
+    temp.scale.setScalar(1);
+    temp.updateMatrix();
+    return temp.matrix;
+  }
+
+  /**
+   * Harvest lighting stays on the channel surface. The pool follows the 1.2°
+   * gully fall so it never floats above the plate or clips the perforations.
+   */
+  harvestGlowMatrix(plant) {
+    const table = this.tablesById.get(plant.tableId);
+    if (!table) return null;
+    const hole = this.holeTransform(table, plant);
+    if (!hole) return null;
+    const slope = Math.tan(THREE.MathUtils.degToRad(this.layout.beds.slopeDegrees));
+    temp.position.set(hole.x, hole.y + HARVEST_GLOW_LIFT_M, hole.z);
+    temp.rotation.set(slope, 0, 0);
+    temp.scale.set(HARVEST_GLOW_WIDTH_M, 1, HARVEST_GLOW_LENGTH_M);
+    temp.updateMatrix();
+    return temp.matrix;
+  }
+
+
+  applyAllMatrices() {
+    for (const batch of this.batches.values()) {
+      let instance = 0;
+      for (const item of batch.items) {
+        const matrix = this.headMatrix(item.plant, item.tableId);
+        if (!matrix) continue;
+        batch.mesh.setMatrixAt(instance, matrix);
+        instance += 1;
+      }
+      batch.mesh.count = instance;
+      batch.mesh.visible = instance > 0;
+      batch.mesh.instanceMatrix.needsUpdate = true;
+      if (instance > 0) batch.mesh.computeBoundingSphere();
     }
 
-    let ringInstance = 0;
-    entry.plants.forEach((plant, instance) => {
-      const hole = this.holeTransform(table, plant);
-      if (!hole) return;
-      const displayAge = this.displayAge(entry, plant);
-      const development = nftDevelopmentForDay(displayAge, plant.cropName);
-      const seed = plant.variantSeed ?? 0.5;
-      const rootDepth = development.rootDepthM * (0.94 + seed * 0.12);
-      if (rootMesh) {
-        temp.position.set(hole.x, hole.y - 0.026, hole.z);
-        temp.rotation.set(0, (plant.growthSeed ?? 0) * 0.6, 0);
-        temp.scale.set(0.9 + seed * 0.16, Math.max(0.02, rootDepth), 0.9 + seed * 0.16);
-        temp.updateMatrix();
-        rootMesh.setMatrixAt(instance, temp.matrix);
+    for (const pool of this.supportPools.values()) {
+      let instance = 0;
+      for (const plant of pool.plants) {
+        const matrix = pool.matrixForPlant(plant);
+        if (!matrix) continue;
+        pool.mesh.setMatrixAt(instance, matrix);
+        instance += 1;
       }
-      if (potMesh) {
-        temp.position.set(hole.x, hole.y + 0.006, hole.z);
-        temp.rotation.set(0, seed * Math.PI, 0);
-        temp.scale.setScalar(1);
-        temp.updateMatrix();
-        potMesh.setMatrixAt(instance, temp.matrix);
-      }
-      if (rockwoolMesh) {
-        temp.position.set(hole.x, hole.y + 0.006, hole.z);
-        temp.rotation.set(0, seed * Math.PI * 0.5, 0);
-        temp.scale.setScalar(1);
-        temp.updateMatrix();
-        rockwoolMesh.setMatrixAt(instance, temp.matrix);
-      }
-      if (
-        readyRingMesh &&
-        entry.readyPlantIds?.has(plant.id) &&
-        ringInstance < readyRingMesh.count
-      ) {
-        temp.position.set(
-          hole.x,
-          hole.y + LETTUCE_CROWN_OFFSET_M + development.height + 0.018,
-          hole.z,
-        );
-        temp.rotation.set(0, 0, 0);
-        temp.scale.setScalar(1);
-        temp.updateMatrix();
-        readyRingMesh.setMatrixAt(ringInstance, temp.matrix);
-        ringInstance += 1;
-      }
-    });
-    for (const mesh of [rootMesh, potMesh, rockwoolMesh, readyRingMesh]) {
-      if (!mesh) continue;
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
+      pool.mesh.count = instance;
+      pool.mesh.visible = instance > 0;
+      pool.mesh.instanceMatrix.needsUpdate = true;
     }
+    this.activeTransitions = this.hasActiveTransitions();
+  }
+
+  hasActiveTransitions() {
+    for (const entry of this.tableGroups.values()) {
+      if (entry.transitionElapsed < entry.transitionDuration) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Interpolated NFT day is only a visual bridge; the plant's stored day is exact.
+   * The scale correction bridges the one-day growth step.
+   */
+  update(dt, viewer = null) {
+    if (viewer) this.viewerPosition = viewer;
+    this.refresh();
+    this.harvestGlow.update(dt);
+    if (!this.hasActiveTransitions()) {
+      this.activeTransitions = false;
+      return;
+    }
+    for (const entry of this.tableGroups.values()) {
+      if (entry.transitionElapsed >= entry.transitionDuration) continue;
+      entry.transitionElapsed = Math.min(
+        entry.transitionDuration,
+        entry.transitionElapsed + Math.max(0, dt),
+      );
+      if (entry.transitionElapsed >= entry.transitionDuration) {
+        entry.fromAgeById.clear();
+      }
+    }
+    this.applyAllMatrices();
   }
 
   describePlant(plant, table) {
@@ -386,48 +619,20 @@ export class NftCropLayer {
     };
   }
 
-  clearTable(entry) {
-    for (const mesh of entry.meshes) {
-      mesh.removeFromParent();
-      mesh.dispose();
-    }
-    entry.meshes.length = 0;
-    entry.buckets.length = 0;
-    entry.rootMesh = null;
-    entry.potMesh = null;
-    entry.rockwoolMesh = null;
-    entry.readyRingMesh = null;
-    entry.readyPlantIds = null;
-  }
-
-  update(dt, viewer = null) {
-    if (viewer) this.viewerPosition = viewer;
-    this.refresh();
-    for (const table of this.tables) {
-      const entry = this.tableGroups.get(table.id);
-      if (!entry || entry.transitionElapsed >= entry.transitionDuration) continue;
-      entry.transitionElapsed = Math.min(
-        entry.transitionDuration,
-        entry.transitionElapsed + Math.max(0, dt),
-      );
-      this.placeTablePlants(table, entry);
-      if (entry.transitionElapsed >= entry.transitionDuration) {
-        entry.fromAgeById.clear();
-      }
-    }
-  }
-
   dispose() {
     if (!this.group) return;
-    for (const entry of this.tableGroups.values()) this.clearTable(entry);
+    this.harvestGlow.dispose();
+    for (const batch of this.batches.values()) batch.mesh?.removeFromParent();
+    for (const pool of this.supportPools.values()) pool.mesh?.removeFromParent();
+    this.batches.clear();
+    this.supportPools.clear();
     this.tableGroups.clear();
-    this.signatures.clear();
+    this.tablesById.clear();
     this.group.removeFromParent();
     this.group = null;
     this.simulation = null;
     // Leaf/net-cup/rockwool materials are shared module-level lettuce materials.
     // They are owned by lettuce.js, so this layer only disposes its own ones.
     this.rootMaterial?.dispose();
-    this.readyRingMaterial?.dispose();
   }
 }

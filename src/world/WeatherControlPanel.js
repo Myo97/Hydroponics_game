@@ -300,7 +300,7 @@ export class WeatherControlPanel {
       category: 'Weather control',
       title: 'AUTO weather key',
       description:
-        'Releases the manual weather hold and resumes the deterministic four-state schedule. The schedule advances through sunny, cloudy, light rain and heavy rain using the saved random seed and the configured 2-5 game-hour dwell time. The green lamp is lit while the controller is running automatically; pressing the key while AUTO is already active has no effect.',
+        'Releases the manual weather hold and resumes the deterministic four-state schedule. The schedule advances through sunny, cloudy, light rain and heavy rain using the saved random seed and the configured 2-5 game-hour dwell time. The green lamp is lit while the controller is running automatically; tapping the button while AUTO is already active has no effect.',
       specs: [
         ['Mode', 'AUTO schedule'],
         [
@@ -318,7 +318,7 @@ export class WeatherControlPanel {
 
     const footer = this.label(
       'SELECTOR',
-      'E ADVANCES \u00b7 AUTO RESUMES',
+      'TAP ADVANCES \u00b7 AUTO RESUMES',
       width - 0.09,
       0.058,
       { background: '#dde6df', foreground: '#245446' },
@@ -331,7 +331,7 @@ export class WeatherControlPanel {
       category: 'Weather control',
       title: 'Weather controller HMI',
       description:
-        'Live weather HMI showing the latched outlook, manual or automatic mode, light factor, humidity and temperature bias, and roof rain capture rate. The four cards mirror the physical selector lamps. Press E on a state lamp to select that outlook directly.',
+        'Live weather HMI showing the latched outlook, manual or automatic mode, light factor, humidity and temperature bias, and roof rain capture rate. The four cards mirror the physical selector lamps. Tap a state lamp to select that outlook directly.',
       specs: [
         ['Outlook', 'Four-state selector'],
         ['Mode', 'Manual hold / AUTO schedule'],
@@ -503,7 +503,7 @@ export class WeatherControlPanel {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#6fc9b5';
     ctx.font = '600 12px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('ROTARY SELECTOR \u00b7 E ADVANCES', 22, 372);
+    ctx.fillText('ROTARY SELECTOR \u00b7 TAP ADVANCES', 22, 372);
     ctx.textAlign = 'right';
     ctx.fillStyle = manual ? '#ffc45c' : '#62e3b5';
     ctx.fillText(

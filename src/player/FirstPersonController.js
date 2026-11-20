@@ -41,6 +41,11 @@ export class FirstPersonController {
     this.currentSpeed = 0;
     this.sprinting = false;
 
+    // Analogue stick input from the touch overlay (x = strafe, y = forward) and
+    // an external speed multiplier used while a harvest box is carried.
+    this.moveInput = { x: 0, y: 0 };
+    this.speedScale = 1;
+
     // Pointer-lock fallback: some embeds/remote desktops refuse to grant the lock.
     // If that happens the player can still look around by click-dragging the view.
     this.dragLook = false;
@@ -90,11 +95,42 @@ export class FirstPersonController {
     if (!this.enabled) return;
     const locked = this.isPointerLocked();
     if (!locked && !this.dragLook) return;
+    this.applyLook(event.movementX, event.movementY);
+  }
+
+  /** Shared mouse/touch look. `dx`/`dy` are pixel deltas. */
+  applyLook(dx = 0, dy = 0) {
     const scale = 0.0022 * this.sensitivity;
-    this.yaw -= event.movementX * scale;
-    this.pitch -= event.movementY * scale;
+    this.yaw -= dx * scale;
+    this.pitch -= dy * scale;
     const limit = Math.PI / 2 - 0.08;
     this.pitch = Math.max(-limit, Math.min(limit, this.pitch));
+    return this;
+  }
+
+  /** Touch look helper: screen-space swipe delta in CSS pixels. */
+  addLook(dx = 0, dy = 0, scale = 1) {
+    return this.applyLook(dx * scale, dy * scale);
+  }
+
+  /**
+   * Analogue movement from the on-screen stick. Values are normalised, so
+   * `setMoveInput(0, 1)` walks forward at full speed while a half deflection
+   * walks at half speed. Keyboard input is added on top and clamped.
+   */
+  setMoveInput(x = 0, y = 0) {
+    this.moveInput.x = Math.max(-1, Math.min(1, Number(x) || 0));
+    this.moveInput.y = Math.max(-1, Math.min(1, Number(y) || 0));
+    return this;
+  }
+
+  /** Release every movement source (touch overlay deactivation, pointer-lock loss). */
+  clearInput() {
+    this.moveInput.x = 0;
+    this.moveInput.y = 0;
+    this.keys.clear();
+    this.sprinting = false;
+    return this;
   }
 
   /** Click (or drag) on the view: re-request the lock, or fall back to drag-look. */
@@ -140,10 +176,7 @@ export class FirstPersonController {
 
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (!enabled) {
-      this.keys.clear();
-      this.sprinting = false;
-    }
+    if (!enabled) this.clearInput();
   }
 
   setSensitivity(value) {
@@ -163,7 +196,9 @@ export class FirstPersonController {
     const { x, z } = this.position;
     const footprint = this.collisionWorld?.footprintAt?.(x, z);
     if (footprint?.zone === 'nursery') return 'Nursery greenhouse';
+    if (footprint?.zone === 'container-house') return footprint.label ?? 'Harvest House';
     if (this.collisionWorld && !this.collisionWorld.contains(x, z)) {
+      if (z > 30) return 'Farm gate · south yard';
       if (z > 18) return 'South yard';
       if (z < -18) return 'North service yard';
       return 'Perimeter apron';
@@ -175,8 +210,12 @@ export class FirstPersonController {
   }
 
   update(dt) {
-    const forwardInput = (this.keys.has('forward') ? 1 : 0) - (this.keys.has('back') ? 1 : 0);
-    const strafeInput = (this.keys.has('right') ? 1 : 0) - (this.keys.has('left') ? 1 : 0);
+    let forwardInput = (this.keys.has('forward') ? 1 : 0) - (this.keys.has('back') ? 1 : 0);
+    let strafeInput = (this.keys.has('right') ? 1 : 0) - (this.keys.has('left') ? 1 : 0);
+    if (this.moveInput.x || this.moveInput.y) {
+      forwardInput = Math.max(-1, Math.min(1, forwardInput + this.moveInput.y));
+      strafeInput = Math.max(-1, Math.min(1, strafeInput + this.moveInput.x));
+    }
 
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
@@ -184,10 +223,14 @@ export class FirstPersonController {
     let targetZ = -cos * forwardInput - sin * strafeInput;
     const inputLength = Math.hypot(targetX, targetZ);
 
-    const maxSpeed = this.sprinting ? this.config.sprintSpeed : this.config.walkSpeed;
+    const maxSpeed =
+      (this.sprinting ? this.config.sprintSpeed : this.config.walkSpeed) * this.speedScale;
     if (inputLength > 0.001) {
-      targetX = (targetX / inputLength) * maxSpeed;
-      targetZ = (targetZ / inputLength) * maxSpeed;
+      // Keep the analogue magnitude so a half-pushed stick walks at half pace;
+      // keyboard diagonals clamp back to a full-throttle unit vector.
+      const throttle = Math.min(1, inputLength);
+      targetX = (targetX / inputLength) * maxSpeed * throttle;
+      targetZ = (targetZ / inputLength) * maxSpeed * throttle;
     } else {
       targetX = 0;
       targetZ = 0;

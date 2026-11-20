@@ -713,6 +713,11 @@ export class Greenhouse {
     this.stickyTraps?.update(dt);
   }
 
+  /** True while doors, screens or vents are changing the shadow silhouette. */
+  get hasAnimatedShadow() {
+    return Boolean(this.entrance?.isMoving || this.bayScreens?.motion);
+  }
+
   /** Drone view hides overhead screens/vents and the floor slab for a cutaway. */
   setTopView(active) {
     if (this.floorSlab) this.floorSlab.visible = !active;

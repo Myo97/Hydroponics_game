@@ -125,13 +125,13 @@ export class BluelabController {
       category: 'Nutrient dosing',
       title: 'Bluelab Pro Controller HMI',
       description:
-        'Live controller face for the selected clean-water reservoir. It shows EC, pH, solution temperature and level, and the status of all three dosing channels. Press E to cycle the monitored reservoir between Reservoir 1 and Reservoir 2; the same selection is mirrored on the climate cabinet.',
+        'Live controller face for the selected clean-water reservoir. It shows EC, pH, solution temperature and level, and the status of all three dosing channels. Tap to cycle the monitored reservoir between Reservoir 1 and Reservoir 2; the same selection is mirrored on the climate cabinet.',
       specs: [
         ['Controller', 'Bluelab Pro · 2 probe sets'],
         ['Dosing', '3 × peristaltic · A / B / pH Down'],
         ['Selectors', '6 table isolation valves'],
         ['Setpoint', 'EC 1.80 · pH 5.90'],
-        ['Selection', 'E cycles Reservoir 1 / Reservoir 2'],
+        ['Selection', 'Tap cycles Reservoir 1 / Reservoir 2'],
       ],
       interactionHint: 'Select reservoir',
       interaction: 'cycle-tank',
@@ -196,7 +196,7 @@ export class BluelabController {
         category: 'Nutrient dosing',
         title: `Dosing pump ${key === 'c' ? 'pH Down' : key.toUpperCase()}`,
         description:
-          'Peristaltic dosing channel with a three-roller rotor and a calibrated squeeze tube. The controller pulses the pump whenever the selected tank drifts away from its EC or pH setpoint. Press E to enable or disable this channel.',
+          'Peristaltic dosing channel with a three-roller rotor and a calibrated squeeze tube. The controller pulses the pump whenever the selected tank drifts away from its EC or pH setpoint. Tap to enable or disable this channel.',
         specs: [
           ['Channel', key.toUpperCase()],
           ['Pump', 'Peristaltic · 1.6 L/h'],
@@ -239,7 +239,7 @@ export class BluelabController {
         category: 'Nutrient dosing',
         title: `Table selector valve ${index + 1}`,
         description:
-          'Manual isolation valve on the controller selector rail. Each valve can isolate one NFT table from the dosed supply for maintenance without stopping the rest of the bay. Press E to open or close it; the lever rotates a quarter turn.',
+          'Manual isolation valve on the controller selector rail. Each valve can isolate one NFT table from the dosed supply for maintenance without stopping the rest of the bay. Tap to open or close it; the lever rotates a quarter turn.',
         specs: [
           ['Selector', `${index + 1} of 6`],
           ['Type', 'Quarter-turn ball valve'],
@@ -630,7 +630,7 @@ export class BluelabController {
     ctx.fillStyle = alarm ? '#f0b04a' : '#5ce1a9';
     ctx.textAlign = 'right';
     ctx.font = '700 12px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(alarm ? 'ALARM · CHECK PROBES' : 'E · SELECT TANK', WIDTH - 22, 364);
+    ctx.fillText(alarm ? 'ALARM · CHECK PROBES' : 'TAP · SELECT TANK', WIDTH - 22, 364);
 
     this.texture.needsUpdate = true;
   }

@@ -108,12 +108,14 @@ export function buildReferenceLettuceHead({
   referenceDay = 20,
   variant = 0,
   detailed = true,
+  detailLevel = null,
   palette,
   leafCount = 60,
 } = {}) {
   const day = THREE.MathUtils.clamp(Number(referenceDay) || 1, 1, 20);
-  const nu = detailed ? 26 : 12;
-  const nv = detailed ? 10 : 5;
+  const level = detailLevel ?? (detailed ? 0 : 1);
+  const nu = level === 0 ? 26 : level === 1 ? 12 : 6;
+  const nv = level === 0 ? 10 : level === 1 ? 5 : 3;
   const positions = [];
   const colours = [];
   const indices = [];
@@ -226,7 +228,7 @@ export function buildReferenceLettuceHead({
   merged.computeVertexNormals();
   merged.computeBoundingBox();
   merged.computeBoundingSphere();
-  merged.name = `reference-lettuce-day-${day}-v${variant}${detailed ? '-lod0' : '-lod1'}`;
+  merged.name = `reference-lettuce-day-${day}-v${variant}-lod${level}`;
   return merged;
 }
 

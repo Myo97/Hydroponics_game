@@ -65,7 +65,7 @@ export class NurseryGreenhouse {
         `Two glazed aluminium leaves slide clear of a ${spec.entrance.width.toFixed(1)} m ` +
         'opening, wide enough for a seedling trolley between the propagation bench ' +
         'and the main house. Each leaf carries its own collision volume, so the ' +
-        'doorway opens progressively. Press E to open or close.',
+        'doorway opens progressively. Tap to open or close.',
       features: spec.features,
       signage: spec.signage,
       interior: {
