@@ -276,7 +276,7 @@ export class LabelField {
   }
 }
 
-/** Single billboard badge used for doors, fridges, gates and carried boxes. */
+/** Single billboard badge used for doors, gates and carried boxes. */
 export class BillboardLabel {
   constructor({
     parent = null,

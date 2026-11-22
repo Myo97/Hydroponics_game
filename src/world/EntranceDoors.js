@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { boxMesh } from './Batches.js';
@@ -149,14 +150,14 @@ export class EntranceDoors {
       // Pull handle on the leading stile (towards the centre of the opening).
       const handleX = -sign * (panelWidth / 2 - 0.11);
       const handle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.018, 0.018, 0.52, 8),
+        new LowPolyCylinderGeometry(0.018, 0.018, 0.52, 8),
         this.materials.stainless,
       );
       handle.position.set(handleX, 1.12, 0.075);
       leaf.add(handle);
       for (const y of [0.92, 1.32]) {
         const standoff = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012, 0.012, 0.075, 6),
+          new LowPolyCylinderGeometry(0.012, 0.012, 0.075, 6),
           this.materials.stainless,
         );
         standoff.rotation.x = Math.PI / 2;
@@ -169,7 +170,7 @@ export class EntranceDoors {
         const hanger = boxMesh(0.035, 0.18, 0.035, alu, V(x, leafHeight + 0.08, 0), 'entrance-leaf-hanger');
         leaf.add(hanger);
         const trolley = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.032, 0.032, 0.045, 10),
+          new LowPolyCylinderGeometry(0.032, 0.032, 0.045, 10),
           this.materials.steelDark,
         );
         trolley.rotation.z = Math.PI / 2;
@@ -232,7 +233,7 @@ export class EntranceDoors {
       );
     }
     this.statusLamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 12, 10),
+      new LowPolySphereGeometry(0.045, 12, 10),
       this.materials.ledGreen,
     );
     this.statusLamp.position.set(0, height + 0.08, frameZ + 0.09);

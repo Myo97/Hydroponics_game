@@ -394,6 +394,7 @@ export class Greenhouse {
   /** Glass roof, side walls and gable ends (instanced panes + merged gables). */
   buildGlass() {
     const panes = new PanelBatch(this.materials.glass);
+    const roofPanes = new PanelBatch(this.materials.glass);
     const { halfWidth: hw, halfLength: hl, bayWidth, bayLength, gutterY, ridgeY, plinthY } = this.dims;
     const doorHalf = this.spec.entrance ? this.spec.entrance.width / 2 : 0;
     const doorHeight = this.spec.entrance?.height ?? 0;
@@ -428,7 +429,7 @@ export class Greenhouse {
         const centreY = ridgeY - (glazedDistance / slopeLength) * (ridgeY - gutterY);
         for (let i = 0; i < this.spec.frameZs.length - 1; i += 1) {
           const z = (this.spec.frameZs[i] + this.spec.frameZs[i + 1]) / 2;
-          panes.add(
+          roofPanes.add(
             new THREE.Vector3(centreX, centreY, z),
             glazedLength,
             bayLength,
@@ -473,6 +474,7 @@ export class Greenhouse {
     }
 
     panes.build(this.group, 'glass-panes');
+    this.roofGlass = roofPanes.build(this.group, 'roof-glass');
     this.buildGableTriangles();
   }
 

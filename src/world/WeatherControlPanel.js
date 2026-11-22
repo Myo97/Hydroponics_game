@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { boxMesh } from './Batches.js';
@@ -156,7 +157,7 @@ export class WeatherControlPanel {
     group.add(selectorGroup);
 
     const bezel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.096, 0.096, 0.034, 28),
+      new LowPolyCylinderGeometry(0.096, 0.096, 0.034, 28),
       this.materials.steelDark,
     );
     bezel.rotation.x = Math.PI / 2;
@@ -169,7 +170,7 @@ export class WeatherControlPanel {
     this.selectorPointer = dial;
 
     const knob = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.073, 0.066, 0.046, 24),
+      new LowPolyCylinderGeometry(0.073, 0.066, 0.046, 24),
       this.materials.pumpBlue,
     );
     knob.rotation.x = Math.PI / 2;
@@ -227,7 +228,7 @@ export class WeatherControlPanel {
       const state = LAYOUT.weather.states[stateId];
       if (!state) return;
       const lamp = new THREE.Mesh(
-        new THREE.SphereGeometry(0.021, 12, 9),
+        new LowPolySphereGeometry(0.021, 12, 9),
         this.materials.steelDark,
       );
       lamp.name = `weather-lamp-${stateId}`;
@@ -281,7 +282,7 @@ export class WeatherControlPanel {
       ),
     );
     const autoLamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.011, 10, 8),
+      new LowPolySphereGeometry(0.011, 10, 8),
       this.materials.ledGreen,
     );
     autoLamp.position.set(-0.062, 0, 0.018);

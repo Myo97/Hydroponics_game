@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { stylizeMaterial } from './StylizedArt.js';
 import {
   createConcreteTextures,
   createSteelTextures,
@@ -24,6 +25,7 @@ export class MaterialLibrary {
     this.materials = [];
     this.buildTextures();
     this.buildMaterials();
+    this.materials.forEach(stylizeMaterial);
   }
 
   track(material) {
@@ -59,7 +61,7 @@ export class MaterialLibrary {
     const t = this.textures;
 
     this.concreteFloor = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'concrete-floor',
         map: this.tiled(t.concrete.map, 6, 9),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 6, 9),
@@ -73,7 +75,7 @@ export class MaterialLibrary {
     );
 
     this.concretePlinth = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'concrete-plinth',
         map: this.tiled(t.concrete.map, 4, 1),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 4, 1),
@@ -87,7 +89,7 @@ export class MaterialLibrary {
     );
 
     this.concreteApron = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'concrete-apron',
         map: this.tiled(t.concrete.map, 14, 14),
         roughnessMap: this.tiled(t.concrete.roughnessMap, 14, 14),
@@ -101,19 +103,19 @@ export class MaterialLibrary {
     );
 
     this.steel = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'galvanised-steel',
         map: this.tiled(t.steel.map, 2, 2),
         roughnessMap: this.tiled(t.steel.roughnessMap, 2, 2),
-        color: 0x879297,
+        color: 0x879b95,
         metalness: 0.55,
         roughness: 0.68,
-        envMapIntensity: 0.4,
+        envMapIntensity: 0.26,
       }),
     );
 
     this.steelDark = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'steel-dark',
         map: this.tiled(t.steel.map, 2, 2),
         roughnessMap: this.tiled(t.steel.roughnessMap, 2, 2),
@@ -124,66 +126,66 @@ export class MaterialLibrary {
     );
 
     this.aluminium = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'aluminium',
         map: this.tiled(t.steel.map, 3, 3),
         roughnessMap: this.tiled(t.steel.roughnessMap, 3, 3),
-        color: 0x98a3a7,
+        color: 0x7f8c90,
         metalness: 0.8,
         roughness: 0.5,
-        envMapIntensity: 0.5,
+        envMapIntensity: 0.3,
       }),
     );
 
     this.glass = this.track(
       new THREE.MeshPhysicalMaterial({
         name: 'greenhouse-glass',
-        color: 0xdbe8e5,
+        color: 0xc4d8d5,
         metalness: 0.0,
-        roughness: 0.14,
+        roughness: 0.18,
         roughnessMap: this.tiled(t.glassRoughness, 1, 1),
         transparent: true,
-        opacity: 0.1,
+        opacity: 0.075,
         side: THREE.DoubleSide,
         depthWrite: false,
         ior: 1.52,
-        reflectivity: 0.55,
-        envMapIntensity: 1.0,
-        clearcoat: 0.6,
-        clearcoatRoughness: 0.08,
+        reflectivity: 0.4,
+        envMapIntensity: 0.55,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.1,
       }),
     );
 
     this.glassDoor = this.track(
       new THREE.MeshPhysicalMaterial({
         name: 'door-glass',
-        color: 0xdfeae7,
+        color: 0xc4d8d5,
         metalness: 0.0,
-        roughness: 0.1,
+        roughness: 0.14,
         transparent: true,
-        opacity: 0.16,
+        opacity: 0.12,
         side: THREE.DoubleSide,
         depthWrite: false,
         ior: 1.52,
-        reflectivity: 0.6,
-        envMapIntensity: 1.05,
+        reflectivity: 0.45,
+        envMapIntensity: 0.58,
       }),
     );
 
     this.pvcWhite = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pvc-supply',
         map: this.tiled(t.plastic.map, 6, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 6, 2),
-        color: 0xbcc0ba,
+        color: 0xb3b9b3,
         metalness: 0.0,
         roughness: 0.52,
-        envMapIntensity: 0.35,
+        envMapIntensity: 0.24,
       }),
     );
 
     this.pvcGrey = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pvc-grey',
         color: 0x767b7c,
         metalness: 0.05,
@@ -192,7 +194,7 @@ export class MaterialLibrary {
     );
 
     this.pipeDark = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pipe-dark',
         color: 0x3f4647,
         metalness: 0.35,
@@ -202,7 +204,7 @@ export class MaterialLibrary {
 
     /** Dark, slightly glossy return line so it reads separately from supply PVC. */
     this.pvcReturn = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pvc-return',
         map: this.tiled(t.plastic.map, 5, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 5, 2),
@@ -214,7 +216,7 @@ export class MaterialLibrary {
     );
 
     this.rubber = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'rubber',
         color: 0x1d1f1f,
         metalness: 0.0,
@@ -224,9 +226,9 @@ export class MaterialLibrary {
 
     /** Woven neutral grey-green shade cloth; the alpha mat leaves the mesh open. */
     this.shadeCloth = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'shade-cloth',
-        color: 0x9ba79c,
+        color: 0x7e8a80,
         alphaMap: this.tiled(t.shadeCloth, 26, 40),
         transparent: true,
         opacity: 0.62,
@@ -235,30 +237,30 @@ export class MaterialLibrary {
         depthWrite: false,
         roughness: 0.94,
         metalness: 0.0,
-        envMapIntensity: 0.22,
+        envMapIntensity: 0.14,
       }),
     );
 
     /** Reflective woven energy screen, hung below the shade deck. */
     this.energyScreen = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'energy-screen',
-        color: 0xe9eee4,
+        color: 0xc2cba8,
         map: this.tiled(t.shadeCloth, 24, 44),
         transparent: true,
         opacity: 0.52,
         alphaTest: 0.2,
         side: THREE.DoubleSide,
         depthWrite: false,
-        roughness: 0.46,
-        metalness: 0.28,
-        envMapIntensity: 0.9,
+        roughness: 0.5,
+        metalness: 0.2,
+        envMapIntensity: 0.58,
       }),
     );
 
     /** Dark green return-tank shell, deliberately different from the clean-water blue. */
     this.returnTank = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'return-tank',
         map: this.tiled(t.plastic.map, 8, 3),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 8, 3),
@@ -270,19 +272,19 @@ export class MaterialLibrary {
     );
 
     this.stainless = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'stainless',
         map: this.tiled(t.steel.map, 2, 2),
         roughnessMap: this.tiled(t.steel.roughnessMap, 2, 2),
-        color: 0xd5d8d8,
+        color: 0xb1b6b1,
         metalness: 1.0,
-        roughness: 0.3,
-        envMapIntensity: 1.1,
+        roughness: 0.38,
+        envMapIntensity: 0.55,
       }),
     );
 
     this.pumpPaint = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pump-paint',
         color: 0x505c58,
         metalness: 0.45,
@@ -292,7 +294,7 @@ export class MaterialLibrary {
 
     /** Deep industrial blue used for the circulation pump volute and motor. */
     this.pumpBlue = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'pump-blue',
         color: 0x163b63,
         metalness: 0.38,
@@ -302,7 +304,7 @@ export class MaterialLibrary {
     );
 
     this.cabinetPaint = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'cabinet-paint',
         color: 0x9aa09f,
         metalness: 0.28,
@@ -312,7 +314,7 @@ export class MaterialLibrary {
     );
 
     this.cabinetDoor = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'cabinet-door',
         color: 0x80888a,
         metalness: 0.3,
@@ -322,7 +324,7 @@ export class MaterialLibrary {
     );
 
     this.cabinetInterior = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'cabinet-interior',
         color: 0x363d3f,
         metalness: 0.25,
@@ -345,7 +347,7 @@ export class MaterialLibrary {
     );
 
     this.tankHDPE = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'tank-hdpe',
         map: this.tiled(t.plastic.map, 4, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 4, 2),
@@ -356,19 +358,20 @@ export class MaterialLibrary {
     );
 
     this.tankHDPELight = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'tank-hdpe-light',
         map: this.tiled(t.plastic.map, 3, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 2),
-        color: 0xdfe1d9,
+        color: 0xbfc3bb,
         metalness: 0.0,
         roughness: 0.66,
+        envMapIntensity: 0.16,
       }),
     );
 
     /** Blue HDPE stock tanks for nutrient A/B. */
     this.tankHDPEBlue = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'tank-hdpe-blue',
         map: this.tiled(t.plastic.map, 3, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 2),
@@ -381,14 +384,14 @@ export class MaterialLibrary {
 
     /** White/translucent HDPE for the pH stock tank. */
     this.tankHDPEAcid = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'tank-hdpe-acid',
         map: this.tiled(t.plastic.map, 3, 2),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 2),
-        color: 0xd8d9d1,
+        color: 0xb9bbb4,
         metalness: 0.0,
         roughness: 0.55,
-        envMapIntensity: 0.3,
+        envMapIntensity: 0.18,
       }),
     );
 
@@ -440,7 +443,7 @@ export class MaterialLibrary {
 
     /** Dark corrugated ABS flood pan used by the nursery ebb-and-flow bench. */
     this.nurseryFloodTray = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'nursery-abs-flood-tray',
         map: this.tiled(t.plastic.map, 3, 5),
         roughnessMap: this.tiled(t.plastic.roughnessMap, 3, 5),
@@ -454,7 +457,7 @@ export class MaterialLibrary {
 
     /** Shared 16 x 20 cell surface for every 320-cell seedling tray. */
     this.nurseryTrayCells = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'nursery-seedling-tray-cells',
         map: t.seedlingTray,
         color: 0xffffff,
@@ -470,7 +473,7 @@ export class MaterialLibrary {
     const leafColours = [0x5a8a3a, 0x4b7a30, 0x3c6825, 0x2d571b, 0x214313];
     leafColours.forEach((color, index) => {
       this[`seedlingLeaf${index + 1}`] = this.track(
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshStandardMaterial({ flatShading: true,
           name: `green-coral-leaf-stage-${index + 1}`,
           color,
           metalness: 0.0,
@@ -486,7 +489,7 @@ export class MaterialLibrary {
     const redLeafColours = [0xd8a08d, 0xb95f55, 0x93433f, 0x743232, 0x5b2829];
     redLeafColours.forEach((color, index) => {
       this[`cropLeafRed${index + 1}`] = this.track(
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshStandardMaterial({ flatShading: true,
           name: `red-oak-leaf-stage-${index + 1}`,
           color,
           metalness: 0.0,
@@ -502,7 +505,7 @@ export class MaterialLibrary {
     const redCoralColours = [0xf3b3ab, 0xe0796f, 0xc74a50, 0xa33240, 0x7e2333];
     redCoralColours.forEach((color, index) => {
       this[`cropLeafRedCoral${index + 1}`] = this.track(
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshStandardMaterial({ flatShading: true,
           name: `red-coral-leaf-stage-${index + 1}`,
           color,
           metalness: 0.0,
@@ -515,7 +518,7 @@ export class MaterialLibrary {
     const paleLeafColours = [0xe5efbd, 0xc5dd7d, 0xb4ce69, 0xa3bf58, 0x91ad4c];
     paleLeafColours.forEach((color, index) => {
       this[`cropLeafPale${index + 1}`] = this.track(
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshStandardMaterial({ flatShading: true,
           name: `pale-asian-green-leaf-stage-${index + 1}`,
           color,
           metalness: 0.0,
@@ -528,7 +531,7 @@ export class MaterialLibrary {
 
     /** Moist dark peat / rockwool plug visible during germination. */
     this.seedlingSubstrate = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'nursery-seedling-substrate',
         color: 0x3b2d22,
         metalness: 0.0,
@@ -538,7 +541,7 @@ export class MaterialLibrary {
     );
 
     this.floorJoint = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'floor-joint',
         color: 0x4d4c47,
         roughness: 0.95,
@@ -547,7 +550,7 @@ export class MaterialLibrary {
     );
 
     this.drainGrate = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'drain-grate',
         map: this.tiled(t.steel.map, 1, 2),
         color: 0x54595a,
@@ -557,7 +560,7 @@ export class MaterialLibrary {
     );
 
     this.screen = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'cabinet-screen',
         map: t.screen,
         emissive: 0x2f7a66,
@@ -569,12 +572,13 @@ export class MaterialLibrary {
     );
 
     this.grass = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'grass',
         map: this.tiled(t.grass, 70, 70),
-        color: 0xa9ad9b,
+        color: 0x7f8a6b,
         roughness: 0.98,
         metalness: 0.0,
+        envMapIntensity: 0.1,
       }),
     );
 
@@ -592,7 +596,7 @@ export class MaterialLibrary {
   /** Printed label material for a tank or skid. */
   createLabelMaterial(title, subtitle, options = {}) {
     const material = this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: `label-${title}`,
         map: createLabelTexture(title, subtitle, options),
         roughness: 0.55,
@@ -619,7 +623,7 @@ export class MaterialLibrary {
   /** Yellow safety sticker. */
   createWarningMaterial() {
     return this.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'safety-label',
         map: createWarningLabelTexture(),
         roughness: 0.62,

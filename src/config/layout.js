@@ -44,15 +44,15 @@ export const LAYOUT = {
   sun: {
     elevationDeg: 36,
     azimuthDeg: 135,
-    color: 0xfff1d8,
-    intensity: 2.35,
+    color: 0xffedcf,
+    intensity: 1.55,
     distance: 120,
     discDistance: 190,
     discRadius: 2.9,
-    discCoreColor: 0xffd9a0,
-    skylightColor: 0xd8e8ef,
-    groundColor: 0x6c675a,
-    skylightIntensity: 0.36,
+    discCoreColor: 0xffd39a,
+    skylightColor: 0xb8cdd8,
+    groundColor: 0x4d4d43,
+    skylightIntensity: 0.42,
     shadowExtent: 32,
     shadowTargetZ: 8,
     shadowNear: 1,
@@ -668,7 +668,7 @@ export const LAYOUT = {
   /**
    * Version 14 harvest floor. Four styrofoam boxes are provisioned beside every
    * NFT table; they fill sequentially, two gullies at a time, and can be carried
-   * to the container house or left in place.
+   * or set down around the glasshouse.
    */
   harvest: {
     boxesPerTable: 4,
@@ -685,40 +685,6 @@ export const LAYOUT = {
     dropForward: 0.95,
     fillSecondsPerHead: 0.045,
     liftSeconds: 0.55,
-  },
-
-  /**
-   * Insulated site container used as the harvest house: a 40 ft shell with a
-   * personnel door, an awning window, workbench, table and a glass-door
-   * refrigerator that stores filled boxes.
-   */
-  container: {
-    id: 'container-house',
-    label: 'Green Farm Shop',
-    zone: 'container-house',
-    // Inside the south gate apron, beside the driveway shown in the reference.
-    centre: [8.2, 34.2],
-    width: 7.2,
-    length: 10.0,
-    height: 5.9,
-    upperFloorY: 2.85,
-    floorY: 0.12,
-    wallThickness: 0.09,
-    door: { z: 1.55, width: 1.0, height: 2.12, openAngle: 1.82 },
-    window: { z: 2.55, width: 1.35, height: 1.5, sillY: 0.98, openAngle: 1.45 },
-    fridge: {
-      offset: [0.98, -1.72],
-      width: 0.92,
-      depth: 0.72,
-      height: 2.02,
-      capacity: 8,
-      doorOpenAngle: 1.95,
-    },
-    signage: {
-      title: 'GREEN FARM SHOP',
-      subtitle: 'FRESH HYDROPONIC LETTUCE',
-      y: 5.45,
-    },
   },
 
   /**

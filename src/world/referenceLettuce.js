@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 
 /**
@@ -81,7 +82,7 @@ function mergeGeometries(parts) {
 function buildStem(referenceDay, palette, detailed) {
   const maturity = THREE.MathUtils.clamp((referenceDay - 1) / 19, 0, 1);
   const height = 0.2 + 0.1 * maturity;
-  const geometry = new THREE.CylinderGeometry(
+  const geometry = new LowPolyCylinderGeometry(
     0.06 + 0.07 * maturity,
     0.09 + 0.08 * maturity,
     height,
@@ -114,8 +115,8 @@ export function buildReferenceLettuceHead({
 } = {}) {
   const day = THREE.MathUtils.clamp(Number(referenceDay) || 1, 1, 20);
   const level = detailLevel ?? (detailed ? 0 : 1);
-  const nu = level === 0 ? 26 : level === 1 ? 12 : 6;
-  const nv = level === 0 ? 10 : level === 1 ? 5 : 3;
+  const nu = level === 0 ? 6 : level === 1 ? 4 : 3;
+  const nv = level === 0 ? 3 : level === 1 ? 2 : 1;
   const positions = [];
   const colours = [];
   const indices = [];

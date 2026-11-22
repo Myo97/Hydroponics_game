@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { HarvestBox } from '../world/harvest/HarvestBox.js';
 import { BillboardLabel, LabelField } from '../world/BillboardLabels.js';
@@ -19,9 +19,9 @@ function pad2(value) {
  * Version 14 harvest floor controller.
  *
  * Owns the styrofoam box fleet, the two-gully harvest pass, the carried-box
- * pose and the harvest-house refrigerator hand-off. Boxes are provisioned for
- * every NFT table up front but stay invisible until their table is picked, so
- * an untouched farm costs no draw calls.
+ * pose and floor placement. Boxes are provisioned for every NFT table up front
+ * but stay invisible until their table is picked, so an untouched farm costs no
+ * draw calls.
  */
 export class HarvestController {
   constructor({
@@ -31,8 +31,6 @@ export class HarvestController {
     equipment,
     simulation,
     collisionWorld = null,
-    fridge = null,
-    fridges = [],
     layout = LAYOUT,
     onPacked = null,
     onModeChange = null,
@@ -43,8 +41,6 @@ export class HarvestController {
     this.equipment = equipment;
     this.simulation = simulation;
     this.collisionWorld = collisionWorld;
-    this.fridge = fridge;
-    this.fridges = Array.from(new Set([fridge, ...fridges].filter(Boolean)));
     this.layout = layout;
     this.config = layout.harvest ?? {};
     this.onPacked = onPacked;
@@ -174,7 +170,7 @@ export class HarvestController {
       category: 'Harvest floor',
       title: `${table.data?.title ?? table.id} - harvest`,
       description:
-        'Two gullies are cut per pass. Every harvest-ready head is lifted into the styrofoam box staged in the aisle, which holds one full two-gully pass (80 heads). Carry the packed box to the harvest house and chill it.',
+        'Two gullies are cut per pass. Every harvest-ready head is lifted into the styrofoam box staged in the aisle, which holds one full two-gully pass (80 heads). Carry the packed box or set it down clear of the walkway.',
       interaction: 'harvest-table-pass',
       interactionHint: 'Harvest the next ready pass',
       specs: [],
@@ -223,7 +219,7 @@ export class HarvestController {
     for (const [tableId, boxes] of this.byTable) {
       const active = tableId === this.modeTableId;
       for (const box of boxes) {
-        if (box.stored || box.carried) continue;
+        if (box.carried) continue;
         box.setSpawned(active || !box.isEmpty);
       }
     }
@@ -260,7 +256,7 @@ export class HarvestController {
       return {
         ok: false,
         active: false,
-        reason: 'All four boxes are full - carry them to the harvest house',
+        reason: 'All four boxes are full - no empty box remains at this table',
       };
     }
     const result = this.#setMode(tableId);
@@ -310,13 +306,13 @@ export class HarvestController {
     let readyHeads = 0;
     for (const plant of plantings) if (plant.harvestReady) readyHeads += 1;
     const box =
-      boxes.find((entry) => !entry.stored && !entry.carried && !entry.isFull) ?? null;
+      boxes.find((entry) => !entry.carried && !entry.isFull) ?? null;
     return {
       boxes,
       readyHeads,
       box,
       free: box ? box.capacity - box.plantCount : 0,
-      full: boxes.length > 0 && boxes.every((entry) => entry.isFull || entry.stored),
+      full: boxes.length > 0 && boxes.every((entry) => entry.isFull),
       canHarvest: readyHeads > 0 && Boolean(box) && !this.carried && !this.packing,
     };
   }
@@ -329,7 +325,7 @@ export class HarvestController {
     if (this.carried) return 'Hands full - set the box down first';
     const status = this.tableStatus(tableId);
     if (!status.readyHeads) return 'No harvest-ready heads';
-    if (!status.box) return 'All boxes full - carry them to the harvest house';
+    if (!status.box) return 'All boxes full - no empty box remains at this table';
     if (this.modeTableId === tableId) {
       return `Stop harvest mode - box ${pad2(status.box.index + 1)} open`;
     }
@@ -356,7 +352,7 @@ export class HarvestController {
     const status = this.tableStatus(this.modeTableId);
     if (!status.box) {
       this.#setMode(null);
-      return { ok: false, reason: 'All four boxes are full - carry them to the harvest house' };
+      return { ok: false, reason: 'All four boxes are full - no empty box remains at this table' };
     }
 
     const result = this.simulation?.harvestPlant?.(this.modeTableId, plantId);
@@ -414,7 +410,7 @@ export class HarvestController {
     if (!status.box) {
       return {
         ok: false,
-        reason: 'All four boxes are full - carry them to the harvest house',
+        reason: 'All four boxes are full - no empty box remains at this table',
       };
     }
 
@@ -548,7 +544,6 @@ export class HarvestController {
         reason: `Hands full - set box ${pad2(this.carried.index + 1)} down first`,
       };
     }
-    if (box.stored) return { ok: false, reason: 'That box is already in the fridge' };
     if (this.packing?.box === box) return { ok: false, reason: 'That box is still packing' };
 
     box.setSpawned(true);
@@ -557,7 +552,6 @@ export class HarvestController {
     this.carried = box;
     this.carryElapsed = 0;
     if (this.harvestMode) this.#setMode(null);
-    for (const cabinet of this.fridges) cabinet.setCarryContext(true, box);
     this.update(0, this.camera);
     return { ok: true, box };
   }
@@ -573,7 +567,6 @@ export class HarvestController {
     this.carried = null;
     this.carryElapsed = 0;
     this.carryLabel?.setText('');
-    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
     return { ok: true, box, position: box.group.position };
   }
 
@@ -591,40 +584,6 @@ export class HarvestController {
       dropPoint.y = GROUND_Y;
     }
     return dropPoint;
-  }
-
-  storeInFridge(fridge = this.fridge) {
-    if (!this.carried) return { ok: false, reason: 'Not carrying a box' };
-    if (!fridge) return { ok: false, reason: 'No refrigerator available' };
-    if (!fridge.doorOpen) return { ok: false, reason: 'Open the fridge before putting a box inside' };
-    const box = this.carried;
-    const result = fridge.addBox(box);
-    if (!result.ok) return result;
-    // The box keeps its staging slot as its home position, so taking it back
-    // out of the fridge later returns it to the same table.
-    box.setStored(true);
-    box.setPosition(box.spawnPosition.x, box.spawnPosition.y, box.spawnPosition.z);
-    this.carried = null;
-    this.carryElapsed = 0;
-    this.carryLabel?.setText('');
-    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
-    return { ok: true, box, count: fridge.boxes.length };
-  }
-
-  takeFromFridge(fridge = this.fridge) {
-    if (!fridge) return { ok: false, reason: 'No refrigerator available' };
-    if (!fridge.doorOpen) return { ok: false, reason: 'Open the fridge before taking a box outside' };
-    if (this.carried) {
-      return { ok: false, reason: 'Set the box in your hands down first' };
-    }
-    const box = [...fridge.boxes].reverse().find(box => !box.shopReserved);
-    if (!box) return { ok: false, reason: 'No unreserved chilled box is available' };
-    const removed = fridge.removeBox(box);
-    if (!removed.ok) return removed;
-    box.setStored(false);
-    box.setSpawned(true);
-    box.setPosition(box.spawnPosition.x, box.spawnPosition.y, box.spawnPosition.z);
-    return this.pickUp(box);
   }
 
 
@@ -713,6 +672,7 @@ export class HarvestController {
       const data = this.tableData.get(table.id);
       if (data) {
         const active = this.modeTableId === table.id;
+        data.interaction = 'harvest-mode-toggle';
         data.interactionHint = this.statusLabel(table.id);
         data.action = active ? 'Stop harvest mode' : 'Start harvest mode';
         data.active = active;
@@ -725,11 +685,10 @@ export class HarvestController {
               : 'none - all full',
           ],
           [
-            'Boxes staged',
-            `${status.boxes.filter((box) => !box.stored).length} of ${status.boxes.length}`,
+            'Boxes packed',
+            `${status.boxes.filter((box) => !box.isEmpty).length} of ${status.boxes.length}`,
           ],
           ['Pass', 'Two sequential gullies - 80 heads per box'],
-          ['Chilled', `${status.boxes.filter((box) => box.stored).length} in the harvest house`],
         ];
       }
       return {
@@ -774,16 +733,6 @@ export class HarvestController {
       const box = this.byId.get(entry?.id);
       if (box) box.restore(entry);
     }
-    // A restored box that was chilled goes back into the refrigerator's rack so
-    // the fridge count, the visual stack and the take-from-fridge action agree.
-    if (this.fridge) {
-      for (const box of this.boxes) {
-        if (!box.stored) continue;
-        this.fridge.addBox(box);
-        box.setPosition(box.spawnPosition.x, box.spawnPosition.y, box.spawnPosition.z);
-      }
-    }
-    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
     this.#syncBoxVisibility();
     this.refreshBadges(true);
     return this;

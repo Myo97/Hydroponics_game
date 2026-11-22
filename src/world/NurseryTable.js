@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { BeamBatch, CylinderBatch, boxMesh } from './Batches.js';
@@ -121,19 +122,19 @@ export class NurseryTable {
     for (const z of [-halfL + 0.1, halfL - 0.1]) {
       for (const x of [-halfW + 0.09, halfW - 0.09]) {
         const foot = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.032, 0.038, 0.04, 12),
+          new LowPolyCylinderGeometry(0.032, 0.038, 0.04, 12),
           this.materials.steelDark,
         );
         foot.position.set(x, 0.035, z);
         group.add(foot);
         const stem = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012, 0.012, 0.03, 8),
+          new LowPolyCylinderGeometry(0.012, 0.012, 0.03, 8),
           this.materials.stainless,
         );
         stem.position.set(x, 0.068, z);
         group.add(stem);
         const pad = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.052, 0.052, 0.012, 14),
+          new LowPolyCylinderGeometry(0.052, 0.052, 0.012, 14),
           this.materials.rubber,
         );
         pad.position.set(x, 0.012, z);
@@ -145,7 +146,7 @@ export class NurseryTable {
     for (const z of [-halfL + 0.1, 0, halfL - 0.1]) {
       for (const x of [-halfW + 0.09, halfW - 0.09]) {
         const wheel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.055, 0.055, 0.038, 16),
+          new LowPolyCylinderGeometry(0.055, 0.055, 0.038, 16),
           this.materials.rubber,
         );
         wheel.rotation.z = Math.PI / 2;
@@ -171,19 +172,19 @@ export class NurseryTable {
     crank.name = 'nursery-hand-crank';
     crank.position.set(-0.46, 0.69, halfL + 0.035);
     const axle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.018, 0.018, 0.12, 10),
+      new LowPolyCylinderGeometry(0.018, 0.018, 0.12, 10),
       this.materials.stainless,
     );
     axle.rotation.x = Math.PI / 2;
     crank.add(axle);
     const wheel = new THREE.Mesh(
-      new THREE.TorusGeometry(0.105, 0.012, 6, 22),
+      new LowPolyTorusGeometry(0.105, 0.012, 6, 22),
       this.materials.stainless,
     );
     wheel.position.z = 0.07;
     crank.add(wheel);
     const handle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.013, 0.013, 0.06, 8),
+      new LowPolyCylinderGeometry(0.013, 0.013, 0.06, 8),
       this.materials.rubber,
     );
     handle.rotation.x = Math.PI / 2;
@@ -294,7 +295,7 @@ export class NurseryTable {
     // Low-profile slotted floor drain under the tray block. It is below the
     // support rails, so trays never clip the fitting.
     const drainScreen = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 0.012, 16),
+      new LowPolyCylinderGeometry(0.045, 0.045, 0.012, 16),
       this.materials.pvcGrey,
     );
     drainScreen.position.set(-0.75, floorY + 0.012, halfL - 0.08);
@@ -450,7 +451,7 @@ export class NurseryTable {
 
     const makeButton = (x, label, interaction, hint, description) => {
       const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.034, 0.034, 0.015, 20),
+        new LowPolyCylinderGeometry(0.034, 0.034, 0.015, 20),
         this.materials.ledGreen,
       );
       cap.name = `nursery-${label.toLowerCase()}-button`;
@@ -607,7 +608,7 @@ export class NurseryTable {
       boxMesh(0.46, 0.045, 0.34, this.materials.steelDark, V(0, 0.024, 0), 'nursery-pump-skid'),
     );
     const motor = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.075, 0.24, 18),
+      new LowPolyCylinderGeometry(0.075, 0.075, 0.24, 18),
       this.materials.pumpBlue,
     );
     motor.rotation.z = Math.PI / 2;
@@ -615,14 +616,14 @@ export class NurseryTable {
     motor.castShadow = true;
     pump.add(motor);
     const volute = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.105, 0.105, 0.08, 20),
+      new LowPolyCylinderGeometry(0.105, 0.105, 0.08, 20),
       this.materials.pumpPaint,
     );
     volute.rotation.z = Math.PI / 2;
     volute.position.set(0.17, 0.22, 0);
     pump.add(volute);
     this.pumpRotor = new THREE.Mesh(
-      new THREE.TorusGeometry(0.052, 0.011, 6, 14),
+      new LowPolyTorusGeometry(0.052, 0.011, 6, 14),
       this.materials.stainless,
     );
     this.pumpRotor.position.set(0.215, 0.22, 0.055);
@@ -640,20 +641,20 @@ export class NurseryTable {
     }
     pump.add(this.pumpRotor);
     this.pumpLamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.022, 10, 8),
+      new LowPolySphereGeometry(0.022, 10, 8),
       this.materials.ledRed,
     );
     this.pumpLamp.position.set(0.15, 0.36, 0.11);
     pump.add(this.pumpLamp);
 
     const gaugeStem = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.01, 0.01, 0.11, 8),
+      new LowPolyCylinderGeometry(0.01, 0.01, 0.11, 8),
       this.materials.stainless,
     );
     gaugeStem.position.set(0.17, 0.38, 0.06);
     pump.add(gaugeStem);
     const gauge = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.025, 16),
+      new LowPolyCylinderGeometry(0.05, 0.05, 0.025, 16),
       this.materials.stainless,
     );
     gauge.rotation.x = Math.PI / 2;
@@ -727,7 +728,7 @@ export class NurseryTable {
     drainValve.name = 'nursery-drain-valve';
     drainValve.position.set(1.16, 0.17, pumpZ - 0.24);
     const valveBody = new THREE.Mesh(
-      new THREE.SphereGeometry(0.048, 12, 10),
+      new LowPolySphereGeometry(0.048, 12, 10),
       this.materials.stainless,
     );
     drainValve.add(valveBody);
@@ -762,7 +763,7 @@ export class NurseryTable {
 
     for (const x of [pumpX - 0.14, 1.16]) {
       const flange = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.07, 0.07, 0.018, 14),
+        new LowPolyCylinderGeometry(0.07, 0.07, 0.018, 14),
         this.materials.steelDark,
       );
       flange.position.set(x, 0.01, x === 1.16 ? pumpZ - 0.24 : pumpZ);
@@ -793,7 +794,7 @@ export class NurseryTable {
     const baseY = pan.floorY;
 
     const fitting = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.026, 0.026, 0.035, 12),
+      new LowPolyCylinderGeometry(0.026, 0.026, 0.035, 12),
       this.materials.pvcGrey,
     );
     fitting.position.set(x, baseY + 0.018, z);
@@ -801,7 +802,7 @@ export class NurseryTable {
 
     // Short link back into the pan end wall, so the gauge is not floating.
     const link = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.009, 0.06, 8),
+      new LowPolyCylinderGeometry(0.009, 0.009, 0.06, 8),
       this.materials.pvcGrey,
     );
     link.rotation.x = Math.PI / 2;
@@ -809,7 +810,7 @@ export class NurseryTable {
     group.add(link);
 
     const tube = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.019, 0.019, 0.25, 14, 1, true),
+      new LowPolyCylinderGeometry(0.019, 0.019, 0.25, 14, 1, true),
       this.materials.glassDoor,
     );
     tube.position.set(x, baseY + 0.16, z);
@@ -817,7 +818,7 @@ export class NurseryTable {
     group.add(tube);
 
     this.sightWater = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.014, 0.014, 1, 12),
+      new LowPolyCylinderGeometry(0.014, 0.014, 1, 12),
       this.materials.water,
     );
     this.sightWater.position.set(x, baseY + 0.001, z);
@@ -826,7 +827,7 @@ export class NurseryTable {
     group.add(this.sightWater);
 
     const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.024, 0.024, 0.018, 12),
+      new LowPolyCylinderGeometry(0.024, 0.024, 0.018, 12),
       this.materials.pvcGrey,
     );
     cap.position.set(x, baseY + 0.292, z);

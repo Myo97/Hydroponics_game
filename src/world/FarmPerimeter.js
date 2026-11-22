@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 
@@ -175,8 +176,8 @@ export class FarmPerimeter {
     }
 
     const radius = 0.31;
-    const tire = new THREE.CylinderGeometry(radius, radius, 0.19, 14);
-    const hub = new THREE.CylinderGeometry(0.15, 0.15, 0.21, 12);
+    const tire = new LowPolyCylinderGeometry(radius, radius, 0.19, 14);
+    const hub = new LowPolyCylinderGeometry(0.15, 0.15, 0.21, 12);
     tire.rotateZ(Math.PI / 2);
     hub.rotateZ(Math.PI / 2);
     this.ownedGeometries.push(tire);
@@ -211,11 +212,11 @@ export class FarmPerimeter {
 
     const asphalt = this.#cachedMaterial(
       'farm-asphalt',
-      () => new THREE.MeshStandardMaterial({ color: 0x2b3033, roughness: 0.96, metalness: 0.02 }),
+      () => new THREE.MeshStandardMaterial({ flatShading: true, color: 0x2b3033, roughness: 0.96, metalness: 0.02 }),
     );
     const paint = this.#cachedMaterial(
       'farm-road-paint',
-      () => new THREE.MeshStandardMaterial({ color: 0xd8d6cc, roughness: 0.8 }),
+      () => new THREE.MeshStandardMaterial({ flatShading: true, color: 0xd8d6cc, roughness: 0.8 }),
     );
     const road = new THREE.Mesh(this.#box(length, 0.06, roadWidth), asphalt);
     road.position.set(0, GROUND_Y + 0.03, roadZ);
@@ -260,7 +261,7 @@ export class FarmPerimeter {
     parent.add(cottage);
 
     const finish = (color, glow = 0) => this.#cachedMaterial(`cottage-${color}-${glow}`, () =>
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         color, roughness: 0.88, emissive: color, emissiveIntensity: glow,
       }),
     );

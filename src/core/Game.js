@@ -1,6 +1,6 @@
-import { AutoShopController } from '../systems/AutoShopController.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
+import { CAMERA_FOV, clampFov } from '../config/camera.js';
 import { getPreset } from './Quality.js';
 import { MaterialLibrary } from '../world/MaterialLibrary.js';
 import { Environment } from '../world/Environment.js';
@@ -22,13 +22,14 @@ import { WaterStorage } from '../world/WaterStorage.js';
 import { BluelabController } from '../world/BluelabController.js';
 import { IrrigationPanel } from '../world/IrrigationPanel.js';
 import { WeatherControlPanel } from '../world/WeatherControlPanel.js';
-import { ContainerHouse } from '../world/ContainerHouse.js';
 import { FarmPerimeter } from '../world/FarmPerimeter.js';
 import { NurseryReadyLabels } from '../world/NurseryReadyLabels.js';
 import { HarvestController } from '../systems/HarvestController.js';
 import { SaveSystem } from '../save/SaveSystem.js';
 import { StaticBatchManager } from '../world/StaticBatchManager.js';
 import { TouchControls } from '../ui/TouchControls.js';
+import { FarmOrbitController } from '../player/FarmOrbitController.js';
+import { applyStylizedArt } from '../world/StylizedArt.js';
 
 const SETTINGS_KEY = 'verde-block4:settings';
 
@@ -53,6 +54,12 @@ export class Game {
     this.running = false;
     this.pointerLockWarned = false;
     this.droneView = false;
+    // The walkthrough is the primary view: it owns WASD movement, pointer look
+    // and the short-range interaction ray. Orbit is an optional farm overview.
+    this.orbitView = false;
+    this.roofsHidden = true;
+    this.orbitPointer = null;
+    this.activePointers = new Set();
 
     this.fpsAccumulator = 0;
     this.fpsFrames = 0;
@@ -60,7 +67,6 @@ export class Game {
     this.report = () => {};
     this.lastGrowthDayIndex = null;
     this.saveAccumulator = 0;
-    this.market = { cash: 0 };
 
     this.settings = this.loadSettings();
     this.preset = getPreset(this.settings.quality);
@@ -71,6 +77,9 @@ export class Game {
     this.onKeyDown = this.onKeyDown.bind(this);
     this.onCanvasPointerDown = this.onCanvasPointerDown.bind(this);
     this.onCanvasPointerUp = this.onCanvasPointerUp.bind(this);
+    this.onCanvasPointerMove = this.onCanvasPointerMove.bind(this);
+    this.onCanvasPointerLeave = () => { this.orbitPointer = null; this.interaction?.clear(); this.ui?.setTarget(null); };
+    this.onCanvasPointerCancel = event => { this.activePointers.delete(event.pointerId); this.canvasTap = null; };
     this.onBeforeUnload = this.onBeforeUnload.bind(this);
     this.animate = this.animate.bind(this);
   }
@@ -171,15 +180,8 @@ export class Game {
       label: 'weather control panel',
     });
 
-    this.report(0.8, 'Siting the harvest house and yard…');
+    this.report(0.8, 'Fencing the farmyard…');
     await this.nextTick();
-    this.containerHouse = new ContainerHouse({
-      scene: this.scene,
-      materials: this.materials,
-      collisionWorld: this.collisionWorld,
-      camera: this.camera,
-      layout: LAYOUT,
-    }).build();
     this.farmPerimeter = new FarmPerimeter({
       scene: this.scene,
       materials: this.materials,
@@ -201,6 +203,8 @@ export class Game {
       camera: this.droneCamera,
       domElement: this.renderer.domElement,
     });
+    this.orbit = new FarmOrbitController({ camera: this.orbitCamera, domElement: this.renderer.domElement });
+    this.orbit.controls.rotateSpeed = 0.7 * this.settings.sensitivity;
 
     // Floating READY tags over propagation trays that reached day 14. One
     // instanced label field covers every tray, and each instance resolves back
@@ -212,7 +216,7 @@ export class Game {
     }).build();
 
     this.interaction = new InteractionSystem({
-      camera: this.camera,
+      camera: this.orbitView ? this.orbitCamera : this.camera,
       scene: this.scene,
       interactables: [
         ...this.greenhouse.getInteractables(),
@@ -222,7 +226,6 @@ export class Game {
         ...this.bluelab.interactables,
         ...this.irrigationPanel.interactables,
         ...this.weatherPanel.interactables,
-        ...this.containerHouse.getInteractables(),
         ...this.farmPerimeter.getInteractables(),
         { object: this.nurseryLabels?.field?.mesh },
       ].filter((entry) => entry?.object),
@@ -231,34 +234,31 @@ export class Game {
     this.ui = new GameUI({
       handlers: {
         onResume: () => this.resume(),
-        onShop: () => this.openShop(),
-        onShopToggle: () => {
-          this.shop.setOpen(!this.shop.open);
-          this.ui.setShop(this.shop, true);
-        },
-        onShopPrice: (key, value) => {
-          if (!this.shop.setPrice(key, value)) this.ui.toast('Enter a price between S$0.10 and S$100.', 'warn');
-          this.ui.setShop(this.shop, true);
-        },
         onPause: () => this.pause(),
         onRespawn: () => this.respawn(),
+        onToggleView: () => this.toggleOrbitView(),
         onQualityChange: (id) => this.applyQuality(id),
         onSensitivityChange: (value) => {
           this.player.setSensitivity(value);
+          if (this.orbit) this.orbit.controls.rotateSpeed = 0.7 * value;
           this.settings.sensitivity = value;
           this.saveSettings();
         },
         onFovChange: (value) => {
-          this.setFov(value);
-          this.settings.fov = value;
+          const fov = clampFov(value);
+          this.setFov(fov);
+          this.settings.fov = fov;
           this.saveSettings();
         },
         onSkipTime: () => this.skipTime(24),
         onCycleWeather: () => this.cycleWeather(),
         onCloseInspect: () => this.closeInspect(),
-        onFridgeDoor: () => this.useFridgeDoor(),
-        onFridgeBox: () => this.useFridgeBox(),
-        onCloseFridge: () => this.closeFridge(),
+        onOrbitFocus: name => {
+          if (this.inspecting) this.closeInspect();
+          this.orbit.focus(name);
+        },
+        onOrbitRoofs: () => this.setOrbitRoofs(!this.roofsHidden),
+        onDrop: () => this.setDownCarried(),
         onStopHarvest: () => {
           this.harvest?.stopHarvestMode();
           this.ui.toast('Harvest mode off');
@@ -273,7 +273,9 @@ export class Game {
     this.setFov(this.settings.fov);
 
     // Version 14 touch overlay: only built on coarse-pointer devices, and only
-    // shown while the walkthrough (not the drone or a modal) owns input.
+    // shown while the walkthrough (not the orbit camera, drone or modal) owns
+    // input. It is constructed even in orbit mode so switching views later can
+    // reveal it without rebuilding the controller.
     this.touch = new TouchControls({
       root: document.getElementById('ui-root'),
       viewport: this.renderer.domElement,
@@ -288,7 +290,8 @@ export class Game {
         onLongPress: (target) => this.activateLongPress(target),
       },
     });
-    this.ui.setTouchInput(this.touch.isTouchDevice);
+    this.ui.setTouchInput(this.touch?.isTouchDevice ?? false);
+    this.ui.setOrbitMode(this.orbitView);
 
     this.report(0.94, 'Waking simulations…');
     await this.nextTick();
@@ -314,8 +317,6 @@ export class Game {
       equipment: this.equipment,
       simulation: this.plants,
       collisionWorld: this.collisionWorld,
-      fridge: this.containerHouse?.fridge ?? null,
-      fridges: [this.containerHouse?.fridge2, ...(this.containerHouse?.extraFridges ?? [])],
       layout: LAYOUT,
       onPacked: (summary) => this.onBoxPacked(summary),
       onModeChange: () => this.syncHarvestModeUI(),
@@ -335,14 +336,11 @@ export class Game {
       climate: this.climate,
       plants: this.plants,
     });
-    this.shop = new AutoShopController({
-      house: this.containerHouse, market: this.market, climate: this.climate,
-      onChange: () => this.saveGame(),
-      onNotice: (message) => this.ui.toast(message),
-    });
     this.saveSystem = new SaveSystem({ key: 'verde-block4:save' });
     this.restoreSession();
+    applyStylizedArt(this.scene);
     this.buildStaticBatches();
+    this.setOrbitRoofs(this.roofsHidden);
 
     this.report(1, 'Ready');
     await this.nextTick();
@@ -351,6 +349,9 @@ export class Game {
     document.addEventListener('pointerlockerror', this.onPointerLockError);
     this.renderer.domElement.addEventListener('pointerdown', this.onCanvasPointerDown);
     this.renderer.domElement.addEventListener('pointerup', this.onCanvasPointerUp);
+    this.renderer.domElement.addEventListener('pointermove', this.onCanvasPointerMove);
+    this.renderer.domElement.addEventListener('pointerleave', this.onCanvasPointerLeave);
+    this.renderer.domElement.addEventListener('pointercancel', this.onCanvasPointerCancel);
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('beforeunload', this.onBeforeUnload);
@@ -371,7 +372,10 @@ export class Game {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.58;
+    // Keep the greenhouse glazing and pale concrete from clipping to white.
+    // ACES still gives a long highlight roll-off, while the lower exposure
+    // preserves shadow detail under the benches and inside the cabinet.
+    this.renderer.toneMappingExposure = 0.72;
     this.renderer.shadowMap.enabled = this.preset.shadows;
     // The sun and almost all shadow casters are static between weather/door/crop
     // events. Render the shadow map on demand instead of on every camera frame.
@@ -404,6 +408,99 @@ export class Game {
       240,
     );
     this.droneCamera.name = 'drone-camera';
+    this.orbitCamera = new THREE.PerspectiveCamera(
+      this.settings.fov,
+      clientWidth / Math.max(1, clientHeight),
+      0.1,
+      450,
+    );
+    this.orbitCamera.name = 'farm-orbit-camera';
+  }
+
+  get activeCamera() {
+    return this.orbitView ? this.orbitCamera : this.droneView ? this.droneCamera : this.camera;
+  }
+
+  setOrbitRoofs(hidden) {
+    this.roofsHidden = Boolean(hidden);
+    for (const house of [this.greenhouse, this.nursery?.building]) {
+      if (house?.roofGlass) house.roofGlass.visible = !hidden;
+      if (house?.bayScreens?.group) house.bayScreens.group.visible = !hidden;
+    }
+    this.nursery?.shadeScreen?.setTopView(hidden);
+    this.ui?.setOrbitRoofs(hidden);
+    this.requestShadowUpdate();
+  }
+
+  /**
+   * Switch between the first-person walkthrough and the farm orbit camera.
+   * Orbit keeps the player grounded at the current focus point, so returning to
+   * the walkthrough starts exactly where the overview was looking.
+   */
+  setOrbitView(enabled) {
+    const next = Boolean(enabled);
+    if (next === this.orbitView) return this.orbitView;
+    if (this.paused || this.ui?.isModalOpen?.()) return this.orbitView;
+
+    if (!this.started) {
+      this.orbitView = next;
+      this.interaction?.setCamera?.(next ? this.orbitCamera : this.camera);
+      this.ui?.setOrbitMode(next);
+      return this.orbitView;
+    }
+
+    if (this.droneView) this.exitDroneView({ silent: true, restoreInput: false });
+    if (this.inspecting) this.closeInspect();
+
+    this.orbitView = next;
+    this.orbitPointer = null;
+    this.canvasTap = null;
+    this.activePointers.clear();
+    this.ui?.setTarget(null);
+    this.touch?.setTarget(null);
+
+    if (next) {
+      // Set orbitView before releasing the lock so the pointerlockchange handler
+      // does not treat this deliberate transition as an Escape-to-pause.
+      this.player.exitPointerLock();
+      this.player.setEnabled(false);
+      this.player.clearInput();
+      this.orbit?.setEnabled(true);
+      this.interaction.setCamera(this.orbitCamera);
+      this.interaction.setEnabled(true);
+      this.interaction.setLockState(false);
+      this.interaction.clear();
+      this.touch?.setActive(false);
+      this.ui?.setOrbitMode(true);
+      // The toolbar is rebuilt each time orbit opens, so reapply the current
+      // roof visibility rather than showing a stale "Show roofs" label.
+      this.ui?.setOrbitRoofs?.(this.roofsHidden);
+      this.ui?.toast('Orbit view — drag to orbit · scroll to zoom · click to farm · O returns to walk');
+    } else {
+      this.orbit?.setEnabled(false);
+      this.player.syncCamera();
+      this.player.setEnabled(true);
+      this.interaction.setCamera(this.camera);
+      this.interaction.setEnabled(true);
+      this.interaction.setLockState(false);
+      this.touch?.setActive(true);
+      this.ui?.setOrbitMode(false);
+      this.requestLookLock();
+      this.ui?.toast('Walkthrough view — WASD to move · mouse to look · E to interact · O for orbit');
+    }
+    return this.orbitView;
+  }
+
+  toggleOrbitView() {
+    return this.setOrbitView(!this.orbitView);
+  }
+
+  enableFarmInput() {
+    this.player.setEnabled(!this.orbitView);
+    this.orbit?.setEnabled(this.orbitView);
+    this.interaction.setEnabled(true);
+    this.touch?.setActive(!this.orbitView);
+    this.requestLookLock();
   }
 
   nextTick() {
@@ -431,7 +528,7 @@ export class Game {
     shadowMap.needsUpdate = Boolean(shadow);
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
-    this.renderer.render(this.scene, this.droneView ? this.droneCamera : this.camera);
+    this.renderer.render(this.scene, this.activeCamera);
     const stats = {
       shadow,
       calls: this.renderer.info.render.calls,
@@ -448,13 +545,26 @@ export class Game {
     return stats;
   }
 
-  setFov(fov) {
+  /**
+   * Low-level projection setter used by the settings slider and internal camera
+   * poses (for example the close-up render harness). The settings path clamps
+   * user-facing values before calling this, while inspection views may still
+   * request a tighter lens.
+   */
+  setFov(value) {
+    const fov = Number(value);
+    if (!Number.isFinite(fov) || fov <= 0 || fov >= 180) return this.camera.fov;
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
+    if (this.orbitCamera) {
+      this.orbitCamera.fov = fov;
+      this.orbitCamera.updateProjectionMatrix();
+    }
     if (this.droneCamera) {
       this.droneCamera.fov = fov;
       this.droneCamera.updateProjectionMatrix();
     }
+    return fov;
   }
 
   /* ---------------------------------------------------------------- lifecycle */
@@ -464,14 +574,19 @@ export class Game {
     this.started = true;
     this.ui.showHud();
     this.ui.setTarget(null);
-    this.player.setEnabled(true);
+    this.player.setEnabled(!this.orbitView);
+    this.orbit?.setEnabled(this.orbitView);
     this.player.syncCamera();
     this.requestLookLock();
     this.interaction.setEnabled(true);
-    this.interaction.setLockState(true);
-    this.touch?.setActive(true);
+    this.interaction.setLockState(!this.orbitView);
+    this.touch?.setActive(!this.orbitView);
     this.clock.getDelta();
-    this.ui.toast('Walkthrough ready — tap doors, equipment and units to interact');
+    this.ui.toast(
+      this.orbitView
+        ? 'Drag to orbit · scroll to zoom · right-drag to pan · click to farm'
+        : 'Walkthrough ready — WASD to move · mouse to look · E to interact · O for orbit view',
+    );
   }
 
   /**
@@ -480,11 +595,20 @@ export class Game {
    * target instead of being gated behind a lock the browser will never grant.
    */
   requestLookLock() {
+    if (this.orbitView) {
+      this.player.setEnabled(false);
+      this.orbit?.setEnabled(!this.paused && !this.inspecting);
+      this.interaction.setLockState(false);
+      return false;
+    }
     if (this.touch?.isTouchDevice) {
       this.interaction.setLockState(true);
       return false;
     }
     this.player.requestPointerLock();
+    // Keep the centre raycast live while the lock request is pending, and when
+    // the browser refuses capture and the click-drag look fallback takes over.
+    this.interaction.setLockState(true);
     return true;
   }
 
@@ -494,16 +618,14 @@ export class Game {
     this.saveGame();
     // Drone mode survives the pause; only flight input is suspended.
     this.drone?.deactivate();
+    this.orbit?.setEnabled(false);
     // Drop out of inspect first so the panel state cannot outlive the pause.
     this.inspecting = false;
     this.ui.closeInspect();
-    this.activeFridge = null;
-    this.ui.closeFridge();
     this.player.setEnabled(false);
     this.player.exitPointerLock();
     this.interaction.setEnabled(false);
     this.touch?.setActive(false);
-    this.ui.setShop(this.shop, true);
     this.ui.setPaused(true);
   }
 
@@ -518,107 +640,38 @@ export class Game {
       this.interaction.setEnabled(false);
       this.touch?.setActive(false);
     } else {
-      this.player.setEnabled(true);
-      this.requestLookLock();
-      this.interaction.setEnabled(true);
-      this.touch?.setActive(true);
+      this.enableFarmInput();
     }
     this.clock.getDelta();
   }
 
   respawn() {
+    if (this.orbitView) {
+      this.orbit.focus('farm');
+      if (this.paused) this.resume();
+      return;
+    }
     if (this.droneView) this.exitDroneView({ silent: true });
     this.player.teleport(LAYOUT.player.spawnX, LAYOUT.player.spawnZ, LAYOUT.player.spawnYaw);
     this.ui.toast('Returned to the entrance');
     if (this.paused) this.resume();
   }
 
-  findFridge(id) {
-    return [this.containerHouse?.fridge, this.containerHouse?.fridge2,
-      ...(this.containerHouse?.extraFridges ?? [])]
-      .find(cabinet => cabinet?.info?.id === id) ?? null;
-  }
-
-  fridgeMenuState() {
-    const fridge = this.activeFridge;
-    const carrying = Boolean(this.harvest?.isCarrying);
-    let reason = '';
-    if (this.trayPickup?.isCarrying) reason = 'Set the seedling tray down first.';
-    else if (!fridge.doorOpen) reason = 'Open the fridge first.';
-    else if (carrying && !fridge.hasRoom) reason = 'The fridge is full.';
-    else if (!carrying && !fridge.boxes.length) reason = 'The fridge is empty. Carry a harvest box here to put it inside.';
-    else if (!carrying && !fridge.boxes.some(box => !box.shopReserved)) reason = 'These boxes are reserved for customer orders.';
-    return { title: fridge.info.title, doorOpen: fridge.doorOpen,
-      count: fridge.boxes.length, capacity: fridge.capacity, carrying, reason };
-  }
-
-  openFridge(fridge) {
-    if (!fridge) return false;
-    this.activeFridge = fridge;
-    this.inspecting = true;
-    this.ui.closeInspect();
-    this.player.setEnabled(false);
-    this.interaction.setEnabled(false);
-    this.touch?.setActive(false);
-    this.ui.setTarget(null);
-    // Mark the modal open before releasing the pointer so it does not pause.
-    this.ui.showFridge(this.fridgeMenuState());
-    this.player.exitPointerLock();
-    return true;
-  }
-
-  useFridgeDoor() {
-    if (!this.activeFridge) return;
-    const open = this.activeFridge.toggleDoors();
-    // A player's choice takes precedence over the assistant's saved door state.
-    if (this.activeFridge === this.containerHouse.fridge2 && this.containerHouse.shopFridgeWasOpen !== undefined) {
-      this.containerHouse.shopFridgeWasOpen = open;
-    }
-    this.ui.updateFridge(this.fridgeMenuState());
-    this.requestShadowUpdate();
-  }
-
-  useFridgeBox() {
-    if (!this.activeFridge) return;
-    const state = this.fridgeMenuState();
-    if (state.reason) {
-      this.ui.toast(state.reason, 'warn');
-    } else {
-      this.handleInteraction({ id: this.activeFridge.info.id,
-        interaction: state.carrying ? 'harvest-store-box' : 'harvest-take-box' });
-    }
-    this.ui.updateFridge(this.fridgeMenuState());
-  }
-
-  closeFridge() {
-    if (!this.activeFridge) return;
-    this.activeFridge = null;
-    this.inspecting = false;
-    this.ui.closeFridge();
-    if (!this.paused) {
-      this.player.setEnabled(true);
-      this.interaction.setEnabled(true);
-      this.touch?.setActive(true);
-      this.requestLookLock();
-    }
-  }
-
   openInspect(data) {
     this.inspecting = true;
     this.player.setEnabled(false);
+    this.orbit?.setEnabled(false);
     this.interaction.setEnabled(false);
     this.ui.openInspect(data);
     this.ui.setTarget(null);
   }
 
   closeInspect() {
-    if (this.activeFridge) return this.closeFridge();
     if (!this.inspecting) return;
     this.inspecting = false;
     this.ui.closeInspect();
     if (!this.paused) {
-      this.player.setEnabled(true);
-      this.interaction.setEnabled(true);
+      this.enableFarmInput();
     }
   }
 
@@ -636,7 +689,7 @@ export class Game {
       if (this.harvest?.isCarrying || this.trayPickup?.isCarrying) {
         this.ui.toast('Hands full - DROP sets the load down', 'warn');
       } else {
-        this.ui.toast('Nothing within reach - move closer and aim at a unit', 'warn');
+        this.ui.toast(this.orbitView ? 'Click a crop, tray, box or piece of equipment' : 'Nothing within reach - move closer and aim at a unit', 'warn');
       }
       return false;
     }
@@ -758,7 +811,7 @@ export class Game {
     if (result?.ok) {
       this.ui.toast(
         `${result.result.cropName} packed into box ${String(result.box.index + 1).padStart(2, '0')} · ${result.box.plantCount}/${result.box.capacity} heads${
-          result.modeStopped ? ' · all four boxes full, carry them to the harvest house' : ''
+          result.modeStopped ? ' · all four boxes full, move them clear of the walkway' : ''
         }`,
       );
       this.syncHarvestModeUI();
@@ -791,7 +844,7 @@ export class Game {
     const box = summary.box;
     if (!box) return;
     this.ui.toast(
-      `Box ${String(box.index + 1).padStart(2, '0')} packed - ${box.plantCount}/${box.capacity} heads, ${box.weightKg.toFixed(1)} kg gross. Tap the box to carry it to the harvest house`,
+      `Box ${String(box.index + 1).padStart(2, '0')} packed - ${box.plantCount}/${box.capacity} heads, ${box.weightKg.toFixed(1)} kg gross. Tap the box to carry or set it down`,
     );
     this.requestShadowUpdate();
   }
@@ -805,7 +858,6 @@ export class Game {
     if (!target) return target;
     const data = target.data;
     if (!data) return target;
-    if (data.kind === 'cold-storage') return target;
     if (!this.trayPickup?.isCarrying) return target;
     const bedId = this.nursery.tidalBed?.bed.id;
     const isBench = data.trayId || data.id === bedId;
@@ -1101,63 +1153,6 @@ export class Game {
       case 'harvest-carry-box':
       case 'harvest-box-pickup':
         return this.pickUpHarvestBox(data.boxId);
-      case 'harvest-store-box': {
-        const targetFridge = [
-          this.containerHouse?.fridge,
-          this.containerHouse?.fridge2,
-          ...(this.containerHouse?.extraFridges ?? []),
-        ].find((cabinet) => cabinet?.info?.id === data.id) ?? this.containerHouse?.fridge;
-        const result = this.harvest?.storeInFridge(targetFridge);
-        if (result?.ok) {
-          this.ui.setBoxCarry(null);
-          this.ui.toast(
-            `Box ${String(result.box.index + 1).padStart(2, '0')} chilled - ${result.count} box${result.count === 1 ? '' : 'es'} at 3.5 °C`,
-          );
-          this.requestShadowUpdate();
-        } else {
-          this.ui.toast(result?.reason ?? 'Box could not be stored', 'warn');
-        }
-        return true;
-      }
-      case 'harvest-take-box': {
-        if (this.trayPickup?.isCarrying) {
-          this.ui.toast('Set the seedling tray down first', 'warn');
-          return true;
-        }
-        const result = this.harvest?.takeFromFridge(this.findFridge(data.id) ?? this.containerHouse?.fridge);
-        if (result?.ok) {
-          this.ui.setBoxCarry(result.box);
-          this.ui.toast(
-            `Box ${String(result.box.index + 1).padStart(2, '0')} out of the fridge - ${result.box.plantCount}/${result.box.capacity} heads`,
-          );
-          this.requestShadowUpdate();
-        } else {
-          this.ui.toast(result?.reason ?? 'No chilled box could be taken', 'warn');
-        }
-        return true;
-      }
-      case 'fridge-inspect': {
-        return this.openFridge(this.findFridge(data.id));
-      }
-      case 'container-door': {
-        const open = this.containerHouse?.toggleDoor?.() ?? false;
-        this.ui.toast(
-          `Harvest house door ${open ? 'open - the glass fridge is inside' : 'closed'}`,
-        );
-        return true;
-      }
-      case 'container-window': {
-        const open = this.containerHouse?.toggleWindow?.() ?? false;
-        this.ui.toast(`Harvest house vent window ${open ? 'open' : 'closed'}`);
-        return true;
-      }
-      case 'shop-sell':
-        this.openShop();
-        return true;
-      case 'container-sleep': {
-        this.skipTime(6, { reason: 'Sleep' });
-        return true;
-      }
       case 'farm-gate': {
         const open = this.farmPerimeter?.toggleGate?.() ?? false;
         this.ui.toast(open ? 'Farm gate opening' : 'Farm gate closing');
@@ -1168,13 +1163,6 @@ export class Game {
         return false;
     }
   }
-
-  openShop() {
-    this.pause();
-    this.ui.setShop(this.shop, true);
-    this.ui.el.shopPanel.scrollIntoView({ block: 'nearest' });
-  }
-
 
   /**
    * One calendar authority for every living crop. The climate day index is
@@ -1305,7 +1293,6 @@ export class Game {
       this.weatherPanel?.autoLamp,
     );
     for (const roots of [
-      this.containerHouse?.getDynamicRoots?.(),
       this.harvest?.getDynamicRoots?.(),
       this.nurseryLabels?.field?.mesh,
       this.farmPerimeter?.getDynamicRoots?.(),
@@ -1333,24 +1320,19 @@ export class Game {
     const saved = this.saveSystem?.load();
     if (!saved) return false;
     try {
-      this.market.cash = Math.max(0, Number(saved.market?.cash) || 0);
-      this.ui?.setFarmMoney(this.market.cash);
       if (saved.climate) this.climate.restore(saved.climate);
       if (saved.control) this.control.apply(saved.control);
       if (saved.water) this.water.applyState(saved.water);
       if (saved.plants?.growth) this.plants.restoreGrowth(saved.plants.growth);
       if (saved.nursery) this.nursery.restoreGrowth(saved.nursery);
-      // Building openings first, then the harvest layer: restoring a chilled box
-      // re-seats it in the glass fridge, which must already know its door state.
-      if (saved.containerHouse) this.containerHouse?.restore(saved.containerHouse);
       if (saved.farm) this.farmPerimeter?.restore(saved.farm);
       if (saved.harvest) this.harvest?.restore(saved.harvest);
-      this.shop.restore(saved.shop);
       if (saved.player && this.player) {
         this.player.teleport(saved.player.x, saved.player.z, saved.player.yaw);
         this.player.pitch = saved.player.pitch ?? this.player.pitch;
         this.player.syncCamera();
       }
+      if (saved.orbit) this.orbit?.restore(saved.orbit);
       this.lastGrowthDayIndex = this.climate.dayIndex;
       this.equipment.updateCrops(0, null);
       return true;
@@ -1364,6 +1346,7 @@ export class Game {
     if (!this.saveSystem || !this.climate) return null;
     return this.saveSystem.save({
       player: this.player,
+      orbit: this.orbit,
       settings: this.settings,
       plants: this.plants,
       water: this.water,
@@ -1371,10 +1354,7 @@ export class Game {
       control: this.control,
       nursery: this.nursery,
       harvest: this.harvest,
-      containerHouse: this.containerHouse,
       farm: this.farmPerimeter,
-      market: this.market,
-      shop: this.shop,
     });
   }
 
@@ -1439,14 +1419,14 @@ export class Game {
     return this;
   }
 
-  exitDroneView({ silent = false } = {}) {
+  exitDroneView({ silent = false, restoreInput = true } = {}) {
     if (!this.droneView) return;
     this.droneView = false;
     this.drone.deactivate();
     this.setCutaway(false);
     this.player.syncCamera();
     this.ui.setTarget(null);
-    if (!this.paused) {
+    if (!this.paused && restoreInput) {
       this.player.setEnabled(true);
       this.interaction.setEnabled(true);
       this.requestLookLock();
@@ -1456,6 +1436,7 @@ export class Game {
   }
 
   toggleDroneView() {
+    if (this.orbitView) { this.orbit.focus('farm'); return; }
     if (this.droneView) this.exitDroneView();
     else this.enterDroneView();
   }
@@ -1480,6 +1461,7 @@ export class Game {
   /* ------------------------------------------------------------------- events */
 
   onPointerLockChange() {
+    if (this.orbitView) return;
     const locked = this.player.isPointerLocked();
     this.interaction.setLockState(locked);
     if (!locked && this.started && !this.ui.isModalOpen() && !this.droneView) {
@@ -1492,6 +1474,7 @@ export class Game {
    * falls back to click-drag look, so keep the centre-screen raycast running.
    */
   onPointerLockError() {
+    if (this.orbitView) return;
     if (this.started && !this.pointerLockWarned) {
       this.pointerLockWarned = true;
       this.interaction.setLockState(true);
@@ -1506,6 +1489,8 @@ export class Game {
    * button and mirrors the touch tap path.
    */
   onCanvasPointerDown(event) {
+    this.activePointers.add(event.pointerId);
+    if (this.activePointers.size > 1) { this.canvasTap = null; return; }
     if (event.button !== 0 || !this.started) return;
     this.canvasTap = {
       pointerId: event.pointerId,
@@ -1518,6 +1503,7 @@ export class Game {
   }
 
   onCanvasPointerUp(event) {
+    this.activePointers.delete(event.pointerId);
     const tap = this.canvasTap;
     this.canvasTap = null;
     if (!tap || tap.pointerId !== event.pointerId || !this.started) return;
@@ -1525,9 +1511,9 @@ export class Game {
     const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     const elapsed = performance.now() - tap.startedAt;
     const longPress = elapsed >= LONG_PRESS_MS;
-    if (moved > TAP_MAX_MOVE_PX || elapsed > TAP_MAX_MS) return;
+    if (tap.moved || moved > TAP_MAX_MOVE_PX || elapsed > TAP_MAX_MS) return;
     const locked = tap.wasLocked && (this.player?.isPointerLocked?.() ?? false);
-    if (!locked && !this.player?.pointerLockBlocked) return;
+    if (!this.orbitView && !locked && !this.player?.pointerLockBlocked) return;
 
     let ndcX = 0;
     let ndcY = 0;
@@ -1537,13 +1523,27 @@ export class Game {
       ndcY = -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1;
     }
     const target =
-      this.interaction.pickAt(ndcX, ndcY, { maxDistance: 4.6, highlight: false }) ?? null;
+      this.interaction.pickAt(ndcX, ndcY, { maxDistance: this.orbitView ? 180 : 4.6, highlight: false }) ?? null;
     if (longPress) this.activateLongPress(target);
     else this.activateTarget(target);
   }
 
+  onCanvasPointerMove(event) {
+    if (this.canvasTap && Math.hypot(event.clientX - this.canvasTap.x, event.clientY - this.canvasTap.y) > TAP_MAX_MOVE_PX) this.canvasTap.moved = true;
+    if (!this.orbitView) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.orbitPointer = { x: (event.clientX - rect.left) / rect.width * 2 - 1,
+      y: -(event.clientY - rect.top) / rect.height * 2 + 1 };
+  }
+
   onKeyDown(event) {
     if (!this.started) return;
+
+    if (event.code === 'KeyO' && !this.ui.isModalOpen()) {
+      event.preventDefault();
+      this.toggleOrbitView();
+      return;
+    }
 
     if (event.code === 'KeyV' && !this.ui.isModalOpen()) {
       event.preventDefault();
@@ -1594,7 +1594,7 @@ export class Game {
       if (!target && (this.harvest?.isCarrying || this.trayPickup?.isCarrying)) {
         this.ui.toast(
           this.harvest?.isCarrying
-            ? 'Carrying a harvest box - aim at the glass fridge to chill it, or tap DROP to set it down'
+            ? 'Carrying a harvest box - aim at the ground and tap DROP to set it down'
             : 'Carrying a tray - aim at the nursery bench to set it down, or at an NFT table to transplant',
           'warn',
         );
@@ -1630,6 +1630,10 @@ export class Game {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    if (this.orbitCamera) {
+      this.orbitCamera.aspect = width / height;
+      this.orbitCamera.updateProjectionMatrix();
+    }
     if (this.droneCamera) {
       this.droneCamera.aspect = width / height;
       this.droneCamera.updateProjectionMatrix();
@@ -1658,7 +1662,7 @@ export class Game {
   /* --------------------------------------------------------------- persistence */
 
   loadSettings() {
-    const fallback = { quality: 'high', sensitivity: 1, fov: 68 };
+    const fallback = { quality: 'high', sensitivity: 1, fov: CAMERA_FOV.default };
     try {
       const raw = window.localStorage.getItem(SETTINGS_KEY);
       if (!raw) return fallback;
@@ -1667,7 +1671,7 @@ export class Game {
         quality: getPreset(parsed.quality).id,
         sensitivity:
           typeof parsed.sensitivity === 'number' ? parsed.sensitivity : fallback.sensitivity,
-        fov: typeof parsed.fov === 'number' ? parsed.fov : fallback.fov,
+        fov: clampFov(parsed.fov),
       };
     } catch (error) {
       return fallback;
@@ -1705,25 +1709,32 @@ export class Game {
     }
 
     if (interactive) {
+      if (this.orbitView && !this.inspecting) {
+        this.orbit.update();
+        // Held items are inventory in orbit mode. Ground placement follows the
+        // focus point, never the elevated viewing camera.
+        this.player.position.set(this.orbit.target.x, 0, this.orbit.target.z);
+        this.player.groundY = 0;
+        this.player.syncCamera();
+      }
       // A packed box slows the walk; the factor has to be in place before the
       // controller integrates this frame.
       if (this.player) this.player.speedScale = this.harvest?.moveSpeedScale ?? 1;
-      if (!this.inspecting) {
+      if (!this.inspecting && !this.orbitView) {
         if (this.droneView) this.drone.update(dt);
         else {
           this.player.update(dt);
-          this.containerHouse?.applyPlayerElevation(this.player);
         }
       }
       this.climate.update(dt);
       this.applyCalendarGrowth();
       this.environment.update(dt, this.climate);
       this.greenhouse.update(dt);
-      const viewer = this.droneView ? this.drone.position : this.player.position;
+      const viewer = this.orbitView ? this.orbitCamera.position : this.droneView ? this.drone.position : this.player.position;
       // The nursery controller advances the flood depth first so the shared
       // water model meters the same frame's draw/return from Reservoir 2.
       this.nursery.update(dt, viewer);
-      this.nurseryLabels?.update(dt, this.camera);
+      this.nurseryLabels?.update(dt, this.activeCamera);
       this.water.update(dt);
       const waterSnapshot = this.water.snapshot();
       this.equipment.update(dt, waterSnapshot);
@@ -1734,15 +1745,22 @@ export class Game {
       this.plants.update(dt);
       this.equipment.updateCrops(dt, viewer);
       this.trayPickup.update(dt);
-      // Version 14: doors, gate leaves, packing heads and carried boxes.
-      this.shop.update(dt);
-      this.containerHouse.updateShopVisuals(this.shop, dt);
-      this.containerHouse?.update(dt, this.camera);
+      // Version 14: harvest packing heads and carried boxes.
       this.harvest?.update(dt, this.camera);
+      if (this.orbitView) {
+        if (this.trayPickup.view) this.trayPickup.view.group.visible = false;
+        if (this.harvest.carried) this.harvest.carried.group.visible = false;
+        if (this.harvest.carryLabel?.mesh) this.harvest.carryLabel.mesh.visible = false;
+        this.harvest.badgeField?.update(this.activeCamera);
+      }
       this.farmPerimeter?.update(dt, this.camera, this.climate);
 
       if (!this.droneView) {
-        const target = this.interaction.update();
+        const target = this.orbitView
+          ? (!this.inspecting && this.orbitPointer && !this.activePointers.size
+            ? this.interaction.pickAt(this.orbitPointer.x, this.orbitPointer.y, { maxDistance: 180 }) : null)
+          : this.interaction.update();
+        if (this.orbitView && !target) this.interaction.clear();
         const decorated = this.decorateCarryTarget(target);
         if (!this.inspecting) this.ui.setTarget(decorated);
         this.touch?.setTarget(decorated);
@@ -1753,11 +1771,10 @@ export class Game {
       if (this.hudAccumulator >= 0.25) {
         this.hudAccumulator = 0;
         this.ui.setClimate(this.climate.snapshot());
-        this.ui.setFarmMoney(this.market.cash);
-        this.ui.setShop(this.shop);
-        if (this.activeFridge) this.ui.updateFridge(this.fridgeMenuState());
         this.ui.setPlayerState(
-          this.droneView
+          this.orbitView
+            ? { x: this.orbit.target.x, z: this.orbit.target.z, speed: 0, zone: 'Farm orbit view' }
+            : this.droneView
             ? {
                 x: this.drone.position.x,
                 z: this.drone.position.z,
@@ -1778,7 +1795,6 @@ export class Game {
       const shadowMotion = Boolean(
         this.environment?.sunChanged ||
           this.environment?.moonChanged ||
-          Boolean(this.shop?.order) ||
           this.equipment?.hasAnimatedShadow ||
           this.greenhouse?.hasAnimatedShadow ||
           this.nursery?.building?.hasAnimatedShadow ||
@@ -1805,7 +1821,7 @@ export class Game {
       }
     }
 
-    this.renderer.render(this.scene, this.droneView ? this.droneCamera : this.camera);
+    this.renderer.render(this.scene, this.activeCamera);
   }
 
   dispose() {
@@ -1817,9 +1833,13 @@ export class Game {
     window.removeEventListener('keydown', this.onKeyDown);
     this.renderer?.domElement?.removeEventListener('pointerdown', this.onCanvasPointerDown);
     this.renderer?.domElement?.removeEventListener('pointerup', this.onCanvasPointerUp);
+    this.renderer?.domElement?.removeEventListener('pointermove', this.onCanvasPointerMove);
+    this.renderer?.domElement?.removeEventListener('pointerleave', this.onCanvasPointerLeave);
+    this.renderer?.domElement?.removeEventListener('pointercancel', this.onCanvasPointerCancel);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     this.player?.dispose();
     this.drone?.dispose();
+    this.orbit?.dispose();
     this.touch?.dispose();
     this.trayPickup?.dispose();
     this.harvest?.dispose();
@@ -1831,7 +1851,6 @@ export class Game {
     this.weatherPanel?.dispose();
     this.storage?.dispose();
     this.farmPerimeter?.dispose();
-    this.containerHouse?.dispose();
     this.nurseryLabels?.dispose();
     this.nursery?.dispose();
     this.greenhouse?.dispose();

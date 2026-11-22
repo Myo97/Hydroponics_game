@@ -1,7 +1,7 @@
 {
   "name": "hydroponics-game",
   "version": "0.1.0",
-  "description": "Realistic 3D hydroponic greenhouse simulator (Three.js + Vite)",
+  "description": "Stylized low-poly 3D hydroponic farm with first-person walkthrough and orbit camera (Three.js + Vite)",
   "scripts": {
     "test": "node scripts/smoke-equipment.mjs",
     "dev": "vite",

@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { CylinderBatch, boxMesh } from './Batches.js';
@@ -106,7 +107,7 @@ export class BluelabController {
 
     // Top status beacon mirrors the dosing / alarm state.
     this.beacon = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.045, 0.075, 14),
+      new LowPolyCylinderGeometry(0.035, 0.045, 0.075, 14),
       this.materials.ledGreen,
     );
     this.beacon.position.set(0, height + 0.095, -0.36);
@@ -149,7 +150,7 @@ export class BluelabController {
 
       pumpGroup.add(boxMesh(0.16, 0.24, 0.19, this.materials.pumpBlue, V(-0.035, 0, 0), 'dosing-pump-body'));
       const rotor = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.055, 0.055, 0.05, 16),
+        new LowPolyCylinderGeometry(0.055, 0.055, 0.05, 16),
         this.materials.stainless,
       );
       rotor.rotation.z = Math.PI / 2;
@@ -157,7 +158,7 @@ export class BluelabController {
       pumpGroup.add(rotor);
       for (let roller = 0; roller < 3; roller += 1) {
         const pin = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.011, 0.011, 0.06, 8),
+          new LowPolyCylinderGeometry(0.011, 0.011, 0.06, 8),
           this.materials.steelDark,
         );
         pin.rotation.z = Math.PI / 2;
@@ -169,13 +170,13 @@ export class BluelabController {
         pumpGroup.add(pin);
       }
       const tube = new THREE.Mesh(
-        new THREE.TorusGeometry(0.072, 0.011, 6, 20, Math.PI),
+        new LowPolyTorusGeometry(0.072, 0.011, 6, 20, Math.PI),
         this.materials.pvcWhite,
       );
       tube.rotation.y = Math.PI / 2;
       tube.position.set(-0.14, 0.02, 0);
       pumpGroup.add(tube);
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), this.materials.ledGreen);
+      const lamp = new THREE.Mesh(new LowPolySphereGeometry(0.014, 8, 6), this.materials.ledGreen);
       lamp.position.set(-0.12, 0.085, 0.08);
       pumpGroup.add(lamp);
       const tag = this.label(
@@ -217,7 +218,7 @@ export class BluelabController {
     for (let index = 0; index < 6; index += 1) {
       const selectorZ = -0.4 + index * 0.16;
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.028, 0.028, 0.07, 12),
+        new LowPolyCylinderGeometry(0.028, 0.028, 0.07, 12),
         this.materials.stainless,
       );
       body.rotation.z = Math.PI / 2;
@@ -230,7 +231,7 @@ export class BluelabController {
       lever.position.set(-0.262, selectorY, selectorZ);
       group.add(lever);
       lever.add(boxMesh(0.016, 0.085, 0.016, this.materials.pumpBlue, V(0, 0.042, 0), 'selector-lever'));
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), this.materials.ledRed);
+      const knob = new THREE.Mesh(new LowPolySphereGeometry(0.016, 8, 6), this.materials.ledRed);
       knob.position.y = 0.088;
       lever.add(knob);
 
@@ -271,7 +272,7 @@ export class BluelabController {
     this.probes = [];
     probeSets.forEach((probe) => {
       const cell = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.075, 0.075, 0.56, 16),
+        new LowPolyCylinderGeometry(0.075, 0.075, 0.56, 16),
         this.materials.glass,
       );
       cell.position.set(0.08, 0.35, probe.z);
@@ -281,12 +282,12 @@ export class BluelabController {
       group.add(boxMesh(0.2, 0.04, 0.22, this.materials.steelDark, V(0.08, 0.64, probe.z), `${probe.key}-flow-cell-top`));
 
       const probeBody = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.026, 0.026, 0.3, 12),
+        new LowPolyCylinderGeometry(0.026, 0.026, 0.3, 12),
         this.materials.stainless,
       );
       probeBody.position.set(0.08, 0.62, probe.z);
       group.add(probeBody);
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.05, 12), probe.tint);
+      const cap = new THREE.Mesh(new LowPolyCylinderGeometry(0.036, 0.036, 0.05, 12), probe.tint);
       cap.position.set(0.08, 0.79, probe.z);
       group.add(cap);
 

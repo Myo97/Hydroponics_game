@@ -60,9 +60,9 @@ function halton(index, base) {
  * Version 14 styrofoam harvest box.
  *
  * One box holds a single two-gully pass of a table (80 heads). The box is a
- * physical prop: it can be filled, inspected, carried, set down and stored in
- * the harvest-house fridge. Contents stay aggregated per crop so the save file
- * and the fridge readout do not grow with the head count.
+ * physical prop: it can be filled, inspected, carried and set down around the
+ * glasshouse. Contents stay aggregated per crop so the save file does not grow
+ * with the head count.
  *
  * Boxes carry no canvas of their own - the harvest controller draws one shared
  * carry tag - so a full farm of staged boxes still costs only a few textures.
@@ -90,7 +90,6 @@ export class HarvestBox {
     this.weightG = 0;
     this.lots = new Map();
     this.carried = false;
-    this.stored = false;
     this.cropKey = null;
     this.cropName = null;
     this.spawned = false;
@@ -275,7 +274,7 @@ export class HarvestBox {
   setSpawned(spawned = true) {
     if (spawned && !this.spawned) this.group.position.copy(this.spawnPosition);
     this.spawned = spawned;
-    this.group.visible = spawned && !this.stored;
+    this.group.visible = spawned;
     this.refresh();
     return this;
   }
@@ -285,7 +284,7 @@ export class HarvestBox {
    * invisible interaction proxies. Layer 0 is what the raycaster tests.
    */
   #syncPickable() {
-    const pickable = this.spawned && !this.stored && !this.carried && this.group.visible;
+    const pickable = this.spawned && !this.carried && this.group.visible;
     if (pickable) this.hitProxy.layers.enable(0);
     else this.hitProxy.layers.disable(0);
   }
@@ -354,15 +353,13 @@ export class HarvestBox {
     if (this.produceLeaves.instanceColor) this.produceLeaves.instanceColor.needsUpdate = true;
     this.produceLeaves.count = 240;
 
-    const status = this.stored
-      ? 'chilled'
-      : this.carried
-        ? 'carried'
-        : this.isEmpty
-          ? 'empty'
-          : this.isFull
-            ? 'full'
-            : 'packing';
+    const status = this.carried
+      ? 'carried'
+      : this.isEmpty
+        ? 'empty'
+        : this.isFull
+          ? 'full'
+          : 'packing';
     this.data.title = `Styrofoam box ${String(this.index + 1).padStart(2, '0')} - ${status}`;
     this.data.interaction = this.carried
       ? 'harvest-box-carried'
@@ -370,15 +367,13 @@ export class HarvestBox {
         ? 'harvest-box-inspect'
         : 'harvest-carry-box';
     this.data.interactionHint = this.carried
-      ? 'Carrying - set down or chill'
+      ? 'Carrying - set it down'
       : this.isEmpty
         ? 'Inspect empty box'
         : `Pick up box (${this.weightKg.toFixed(1)} kg)`;
-    this.data.description = this.stored
-      ? 'A chilled styrofoam box stored in the harvest-house refrigerator.'
-      : this.isEmpty
-        ? 'An empty styrofoam box staged beside its NFT table. Aim at the table and interact to fill it one pair of gullies at a time.'
-        : `Packed with ${this.plantCount} harvested heads from two gullies. Carry it to the harvest house and store it in the glass-door fridge.`;
+    this.data.description = this.isEmpty
+      ? 'An empty styrofoam box staged beside its NFT table. Aim at the table and interact to fill it one pair of gullies at a time.'
+      : `Packed with ${this.plantCount} harvested heads from two gullies. Carry it clear of the walkway or set it down with G / DROP.`;
     this.data.specs = [
       ['Box', `${String(this.index + 1).padStart(2, '0')} of 04`],
       ['Fill', `${this.plantCount} / ${this.capacity} heads`],
@@ -407,18 +402,12 @@ export class HarvestBox {
     this.refresh();
   }
 
-  setStored(stored) {
-    this.stored = Boolean(stored);
-    this.group.visible = !this.stored && this.spawned;
-    this.refresh();
-  }
-
   setPosition(x, y, z) {
     this.group.position.set(x, y, z);
   }
 
   setVisible(visible) {
-    this.group.visible = Boolean(visible) && !this.stored;
+    this.group.visible = Boolean(visible);
     this.#syncPickable();
   }
 
@@ -431,8 +420,6 @@ export class HarvestBox {
       weightG: this.weightG,
       lots: this.cropSummary,
       carried: false,
-      stored: this.stored,
-      chilledAt: this.chilledAt ?? null,
       spawned: this.spawned,
       position: {
         x: this.group.position.x,
@@ -462,16 +449,14 @@ export class HarvestBox {
       this.cropKey ??= cropKey;
       this.cropName ??= lot.cropName ?? 'Crop';
     }
-    this.stored = Boolean(state.stored);
-    this.chilledAt = Number.isFinite(state.chilledAt) ? state.chilledAt : null;
     this.carried = false;
-    this.spawned = Boolean(state.spawned) || this.plantCount > 0 || this.stored;
+    this.spawned = Boolean(state.spawned) || this.plantCount > 0;
     this.group.position.set(this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z);
     if (state.position) {
       this.group.position.set(state.position.x, state.position.y ?? 0.02, state.position.z);
       this.spawnPosition.copy(this.group.position);
     }
-    this.group.visible = this.spawned && !this.stored;
+    this.group.visible = this.spawned;
     this.refresh();
     return this;
   }

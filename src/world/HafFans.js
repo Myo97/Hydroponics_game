@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT, FRAME_Z, FAN_INSTALLATION } from '../config/layout.js';
 import { BeamBatch } from './Batches.js';
@@ -81,7 +82,7 @@ export class HafFans {
     const supports = new BeamBatch(this.materials.steel, { castShadow: true });
 
     const fanMatrices = [];
-    const hitGeometry = new THREE.CylinderGeometry(
+    const hitGeometry = new LowPolyCylinderGeometry(
       config.radius * 1.04,
       config.radius * 1.04,
       0.42,
@@ -160,12 +161,12 @@ export class HafFans {
     addPart(
       group,
       'haf-fan-shrouds',
-      new THREE.CylinderGeometry(config.radius, config.radius, 0.28, 32, 1, true),
+      new LowPolyCylinderGeometry(config.radius, config.radius, 0.28, 32, 1, true),
       this.materials.steel,
       shroudMatrices,
     );
 
-    const rimGeometry = new THREE.TorusGeometry(config.radius, 0.026, 8, 32);
+    const rimGeometry = new LowPolyTorusGeometry(config.radius, 0.026, 8, 32);
     const rimMatrices = [];
     for (const matrix of fanMatrices) {
       for (const zSide of [-0.14, 0.14]) {
@@ -174,13 +175,13 @@ export class HafFans {
     }
     addPart(group, 'haf-fan-rims', rimGeometry, this.materials.steelDark, rimMatrices);
 
-    const motorGeometry = new THREE.CylinderGeometry(0.17, 0.17, 0.3, 20);
+    const motorGeometry = new LowPolyCylinderGeometry(0.17, 0.17, 0.3, 20);
     const motorMatrices = fanMatrices.map((matrix) =>
       partMatrix(matrix, V(0, 0, -0.16), rotX).clone(),
     );
     addPart(group, 'haf-fan-motors', motorGeometry, this.materials.steelDark, motorMatrices);
 
-    const cowlGeometry = new THREE.CylinderGeometry(0.11, 0.19, 0.18, 20);
+    const cowlGeometry = new LowPolyCylinderGeometry(0.11, 0.19, 0.18, 20);
     const cowlMatrices = fanMatrices.map((matrix) =>
       partMatrix(matrix, V(0, 0, -0.34), rotX).clone(),
     );
@@ -200,7 +201,7 @@ export class HafFans {
       addPart(
         group,
         `haf-fan-guard-${radius}`,
-        new THREE.TorusGeometry(radius, 0.007, 5, 30),
+        new LowPolyTorusGeometry(radius, 0.007, 5, 30),
         this.materials.steelDark,
         guardMatrices
           .filter((entry) => entry.radius === radius)
@@ -264,7 +265,7 @@ export class HafFans {
     const hubMesh = addPart(
       group,
       'haf-fan-rotor-hubs',
-      new THREE.CylinderGeometry(0.1, 0.13, 0.12, 18),
+      new LowPolyCylinderGeometry(0.1, 0.13, 0.12, 18),
       this.materials.pumpBlue,
       fanMatrices.map(() => new THREE.Matrix4()),
       { castShadow: false },

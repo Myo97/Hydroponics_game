@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Realistic 3D hydroponic greenhouse simulator - first-person walkthrough prototype."
+      content="Stylized low-poly hydroponic farming game with first-person and orbit cameras."
     />
     <title>Verde Block 4 — Hydroponic Glasshouse</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23173245'/%3E%3Cpath d='M5 23h22M7 23V13l9-6 9 6v10' fill='none' stroke='%2374d6b4' stroke-width='2'/%3E%3Cpath d='M12 23v-7h8v7' fill='none' stroke='%2374d6b4' stroke-width='1.4'/%3E%3C/svg%3E" />
@@ -19,11 +19,9 @@
       <section id="boot-screen" class="boot-screen">
         <div class="boot-grid" aria-hidden="true"></div>
         <div class="boot-panel">
-          <p class="eyebrow">Controlled Environment Agriculture</p>
-          <h1>Verde <span>Block&nbsp;4</span></h1>
-          <p class="boot-sub">
-            NFT lettuce house · 24 × 36 m Venlo glasshouse · galvanised steel frame
-          </p>
+          <p class="eyebrow">Grow a little greener</p>
+          <h1>Green <span>Farm</span></h1>
+          <p class="boot-sub">A little farm. A living system. Grow, harvest and sell in a colourful hydroponic world.</p>
 
           <div class="boot-meta">
             <div>
@@ -36,7 +34,7 @@
             </div>
             <div>
               <span class="meta-label">Mode</span>
-              <span class="meta-value">Walkthrough</span>
+              <span class="meta-value">Walkthrough + orbit</span>
             </div>
           </div>
 
@@ -47,24 +45,11 @@
 
           <button id="boot-start" class="btn btn-primary" disabled>Loading…</button>
 
-          <ul class="boot-controls">
-            <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Walk</span></li>
-            <li><kbd>Shift</kbd><span>Sprint</span></li>
-            <li><kbd>Mouse</kbd><span>Look</span></li>
-            <li><kbd>E</kbd><span>Interact</span></li>
-            <li><kbd>G</kbd><span>Set box down</span></li>
-            <li><kbd>Tab</kbd><span>Cycle reservoir</span></li>
-            <li><kbd>V</kbd><span>Drone view</span></li>
-            <li><kbd>Q</kbd><kbd>E</kbd><span>Drone altitude</span></li>
-            <li><kbd>Esc</kbd><span>Menu</span></li>
-          </ul>
+          <ul class="boot-controls"><li><kbd>WASD</kbd><span>Walk</span></li><li><kbd>Mouse</kbd><span>Look around</span></li><li><kbd>E</kbd><span>Interact</span></li><li><kbd>O</kbd><span>Walk / orbit view</span></li><li><kbd>V</kbd><span>Drone view</span></li><li><kbd>Esc</kbd><span>Farm menu</span></li></ul>
 
-          <p class="boot-note">
-            Desktop: mouse + keyboard. Touch devices: left stick walks, drag to look, tap to
-            inspect, USE acts on the crosshair and DROP sets a box down.
-          </p>
+          <p class="boot-note">Touch: left stick to walk, swipe to look, tap to interact. Orbit view uses drag, pinch and two-finger pan.</p>
         </div>
-        <p class="boot-footer">PROTOTYPE BUILD 0.1 · VERSION 14 — HARVEST BOXES, CONTAINER CHILLER &amp; TOUCH CONTROLS</p>
+        <p class="boot-footer">GREEN FARM &middot; STYLIZED LOW-POLY EDITION</p>
       </section>
 
       <!-- Runtime UI is created by src/ui/GameUI.js -->

@@ -4,20 +4,20 @@
    ============================================================ */
 
 :root {
-  --bg: #0b0f10;
-  --panel: rgba(13, 18, 19, 0.82);
-  --panel-solid: #101617;
-  --line: rgba(255, 255, 255, 0.14);
-  --line-soft: rgba(255, 255, 255, 0.07);
-  --text: #e8ece9;
-  --muted: #9aa6a2;
-  --accent: #74d6b4;
+  --bg: #d6e4cb;
+  --panel: rgba(248, 246, 228, 0.94);
+  --panel-solid: #f5f2df;
+  --line: rgba(48, 85, 66, 0.24);
+  --line-soft: rgba(48, 85, 66, 0.12);
+  --text: #274739;
+  --muted: #657964;
+  --accent: #367c55;
   --accent-dim: rgba(116, 214, 180, 0.16);
   --warn: #e3b568;
   --danger: #e07b6a;
   --font: "Segoe UI", "Inter", system-ui, -apple-system, "Helvetica Neue", sans-serif;
   --mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --radius: 3px;
+  --radius: 16px;
 }
 
 * {
@@ -968,17 +968,28 @@ kbd {
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 220ms ease;
+  /* Delay visibility so the close fade still runs, but remove the whole
+     subtree from hit-testing immediately afterwards. Child buttons opt back
+     into pointer-events:auto, so hiding only the backdrop is not enough. */
+  transition: opacity 220ms ease, visibility 0s linear 220ms;
 }
 
 .modal.is-open {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
+  transition: opacity 220ms ease;
 }
 
-#fridge-modal .btn:disabled { cursor: not-allowed; }
-#fridge-modal .modal-panel { max-height: 90vh; overflow-y: auto; }
+/* Also suppress descendants during the 220 ms close fade, because .btn sets
+   pointer-events:auto and would otherwise stay clickable while transparent. */
+.modal:not(.is-open) * {
+  pointer-events: none;
+}
+
+#pause-modal .modal-panel { max-height: 90vh; overflow-y: auto; }
 
 .modal-panel {
   width: min(430px, 100%);
@@ -1481,11 +1492,49 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
-.shop-panel { margin-top: 18px; padding-top: 16px; border-top: 1px solid #40514c; }
-.shop-heading, .shop-price-row { display: flex; align-items: center; gap: 10px; }
-.shop-heading { justify-content: space-between; }
-.shop-heading h3 { margin: 0; }
-.shop-price-row { margin: 10px 0; }
-.shop-price-row span { flex: 1; }
-.shop-price-row input { width: 76px; padding: 7px; color: inherit; background: #152825; border: 1px solid #65847a; border-radius: 4px; }
+
+
+
+
 #pause-modal .modal-panel { max-height: 90vh; overflow-y: auto; }
+
+/* Stylized farm: warm paper controls over a faceted miniature world. */
+.panel { box-shadow: 0 5px 0 rgba(55, 80, 57, 0.08), 0 12px 30px rgba(38, 65, 45, 0.14); }
+.btn { border-radius: 10px; letter-spacing: 0.025em; background: #e7edd7; color: var(--text); }
+.btn:hover { background: #d7e4be; }
+.btn-primary { background: #367c55; color: #fff8df; }
+.btn-primary:hover { background: #2b6846; }
+.modal-panel { background: #f5f2df; border-radius: 20px; }
+.modal-note { background: #e9edd8; }
+.boot-screen { background: radial-gradient(ellipse at 70% 20%, #b7d2ad, #e4e8cd 65%); }
+.boot-panel { background: rgba(248, 246, 228, 0.96); border: 1px solid var(--line); border-radius: 26px; padding: 32px; box-shadow: 0 25px 80px #44654d22; }
+.boot-panel h1 { color: #2f6243; letter-spacing: -0.045em; }
+.boot-panel h1 span { color: #719b52; }
+.boot-grid { opacity: 0.12; }
+.toast { background: #f5f2df; color: #274739; border-radius: 12px; }
+.inspect-panel { border-radius: 18px; }
+.is-orbit .crosshair, .is-orbit .interaction-range { display: none; }
+.is-orbit .controls-strip { display: flex; flex-direction: column; gap: 9px; bottom: 18px; max-width: calc(100vw - 32px); padding: 12px 18px; pointer-events: auto; }
+.orbit-views { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.orbit-instructions, .orbit-touch-instructions { color: var(--muted); font-size: 11px; text-align: center; }
+.controls-strip .orbit-touch-instructions { display: none; }
+.is-orbit .interaction-hint { bottom: 126px; }
+.is-orbit .carry-tag { bottom: 175px; }
+.is-orbit .harvest-mode-tag { bottom: 220px; }
+.is-orbit .hud-block--tr > .hud-row { display: none; }
+.is-orbit .hud-block--tl { padding: 15px 18px; }
+.is-orbit .hud-title { font-size: 20px; letter-spacing: -0.02em; text-transform: none; }
+#viewport canvas { touch-action: none; }
+@media (pointer: coarse) {
+  .controls-strip .orbit-instructions { display: none; }
+  .controls-strip .orbit-touch-instructions { display: block; }
+  .orbit-views .btn { min-height: 40px; }
+}
+@media (max-width: 680px) {
+  .is-orbit .hud-block--tl { max-width: 180px; padding: 10px; }
+  .is-orbit .hud-block--tl .hud-row:nth-of-type(n+8) { display: none; }
+  .is-orbit .controls-strip { width: calc(100vw - 20px); bottom: 10px; padding: 9px; }
+  .is-orbit .interaction-hint { bottom: 160px; max-width: calc(100vw - 24px); }
+  .is-orbit .carry-tag { bottom: 210px; }
+  .boot-panel { padding: 20px; }
+}

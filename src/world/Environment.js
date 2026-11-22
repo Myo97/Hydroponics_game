@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { LAYOUT } from '../config/layout.js';
@@ -44,8 +45,8 @@ export class Environment {
         ),
       },
     };
-    this.nightFogColor = new THREE.Color(0x0b1420);
-    this.rainFogColor = new THREE.Color(0x87969b);
+    this.nightFogColor = new THREE.Color(0x070d14);
+    this.rainFogColor = new THREE.Color(0x6d7b80);
   }
 
   build() {
@@ -147,15 +148,15 @@ export class Environment {
     // Sky bounce / skylight fill. Keeps the shaded interior readable without
     // flattening the direct sun contrast.
     const hemisphere = new THREE.HemisphereLight(
-      config.skylightColor ?? 0xd8e8ef,
-      config.groundColor ?? 0x6c675a,
-      config.skylightIntensity ?? 0.36,
+      config.skylightColor ?? 0xb8cdd8,
+      config.groundColor ?? 0x4d4d43,
+      config.skylightIntensity ?? 0.26,
     );
     hemisphere.name = 'skylight';
     hemisphere.position.set(0, 12, 0);
     this.scene.add(hemisphere);
     this.hemisphere = hemisphere;
-    this.hemisphereBaseIntensity = config.skylightIntensity ?? 0.36;
+    this.hemisphereBaseIntensity = config.skylightIntensity ?? 0.26;
     this.lights.push(hemisphere);
 
     // Directional moonlight follows the visible moon and its illuminated phase.
@@ -175,7 +176,7 @@ export class Environment {
     this.buildSunDisc();
     this.buildMoonDisc();
 
-    this.scene.fog = new THREE.Fog(0xc6d2d2, 62, 260);
+    this.scene.fog = new THREE.Fog(0x9fb7a8, 100, 300);
   }
 
   /**
@@ -349,7 +350,7 @@ export class Environment {
     this.scene.add(stars);
     this.stars = stars;
 
-    const cloudMaterial = new THREE.MeshStandardMaterial({
+    const cloudMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'cloud-deck',
       color: 0xdde5e8,
       roughness: 1,
@@ -362,7 +363,7 @@ export class Environment {
     clouds.name = 'cloud-deck';
     for (let i = 0; i < 12; i += 1) {
       const cloud = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 10, 6),
+        new LowPolySphereGeometry(1, 10, 6),
         cloudMaterial,
       );
       const angle = (i / 12) * Math.PI * 2;
@@ -483,18 +484,18 @@ export class Environment {
     );
 
     this.hemisphere.intensity =
-      0.11 +
+      0.055 +
       dayAmount *
-        Math.max(0, this.hemisphereBaseIntensity - 0.11) *
+        Math.max(0, this.hemisphereBaseIntensity - 0.055) *
         weatherFactor;
     this.hemisphere.color.setHex(
-      night > 0.6 ? 0x607a9a : config.skylightColor ?? 0xd8e8ef,
+      night > 0.6 ? 0x4c6481 : config.skylightColor ?? 0xb8cdd8,
     );
 
 
-    this.skyUniforms.turbidity.value = 3.2 + (1 - weatherFactor) * 8;
+    this.skyUniforms.turbidity.value = 3.4 + (1 - weatherFactor) * 8;
     this.skyUniforms.rayleigh.value =
-      1.7 + night * 0.5 - (1 - weatherFactor) * 0.35;
+      1.28 + night * 0.38 - (1 - weatherFactor) * 0.28;
     this.skyUniforms.mieCoefficient.value = 0.003 + (1 - weatherFactor) * 0.006;
 
     if (this.sunDisc) {
@@ -539,12 +540,12 @@ export class Environment {
 
     const fogColor = this.scene.fog?.color;
     if (fogColor) {
-      fogColor.setHex(0xc6d2d2).lerp(this.nightFogColor, night * 0.88);
+      fogColor.setHex(0x9fb7a8).lerp(this.nightFogColor, night * 0.88);
       if (raining) fogColor.lerp(this.rainFogColor, 0.35);
     }
     if (this.scene.fog) {
-      this.scene.fog.near = raining ? 38 : this.preset?.id === 'low' ? 48 : 62;
-      this.scene.fog.far = raining ? 190 : 260;
+      this.scene.fog.near = raining ? 65 : 100;
+      this.scene.fog.far = raining ? 230 : 300;
     }
   }
 
@@ -607,7 +608,7 @@ export class Environment {
     // Entrance bollards, kept clear of the nursery footprint in front.
     for (const x of [-3.6, 3.6]) {
       const bollard = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.075, 0.075, 0.9, 12),
+        new LowPolyCylinderGeometry(0.075, 0.075, 0.9, 12),
         this.materials.steel,
       );
       bollard.position.set(x, 0.45, 19.6);
@@ -618,7 +619,7 @@ export class Environment {
 
     // Distant windbreak hedges — read as depth, softened by fog.
     const hedgeMaterial = this.materials.track(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'hedge',
         color: 0x3f4936,
         roughness: 0.95,
@@ -665,7 +666,7 @@ export class Environment {
       light.shadow.needsUpdate = true;
     }
     this.scene.environmentIntensity = preset.environmentIntensity;
-    this.scene.fog.near = preset.id === 'low' ? 48 : 62;
+    this.scene.fog.near = 100;
   }
 
   /** Drone cutaway hides the exterior yard so buried storage reads as a plan. */

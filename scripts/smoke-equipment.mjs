@@ -5,9 +5,9 @@
  * Geometry, interaction metadata, collision volumes, door animation, fan
  * rotation, climate data and disposal are real.
  */
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import './smoke-shop.mjs';
-import './smoke-fridge.mjs';
+import './smoke-orbit.mjs';
 
 const context = new Proxy(
   {
@@ -48,7 +48,6 @@ const { GreenhouseControlSystem } = await import('../src/systems/GreenhouseContr
 const { TrayPickupController } = await import('../src/systems/TrayPickupController.js');
 const { SeedlingTransplantController } = await import('../src/systems/SeedlingTransplantController.js');
 const { HarvestController } = await import('../src/systems/HarvestController.js');
-const { ContainerHouse } = await import('../src/world/ContainerHouse.js');
 const { FarmPerimeter } = await import('../src/world/FarmPerimeter.js');
 const { stageForDay, getPlantGeometry, GROWTH_STAGES } = await import(
   '../src/simulation/GreenCoralGrowth.js'
@@ -76,6 +75,7 @@ const {
   greenCoralPaletteForDay,
 } = await import('../src/world/lettuce.js');
 const { CollisionWorld } = await import('../src/player/CollisionWorld.js');
+const { FirstPersonController } = await import('../src/player/FirstPersonController.js');
 const {
   NftHarvestGlow,
   HARVEST_GLOW_FADE_SECONDS,
@@ -140,6 +140,19 @@ const checks = [];
 const check = (name, condition, detail = '') => {
   checks.push({ name, ok: Boolean(condition), detail });
 };
+
+// Buttons set pointer-events:auto so closed modals must be visibility:hidden;
+// otherwise an invisible menu button can intercept world clicks.
+const styles = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8');
+const modalRule = styles.match(/\.modal\s*\{([^}]*)\}/s)?.[1] ?? '';
+const modalOpenRule = styles.match(/\.modal\.is-open\s*\{([^}]*)\}/s)?.[1] ?? '';
+const closedChildRule = styles.match(/\.modal:not\(\.is-open\)\s*\*\s*\{([^}]*)\}/s)?.[1] ?? '';
+check(
+  'closed modals are removed from hit testing',
+  /visibility:\s*hidden/.test(modalRule) &&
+    /visibility:\s*visible/.test(modalOpenRule) &&
+    /pointer-events:\s*none/.test(closedChildRule),
+);
 
 const allInteractables = [
   ...greenhouse.getInteractables(),
@@ -2120,94 +2133,6 @@ check(
   farmPerimeter.gateCollider.enabled === true && farmPerimeter.gateAngle === 0,
 );
 
-const containerHouse = new ContainerHouse({
-  scene,
-  materials,
-  collisionWorld,
-  camera: carryCamera,
-}).build();
-const shopVisual = {
-  order: { stage: 'returning', elapsed: 3, quantity: 2, cropKey: 'green-coral' },
-  climate: { rainIntensity: 0 }, sales: 0, revenueCents: 0, status: () => 'Packing order',
-};
-let shopVisualsValid = true;
-for (const stage of ['arriving', 'collecting', 'returning', 'packing', 'handover', 'leaving']) {
-  shopVisual.order.stage = stage;
-  containerHouse.updateShopVisuals(shopVisual, 0.25);
-  shopVisualsValid &&= containerHouse.customer.visible &&
-    Number.isFinite(containerHouse.shopAssistant.position.z) &&
-    containerHouse.pickupHeadGroups.filter(head => head.visible).length === 2;
-}
-check('automatic shop animates every stage with the exact ordered head count', shopVisualsValid);
-const customerNames = new Set();
-let singleCustomerVisible = true;
-for (let variant = 0; variant < containerHouse.customers.length; variant += 1) {
-  shopVisual.order.customerVariant = variant;
-  containerHouse.updateShopVisuals(shopVisual, 0.25);
-  customerNames.add(containerHouse.customer.userData.figure.name);
-  singleCustomerVisible &&= containerHouse.customers.filter(person => person.visible).length === 1;
-}
-check('shop rotates eight distinct customers with one visible per order', customerNames.size === 8 && singleCustomerVisible);
-check('the complete customer cast stays outside static batching', containerHouse.getDynamicRoots().includes(containerHouse.customerGroup));
-check('shopkeeper has the dedicated reference design', containerHouse.shopAssistant.userData.figure.name === 'Farm shopkeeper');
-
-// Sample both carton sizes across the wall, including the shortest customer.
-containerHouse.toggleWindow(true);
-containerHouse.update(2);
-let handoverClear = true;
-let crossingSamples = 0;
-const shopOrigin = containerHouse.group.position.clone().negate();
-const servingWindow = LAYOUT.container.window;
-const shopWallZ = LAYOUT.container.length / 2;
-for (const quantity of [2, 4]) {
-  for (let variant = 0; variant < containerHouse.customers.length; variant += 1) {
-    for (let step = 0; step <= 20; step += 1) {
-      shopVisual.order = { stage: 'handover', elapsed: step / 20, quantity, customerVariant: variant, cropKey: 'green-coral' };
-      containerHouse.updateShopVisuals(shopVisual, 0);
-      containerHouse.group.updateMatrixWorld(true);
-      const cartonBounds = new THREE.Box3().setFromObject(containerHouse.pickupCrate).translate(shopOrigin);
-      const sashBounds = new THREE.Box3().setFromObject(containerHouse.windowPivot).translate(shopOrigin);
-      handoverClear &&= !cartonBounds.intersectsBox(sashBounds);
-      if (cartonBounds.max.z >= shopWallZ - LAYOUT.container.wallThickness && cartonBounds.min.z <= shopWallZ) {
-        crossingSamples += 1;
-        handoverClear &&= cartonBounds.min.y > servingWindow.sillY &&
-          cartonBounds.max.y < servingWindow.sillY + servingWindow.height &&
-          cartonBounds.min.x > -servingWindow.width / 2 && cartonBounds.max.x < servingWindow.width / 2;
-      }
-    }
-  }
-}
-check('retail cartons clear the serving window sill, jambs and open sash for every customer', handoverClear && crossingSamples > 0);
-
-shopVisual.order = null;
-containerHouse.updateShopVisuals(shopVisual, 0);
-check('idle shop hides customer and retail carton', !containerHouse.customer.visible && !containerHouse.pickupCrate.visible);
-check('shop assistant and retail carton remain dynamic', containerHouse.getDynamicRoots().includes(containerHouse.shopAssistant) && containerHouse.getDynamicRoots().includes(containerHouse.pickupCrate));
-const houseInteractions = containerHouse.getInteractables().map((entry) => entry.data?.interaction);
-check(
-  'harvest house ships a door, vent window, bench and glass fridge',
-  Boolean(containerHouse.fridge) &&
-    containerHouse.fridge.capacity === LAYOUT.container.fridge.capacity &&
-    houseInteractions.includes('container-door') &&
-    houseInteractions.includes('container-window') &&
-    houseInteractions.includes('fridge-inspect'),
-  houseInteractions.join(' / '),
-);
-containerHouse.toggleDoor(true);
-containerHouse.toggleWindow(true);
-containerHouse.fridge.toggleDoors(true);
-containerHouse.update(1.2, carryCamera);
-const houseSnapshot = containerHouse.snapshot();
-check(
-  'container door, vent window and fridge door animate and serialise',
-  houseSnapshot.doorOpen === true &&
-    houseSnapshot.windowOpen === true &&
-    houseSnapshot.fridge.doorOpen === true &&
-    houseSnapshot.doorAngle > 1.7 &&
-    houseSnapshot.windowAngle > 0.9,
-  `${houseSnapshot.doorAngle.toFixed(2)} rad door / ${houseSnapshot.windowAngle.toFixed(2)} rad window`,
-);
-
 const packedSummaries = [];
 const harvest = new HarvestController({
   scene,
@@ -2216,7 +2141,6 @@ const harvest = new HarvestController({
   equipment,
   simulation: cropSimulation,
   collisionWorld,
-  fridge: containerHouse.fridge,
   onPacked: (summary) => packedSummaries.push(summary),
 }).build();
 check(
@@ -2313,7 +2237,7 @@ check(
 );
 carryController.dispose();
 
-/* -------------------------------- Version 14 harvest pass, carry and chilling */
+/* -------------------------------- Version 14 harvest pass, carry and set-down */
 const harvestStart = harvest.harvestTable(nftTable.id);
 check(
   'a harvest pass cuts two sequential gullies into one box',
@@ -2347,23 +2271,22 @@ check(
     harvest.moveSpeedScale >= (LAYOUT.harvest.minimumCarriedSpeedScale ?? 0.42),
   `${harvest.moveSpeedScale.toFixed(3)} speed scale`,
 );
-const packStored = harvest.storeInFridge();
+const packDown = harvest.setDown();
 check(
-  'the glass fridge chills the carried box',
-  packStored.ok === true &&
+  'a carried box can be set down clear of the walkway',
+  packDown.ok === true &&
     harvest.isCarrying === false &&
-    containerHouse.fridge.boxes.length === 1 &&
-    harvestStart.box.stored === true,
-  `${containerHouse.fridge.boxes.length}/${containerHouse.fridge.capacity} chilled`,
+    harvestStart.box.group.visible === true &&
+    harvestStart.box.plantCount === harvestStart.heads,
+  `${harvestStart.box.plantCount} heads set down`,
 );
 harvest.restore(harvest.snapshot());
 check(
-  'harvest snapshot restores chilled boxes into the fridge without duplicates',
+  'harvest snapshot restores packed boxes without duplication',
   harvest.isCarrying === false &&
-    containerHouse.fridge.boxes.length === 1 &&
     harvest.byId.get(harvestStart.box.id)?.plantCount === harvestStart.heads &&
-    harvest.byId.get(harvestStart.box.id)?.stored === true,
-  `${containerHouse.fridge.boxes.length} fridge boxes`,
+    harvest.byId.get(harvestStart.box.id)?.group.visible === true,
+  `${harvestStart.box.plantCount} restored heads`,
 );
 saveSystem.save({
   climate,
@@ -2372,17 +2295,14 @@ saveSystem.save({
   plants: cropSimulation,
   nursery,
   harvest,
-  containerHouse,
   farm: farmPerimeter,
 });
 const savedWorld = saveSystem.load();
 check(
-  'save payload carries the harvest boxes, harvest house and gate',
+  'save payload carries the harvest boxes and gate',
   savedWorld?.version === 4 &&
     savedWorld?.harvest?.boxes?.length === harvest.boxes.length &&
-    savedWorld?.harvest?.boxes?.filter((box) => box.stored).length === 1 &&
-    savedWorld?.containerHouse?.doorOpen === true &&
-    savedWorld?.containerHouse?.fridge?.doorOpen === true &&
+    savedWorld?.harvest?.boxes?.filter((box) => box.plantCount > 0).length === 1 &&
     savedWorld?.farm?.gateOpen === false,
   `${savedWorld?.harvest?.boxes?.length ?? 0} boxes saved`,
 );
@@ -2441,11 +2361,6 @@ check(
   'harvest floor disposed',
   harvest.boxes.length === 0 && harvest.root === null && !scene.getObjectByName('harvest-floor'),
 );
-containerHouse.dispose();
-check(
-  'harvest house disposed',
-  containerHouse.group === null && !scene.getObjectByName(LAYOUT.container.id),
-);
 farmPerimeter.dispose();
 check(
   'farm perimeter disposed',
@@ -2462,6 +2377,33 @@ greenhouse.dispose();
 check('scene emptied', scene.children.length === 0, scene.children.length);
 collisionWorld.dispose();
 check('footprints clear with the collision world', collisionWorld.footprints.length === 0);
+
+const walkWorld = new CollisionWorld();
+const walkCamera = new THREE.PerspectiveCamera(68, 16 / 9, 0.06, 240);
+const walkController = new FirstPersonController({
+  camera: walkCamera,
+  domElement: { requestPointerLock() {} },
+  collisionWorld: walkWorld,
+});
+walkController.setEnabled(true);
+const walkStart = walkController.position.clone();
+const walkMoves = ['KeyW', 'KeyA', 'KeyS', 'KeyD'].map((code) => {
+  walkController.clearInput();
+  walkController.teleport(walkStart.x, walkStart.z);
+  walkController.onKeyDown({ code, preventDefault() {} });
+  for (let frame = 0; frame < 30; frame += 1) walkController.update(1 / 60);
+  walkController.onKeyUp({ code });
+  return walkController.position.distanceTo(walkStart) > 0.1;
+});
+check('first-person WASD keys move the controller', walkMoves.every(Boolean), walkMoves.join(','));
+check(
+  'first-person camera tracks the player eye',
+  walkCamera.position.x === walkController.position.x &&
+    walkCamera.position.z === walkController.position.z &&
+    Math.abs(walkCamera.position.y - (walkController.groundY + walkController.eyeHeight)) < 0.05,
+);
+walkController.dispose();
+walkWorld.dispose();
 
 let failed = 0;
 for (const result of checks) {

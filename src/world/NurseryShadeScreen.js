@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { BeamBatch } from './Batches.js';
@@ -86,7 +87,7 @@ export class NurseryShadeScreen {
     this.panel = panel;
 
     const bar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.018, 0.018, width - 0.08, 10),
+      new LowPolyCylinderGeometry(0.018, 0.018, width - 0.08, 10),
       this.materials.aluminium,
     );
     bar.rotation.z = Math.PI / 2;
@@ -99,7 +100,7 @@ export class NurseryShadeScreen {
     motor.name = 'nursery-screen-drive';
     motor.position.set(width / 2 - 0.16, config.y + 0.1, northEdgeZ + 0.12);
     const motorBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.075, 0.24, 16),
+      new LowPolyCylinderGeometry(0.075, 0.075, 0.24, 16),
       this.materials.pumpBlue,
     );
     motorBody.rotation.z = Math.PI / 2;
@@ -111,7 +112,7 @@ export class NurseryShadeScreen {
     gearbox.position.set(0.19, 0, 0);
     motor.add(gearbox);
     const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.013, 0.013, 0.28, 8),
+      new LowPolyCylinderGeometry(0.013, 0.013, 0.28, 8),
       this.materials.stainless,
     );
     shaft.rotation.z = Math.PI / 2;

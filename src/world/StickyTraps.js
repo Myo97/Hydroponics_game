@@ -1,3 +1,4 @@
+import { LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT, GUTTER_X, FRAME_Z } from '../config/layout.js';
 
@@ -93,7 +94,7 @@ export class StickyTraps {
     parent.add(group);
 
     // Plain yellow card stock — no printed text or numbering.
-    const cardMaterial = new THREE.MeshStandardMaterial({
+    const cardMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'sticky-trap-yellow',
       color: '#f2c737',
       roughness: 0.74,
@@ -101,7 +102,7 @@ export class StickyTraps {
       side: THREE.DoubleSide,
     });
     this.labelMaterials.push(cardMaterial);
-    const edgeMaterial = new THREE.MeshStandardMaterial({
+    const edgeMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'sticky-trap-edge',
       color: '#d6a91f',
       roughness: 0.82,
@@ -113,8 +114,8 @@ export class StickyTraps {
     const cardGeometry = new THREE.PlaneGeometry(config.width, config.height);
     const rimGeometry = new THREE.PlaneGeometry(config.width + 0.018, config.height + 0.018);
     const clipGeometry = new THREE.BoxGeometry(0.05, 0.07, 0.035);
-    const wireGeometry = new THREE.TorusGeometry(0.045, 0.006, 5, 12, Math.PI * 1.35);
-    const insectGeometry = new THREE.SphereGeometry(0.0035, 5, 4);
+    const wireGeometry = new LowPolyTorusGeometry(0.045, 0.006, 5, 12, Math.PI * 1.35);
+    const insectGeometry = new LowPolySphereGeometry(0.0035, 5, 4);
     const instances = {
       cards: [],
       rims: [],

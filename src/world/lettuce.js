@@ -395,7 +395,7 @@ export function getLettuceRockwoolGeometry() {
 export function getLettuceMaterials() {
   if (!sharedMaterials) {
     sharedMaterials = {
-      leaf: new THREE.MeshStandardMaterial({
+      leaf: new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'lettuce-leaf-vertex-colour',
         color: 0xffffff,
         vertexColors: true,
@@ -404,14 +404,14 @@ export function getLettuceMaterials() {
         side: THREE.DoubleSide,
         envMapIntensity: 0.35,
       }),
-      netCup: new THREE.MeshStandardMaterial({
+      netCup: new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'lettuce-net-cup',
         color: 0x2f3a33,
         roughness: 0.85,
         metalness: 0.05,
         side: THREE.DoubleSide,
       }),
-      rockwool: new THREE.MeshStandardMaterial({
+      rockwool: new THREE.MeshStandardMaterial({ flatShading: true,
         name: 'lettuce-rockwool',
         color: 0xd8c9a3,
         roughness: 0.98,

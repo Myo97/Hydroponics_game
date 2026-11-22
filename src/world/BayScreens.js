@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT, DIM, GUTTER_X, RIDGE_X } from '../config/layout.js';
 import { BeamBatch, CylinderBatch, boxMesh } from './Batches.js';
@@ -110,7 +111,7 @@ export class BayScreens {
       if (!this.screen) this.screen = shade;
 
       const shadeBar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.019, 0.019, width - 0.06, 10),
+        new LowPolyCylinderGeometry(0.019, 0.019, width - 0.06, 10),
         this.materials.aluminium,
       );
       shadeBar.rotation.z = Math.PI / 2;
@@ -129,7 +130,7 @@ export class BayScreens {
       energyGroup.add(energy);
 
       const energyBar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.017, 0.017, width - 0.06, 10),
+        new LowPolyCylinderGeometry(0.017, 0.017, width - 0.06, 10),
         this.materials.stainless,
       );
       energyBar.rotation.z = Math.PI / 2;

@@ -66,7 +66,7 @@ export class NftCropLayer {
     this.activeTransitions = false;
 
     this.leafMaterial = getLettuceLeafMaterial();
-    this.rootMaterial = new THREE.MeshStandardMaterial({
+    this.rootMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'nft-production-roots',
       color: 0xe4dcc0,
       roughness: 0.9,

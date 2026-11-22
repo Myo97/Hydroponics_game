@@ -1,4 +1,5 @@
-﻿import * as THREE from 'three';
+import { LowPolyCylinderGeometry, LowPolySphereGeometry } from './LowPolyGeometry.js';
+import * as THREE from 'three';
 
 /**
  * Batching helpers.
@@ -157,7 +158,7 @@ export class CylinderBatch {
   build(group, name) {
     const results = [];
     if (this.segments.length) {
-      const geometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
+      const geometry = new LowPolyCylinderGeometry(1, 1, 1, 10, 1, false);
       const mesh = new THREE.InstancedMesh(geometry, this.material, this.segments.length);
       for (let i = 0; i < this.segments.length; i += 1) {
         mesh.setMatrixAt(i, this.segments[i]);
@@ -171,7 +172,7 @@ export class CylinderBatch {
       results.push(mesh);
     }
     if (this.joints.length) {
-      const geometry = new THREE.SphereGeometry(1, 10, 6);
+      const geometry = new LowPolySphereGeometry(1, 10, 6);
       const mesh = new THREE.InstancedMesh(geometry, this.material, this.joints.length);
       for (let i = 0; i < this.joints.length; i += 1) {
         mesh.setMatrixAt(i, this.joints[i]);

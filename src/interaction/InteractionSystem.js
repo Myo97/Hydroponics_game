@@ -59,6 +59,14 @@ export class InteractionSystem {
     if (!enabled) this.clear();
   }
 
+  /** Switch the raycast between the walkthrough, orbit and inspection cameras. */
+  setCamera(camera) {
+    if (!camera || camera === this.camera) return this;
+    this.camera = camera;
+    this.clear();
+    return this;
+  }
+
   /** Objects are only raycast when the pointer is locked, to avoid hover flicker. */
   setLockState(locked) {
     this.locked = locked;
@@ -101,7 +109,10 @@ export class InteractionSystem {
     for (const hit of hits) {
       // Raycaster does not test visibility. Invisible proxy meshes are intentional
       // interaction targets, but a batch inside a hidden cutaway must not block.
-      if (hit.object.isBatchedMesh && !this.isVisibleInHierarchy(hit.object)) continue;
+      // Hidden proxies are intentional; hidden parents (cutaway roofs, carried
+      // boxes and stored trays) must never intercept a click.
+      if (!this.isVisibleInHierarchy(hit.object.parent)) continue;
+      if (hit.object.isBatchedMesh && !hit.object.visible) continue;
       const resolver = hit.object.userData.resolveInteractable;
       const resolved =
         typeof resolver === 'function'

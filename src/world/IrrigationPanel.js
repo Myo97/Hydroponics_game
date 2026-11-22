@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { boxMesh } from './Batches.js';
@@ -120,7 +121,7 @@ export class IrrigationPanel {
       group.add(switchGroup);
 
       const bezel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.062, 0.062, 0.035, 18),
+        new LowPolyCylinderGeometry(0.062, 0.062, 0.035, 18),
         this.materials.steelDark,
       );
       bezel.rotation.x = Math.PI / 2;
@@ -135,7 +136,7 @@ export class IrrigationPanel {
       );
 
       const lamp = new THREE.Mesh(
-        new THREE.SphereGeometry(0.018, 10, 8),
+        new LowPolySphereGeometry(0.018, 10, 8),
         this.materials.ledGreen,
       );
       lamp.position.set(0, 0.083, 0.022);

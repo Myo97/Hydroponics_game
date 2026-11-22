@@ -15,8 +15,7 @@ const SAVE_VERSION = 4;
  * uses the 17-day reference Day 4-20 NFT cycle.
  *
  * Version 14 adds the physical harvest layer: the four styrofoam boxes with
- * their packed heads and chilled state, the container harvest house with its
- * door, vent window and glass-fridge door, and the yard gate swing.
+ * their packed heads and carried state, and the yard gate swing.
  */
 export class SaveSystem {
   constructor({ key = 'verde-block4:save', storage = window.localStorage } = {}) {
@@ -32,7 +31,7 @@ export class SaveSystem {
     }
   }
 
-  save({ player, settings, plants, water, climate, control, nursery, harvest, containerHouse, farm, market, shop } = {}) {
+  save({ player, orbit, settings, plants, water, climate, control, nursery, harvest, farm } = {}) {
     const payload = {
       version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
@@ -40,6 +39,7 @@ export class SaveSystem {
         ? { x: player.position.x, z: player.position.z, yaw: player.yaw, pitch: player.pitch }
         : null,
       settings: settings ?? null,
+      orbit: orbit?.snapshot?.() ?? null,
       plants: plants
         ? {
             elapsedSeconds: plants.elapsedSeconds,
@@ -48,10 +48,7 @@ export class SaveSystem {
         : null,
       nursery: nursery?.snapshotGrowth?.() ?? null,
       harvest: harvest?.snapshot?.() ?? null,
-      containerHouse: containerHouse?.snapshot?.() ?? null,
       farm: farm?.snapshot?.() ?? null,
-      shop: shop?.snapshot?.() ?? null,
-      market: market ? { cash: Math.max(0, Number(market.cash) || 0) } : null,
       water: water
         ? {
             elapsedSeconds: water.elapsedSeconds,

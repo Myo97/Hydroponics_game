@@ -28,7 +28,7 @@ async function boot() {
   }
 
   startButton.disabled = false;
-  startButton.textContent = 'Enter greenhouse';
+  startButton.textContent = 'Explore your farm';
 
   startButton.addEventListener(
     'click',

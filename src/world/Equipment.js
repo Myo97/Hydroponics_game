@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { CylinderBatch, boxMesh } from './Batches.js';
@@ -131,7 +132,7 @@ export class Equipment {
       const shellMaterial =
         label.colour === 'white' ? this.materials.tankHDPEAcid : this.materials.tankHDPEBlue;
       const shell = new THREE.Mesh(
-        new THREE.CylinderGeometry(config.radius, config.radius * 1.02, config.height, 28),
+        new LowPolyCylinderGeometry(config.radius, config.radius * 1.02, config.height, 28),
         shellMaterial,
       );
       shell.position.set(x, 0.14 + config.height / 2, baseZ);
@@ -140,7 +141,7 @@ export class Equipment {
       tank.add(shell);
 
       const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(config.radius * 0.52, config.radius * 0.52, 0.07, 20),
+        new LowPolyCylinderGeometry(config.radius * 0.52, config.radius * 0.52, 0.07, 20),
         this.materials.pvcGrey,
       );
       lid.position.set(x + 0.08, 0.14 + config.height + 0.035, baseZ - 0.03);
@@ -148,7 +149,7 @@ export class Equipment {
       tank.add(lid);
 
       const handle = new THREE.Mesh(
-        new THREE.TorusGeometry(0.12, 0.018, 6, 14, Math.PI),
+        new LowPolyTorusGeometry(0.12, 0.018, 6, 14, Math.PI),
         this.materials.steelDark,
       );
       handle.rotation.y = Math.PI / 2;
@@ -157,7 +158,7 @@ export class Equipment {
 
       // Moulded rib ring and a graduated strip.
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(config.radius * 1.005, 0.014, 6, 28),
+        new LowPolyTorusGeometry(config.radius * 1.005, 0.014, 6, 28),
         this.materials.tankHDPE,
       );
       ring.rotation.x = Math.PI / 2;
@@ -313,7 +314,7 @@ export class Equipment {
       }
 
       const motor = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.19, 0.19, 0.47, 24),
+        new LowPolyCylinderGeometry(0.19, 0.19, 0.47, 24),
         this.materials.pumpBlue,
       );
       motor.rotation.z = Math.PI / 2;
@@ -323,7 +324,7 @@ export class Equipment {
 
       for (let fin = 0; fin < 7; fin += 1) {
         const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(0.193, 0.009, 5, 22),
+          new LowPolyTorusGeometry(0.193, 0.009, 5, 22),
           this.materials.pumpPaint,
         );
         ring.rotation.y = Math.PI / 2;
@@ -332,7 +333,7 @@ export class Equipment {
       }
 
       const fanCowl = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.175, 0.185, 0.12, 20),
+        new LowPolyCylinderGeometry(0.175, 0.185, 0.12, 20),
         this.materials.steelDark,
       );
       fanCowl.rotation.z = Math.PI / 2;
@@ -374,7 +375,7 @@ export class Equipment {
       );
 
       const volute = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.255, 0.255, 0.23, 28),
+        new LowPolyCylinderGeometry(0.255, 0.255, 0.23, 28),
         this.materials.pumpBlue,
       );
       volute.rotation.x = Math.PI / 2;
@@ -383,21 +384,21 @@ export class Equipment {
       pump.add(volute);
 
       const voluteRing = new THREE.Mesh(
-        new THREE.TorusGeometry(0.255, 0.016, 6, 28),
+        new LowPolyTorusGeometry(0.255, 0.016, 6, 28),
         this.materials.pumpPaint,
       );
       voluteRing.position.set(0.29, 0.41, 0.14);
       pump.add(voluteRing);
 
       const suction = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.115, 0.115, 0.1, 20),
+        new LowPolyCylinderGeometry(0.115, 0.115, 0.1, 20),
         this.materials.steelDark,
       );
       suction.rotation.x = Math.PI / 2;
       suction.position.set(0.29, 0.41, 0.2);
       pump.add(suction);
       const suctionFlange = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.155, 0.155, 0.035, 20),
+        new LowPolyCylinderGeometry(0.155, 0.155, 0.035, 20),
         this.materials.stainless,
       );
       suctionFlange.rotation.x = Math.PI / 2;
@@ -405,13 +406,13 @@ export class Equipment {
       pump.add(suctionFlange);
 
       const discharge = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.095, 0.095, 0.3, 18),
+        new LowPolyCylinderGeometry(0.095, 0.095, 0.3, 18),
         this.materials.steelDark,
       );
       discharge.position.set(0.29, 0.74, 0.02);
       pump.add(discharge);
       const dischargeFlange = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.15, 0.15, 0.035, 20),
+        new LowPolyCylinderGeometry(0.15, 0.15, 0.035, 20),
         this.materials.stainless,
       );
       dischargeFlange.position.set(0.29, 0.9, 0.02);
@@ -419,14 +420,14 @@ export class Equipment {
 
 
       const gaugeStem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.016, 0.016, 0.16, 8),
+        new LowPolyCylinderGeometry(0.016, 0.016, 0.16, 8),
         this.materials.stainless,
       );
       gaugeStem.rotation.x = Math.PI / 2;
       gaugeStem.position.set(0.44, 0.72, 0.13);
       pump.add(gaugeStem);
       const gauge = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.075, 0.075, 0.04, 20),
+        new LowPolyCylinderGeometry(0.075, 0.075, 0.04, 20),
         this.materials.stainless,
       );
       gauge.rotation.x = Math.PI / 2;
@@ -440,7 +441,7 @@ export class Equipment {
       pump.add(gaugeFace);
 
       const valveWheel = new THREE.Mesh(
-        new THREE.TorusGeometry(0.075, 0.012, 5, 16),
+        new LowPolyTorusGeometry(0.075, 0.012, 5, 16),
         this.materials.ledRed,
       );
       valveWheel.rotation.x = Math.PI / 2;
@@ -459,7 +460,7 @@ export class Equipment {
       pump.add(plate);
 
       const lamp = new THREE.Mesh(
-        new THREE.SphereGeometry(0.028, 12, 8),
+        new LowPolySphereGeometry(0.028, 12, 8),
         this.materials.ledGreen,
       );
       lamp.name = `${onKey}-lamp`;
@@ -703,7 +704,7 @@ export class Equipment {
         cabinet.add(button);
 
         const body = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.017, 0.017, 0.03, 12),
+          new LowPolyCylinderGeometry(0.017, 0.017, 0.03, 12),
           this.materials.steelDark,
         );
         body.rotation.z = Math.PI / 2;
@@ -711,7 +712,7 @@ export class Equipment {
 
         const on = Boolean(this.control?.getBay(bayId)?.[entry.key]);
         const cap = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.013, 0.013, 0.012, 12),
+          new LowPolyCylinderGeometry(0.013, 0.013, 0.012, 12),
           on ? this.materials.ledGreen : this.materials.ledRed,
         );
         cap.rotation.z = Math.PI / 2;
@@ -784,7 +785,7 @@ export class Equipment {
 
     for (const y of [-height / 2 + 0.12, height / 2 - 0.12]) {
       const hingeKnuckle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.019, 0.019, 0.09, 10),
+        new LowPolyCylinderGeometry(0.019, 0.019, 0.09, 10),
         this.materials.stainless,
       );
       hingeKnuckle.position.set(0.01, y, 0);
@@ -891,7 +892,7 @@ export class Equipment {
     );
     for (let led = 0; led < 4; led += 1) {
       const pilot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.009, 8, 6),
+        new LowPolySphereGeometry(0.009, 8, 6),
         led === 0 ? this.materials.ledGreen : this.materials.ledAmber,
       );
       pilot.position.set(railX - 0.042, 1.14 - led * 0.03, 0.37);
@@ -939,7 +940,7 @@ export class Equipment {
     hinge.add(doorSticker);
 
     const doorLed = new THREE.Mesh(
-      new THREE.SphereGeometry(0.014, 10, 8),
+      new LowPolySphereGeometry(0.014, 10, 8),
       this.materials.ledGreen,
     );
     doorLed.position.set(-0.025, 0.48, 0.24);
@@ -947,13 +948,13 @@ export class Equipment {
 
     // Roof-mounted extract fan and cable conduit to the ceiling.
     const exhaust = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.13, 0.13, 0.07, 16),
+      new LowPolyCylinderGeometry(0.13, 0.13, 0.07, 16),
       this.materials.steelDark,
     );
     exhaust.position.set(0.02, shellY + height / 2 + 0.04, -0.24);
     cabinet.add(exhaust);
     const conduit = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, 2.35, 10),
+      new LowPolyCylinderGeometry(0.035, 0.035, 2.35, 10),
       this.materials.pvcGrey,
     );
     conduit.position.set(depth / 2 - 0.08, shellY + height / 2 + 1.19, 0.3);

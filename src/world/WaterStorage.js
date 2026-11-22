@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { CylinderBatch, BeamBatch, boxMesh } from './Batches.js';
@@ -83,7 +84,7 @@ export class WaterStorage {
     parent.add(assembly);
 
     // Concrete vault, open at the top so the cutaway sees straight in.
-    const vaultMaterial = new THREE.MeshStandardMaterial({
+    const vaultMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: `vault-concrete-${index + 1}`,
       color: 0x8d9189,
       roughness: 0.94,
@@ -92,7 +93,7 @@ export class WaterStorage {
     });
     this.labelMaterials.push(vaultMaterial);
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(
+      new LowPolyCylinderGeometry(
         config.vaultRadius,
         config.vaultRadius,
         config.vaultDepth,
@@ -107,7 +108,7 @@ export class WaterStorage {
     assembly.add(wall);
 
     const floorSlab = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.vaultRadius, config.vaultRadius, 0.12, 36),
+      new LowPolyCylinderGeometry(config.vaultRadius, config.vaultRadius, 0.12, 36),
       vaultMaterial,
     );
     floorSlab.position.set(x, -config.vaultDepth + 0.06, z);
@@ -115,7 +116,7 @@ export class WaterStorage {
     assembly.add(floorSlab);
 
     const collar = new THREE.Mesh(
-      new THREE.CylinderGeometry(
+      new LowPolyCylinderGeometry(
         config.vaultRadius + 0.08,
         config.vaultRadius + 0.08,
         0.09,
@@ -130,7 +131,7 @@ export class WaterStorage {
 
     // HDPE tank shell and reinforcing hoops, entirely below the slab.
     const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(
+      new LowPolyCylinderGeometry(
         config.tankRadius,
         config.tankRadius * 1.01,
         config.tankHeight,
@@ -147,7 +148,7 @@ export class WaterStorage {
 
     for (const y of [-0.9, -1.85, -2.6]) {
       const hoop = new THREE.Mesh(
-        new THREE.TorusGeometry(config.tankRadius + 0.015, 0.028, 8, 40),
+        new LowPolyTorusGeometry(config.tankRadius + 0.015, 0.028, 8, 40),
         this.materials.tankHDPE,
       );
       hoop.rotation.x = Math.PI / 2;
@@ -156,7 +157,7 @@ export class WaterStorage {
     }
 
     const top = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.tankRadius, config.tankRadius, 0.08, 40),
+      new LowPolyCylinderGeometry(config.tankRadius, config.tankRadius, 0.08, 40),
       this.materials.tankHDPEBlue,
     );
     top.position.set(x, config.tankTopY, z);
@@ -172,7 +173,7 @@ export class WaterStorage {
     assembly.add(liquid);
 
     const rope = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012, 0.012, config.tankHeight - 0.2, 6),
+      new LowPolyCylinderGeometry(0.012, 0.012, config.tankHeight - 0.2, 6),
       this.materials.rubber,
     );
     rope.position.set(x + 0.32, config.tankTopY - config.tankHeight / 2 + 0.05, z - 0.3);
@@ -185,7 +186,7 @@ export class WaterStorage {
     this.coverGroup.add(cover);
 
     const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.coverRadius, config.coverRadius, 0.075, 32),
+      new LowPolyCylinderGeometry(config.coverRadius, config.coverRadius, 0.075, 32),
       this.materials.steelDark,
     );
     lid.position.y = 0.045;
@@ -193,7 +194,7 @@ export class WaterStorage {
     lid.receiveShadow = true;
     cover.add(lid);
     const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(config.coverRadius + 0.035, 0.035, 8, 32),
+      new LowPolyTorusGeometry(config.coverRadius + 0.035, 0.035, 8, 32),
       this.materials.stainless,
     );
     rim.rotation.x = Math.PI / 2;
@@ -222,7 +223,7 @@ export class WaterStorage {
     risers.build(assembly, `${tank.id}-risers`);
 
     const fillStub = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.075, 0.08, 16),
+      new LowPolyCylinderGeometry(0.075, 0.075, 0.08, 16),
       this.materials.stainless,
     );
     fillStub.position.set(x - 0.95, 0.39, z + 0.36);
@@ -289,21 +290,21 @@ export class WaterStorage {
     const topY = 0.98;
 
     const glass = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, topY - baseY, 14),
+      new LowPolyCylinderGeometry(0.035, 0.035, topY - baseY, 14),
       this.materials.glass,
     );
     glass.position.set(gaugeX, (topY + baseY) / 2, gaugeZ);
     parent.add(glass);
 
     const water = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.026, 0.026, 1, 12),
+      new LowPolyCylinderGeometry(0.026, 0.026, 1, 12),
       this.materials.water,
     );
     water.position.set(gaugeX, baseY, gaugeZ);
     parent.add(water);
 
     const float = new THREE.Mesh(
-      new THREE.TorusGeometry(0.045, 0.012, 6, 16),
+      new LowPolyTorusGeometry(0.045, 0.012, 6, 16),
       this.materials.ledAmber,
     );
     float.rotation.x = Math.PI / 2;
@@ -312,7 +313,7 @@ export class WaterStorage {
 
     for (const y of [baseY, topY]) {
       const cap = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 0.06, 14),
+        new LowPolyCylinderGeometry(0.06, 0.06, 0.06, 14),
         this.materials.stainless,
       );
       cap.position.set(gaugeX, y, gaugeZ);
@@ -349,7 +350,7 @@ export class WaterStorage {
     assembly.name = 'underground-nutrient-return';
     parent.add(assembly);
 
-    const vaultMaterial = new THREE.MeshStandardMaterial({
+    const vaultMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'return-vault-concrete',
       color: 0x7e837c,
       roughness: 0.95,
@@ -358,21 +359,21 @@ export class WaterStorage {
     this.labelMaterials.push(vaultMaterial);
 
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(vaultRadius, vaultRadius, vaultDepth, 36, 1, true),
+      new LowPolyCylinderGeometry(vaultRadius, vaultRadius, vaultDepth, 36, 1, true),
       vaultMaterial,
     );
     wall.position.set(x, -vaultDepth / 2, z);
     assembly.add(wall);
 
     const slab = new THREE.Mesh(
-      new THREE.CylinderGeometry(vaultRadius, vaultRadius, 0.12, 36),
+      new LowPolyCylinderGeometry(vaultRadius, vaultRadius, 0.12, 36),
       vaultMaterial,
     );
     slab.position.set(x, -vaultDepth + 0.06, z);
     assembly.add(slab);
 
     const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.radius, config.radius * 1.01, config.height, 40, 1),
+      new LowPolyCylinderGeometry(config.radius, config.radius * 1.01, config.height, 40, 1),
       this.materials.returnTank,
     );
     shell.name = 'return-tank-shell';
@@ -383,7 +384,7 @@ export class WaterStorage {
 
     for (const y of [-1.0, -1.9, -2.55]) {
       const hoop = new THREE.Mesh(
-        new THREE.TorusGeometry(config.radius + 0.015, 0.026, 8, 36),
+        new LowPolyTorusGeometry(config.radius + 0.015, 0.026, 8, 36),
         this.materials.steelDark,
       );
       hoop.rotation.x = Math.PI / 2;
@@ -392,13 +393,13 @@ export class WaterStorage {
     }
 
     const top = new THREE.Mesh(
-      new THREE.CylinderGeometry(config.radius, config.radius, 0.075, 36),
+      new LowPolyCylinderGeometry(config.radius, config.radius, 0.075, 36),
       this.materials.returnTank,
     );
     top.position.set(x, config.topY, z);
     assembly.add(top);
 
-    const returnLiquidMaterial = new THREE.MeshStandardMaterial({
+    const returnLiquidMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'return-tank-liquid',
       color: 0x4c5f3c,
       transparent: true,
@@ -437,13 +438,13 @@ export class WaterStorage {
 
     // Gas vent and high-level beacon rise through the slab beside the cover.
     const vent = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 0.8, 12),
+      new LowPolyCylinderGeometry(0.045, 0.045, 0.8, 12),
       this.materials.pvcGrey,
     );
     vent.position.set(x + 0.78, 0.4, z - 0.55);
     assembly.add(vent);
     const ventCap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.085, 0.065, 0.06, 12),
+      new LowPolyCylinderGeometry(0.085, 0.065, 0.06, 12),
       this.materials.pvcGrey,
     );
     ventCap.position.set(x + 0.78, 0.82, z - 0.55);
@@ -455,21 +456,21 @@ export class WaterStorage {
     this.coverGroup.add(cover);
 
     const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.54, 0.54, 0.075, 30),
+      new LowPolyCylinderGeometry(0.54, 0.54, 0.075, 30),
       this.materials.steelDark,
     );
     lid.position.y = 0.045;
     lid.castShadow = true;
     cover.add(lid);
     const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.575, 0.032, 8, 30),
+      new LowPolyTorusGeometry(0.575, 0.032, 8, 30),
       this.materials.stainless,
     );
     rim.rotation.x = Math.PI / 2;
     rim.position.y = 0.016;
     cover.add(rim);
     const beacon = new THREE.Mesh(
-      new THREE.SphereGeometry(0.055, 12, 8),
+      new LowPolySphereGeometry(0.055, 12, 8),
       this.materials.ledRed,
     );
     beacon.position.set(-0.72, 0.11, 0.3);
@@ -541,7 +542,7 @@ export class WaterStorage {
     assembly.name = 'underground-rainwater-harvester';
     parent.add(assembly);
 
-    const vaultMaterial = new THREE.MeshStandardMaterial({
+    const vaultMaterial = new THREE.MeshStandardMaterial({ flatShading: true,
       name: 'harvester-vault-concrete',
       color: 0x858b84,
       roughness: 0.95,
@@ -550,7 +551,7 @@ export class WaterStorage {
     });
     this.labelMaterials.push(vaultMaterial);
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(vaultRadius, vaultRadius, vaultDepth, 40, 1, true),
+      new LowPolyCylinderGeometry(vaultRadius, vaultRadius, vaultDepth, 40, 1, true),
       vaultMaterial,
     );
     wall.position.set(x, -vaultDepth / 2, z);
@@ -558,7 +559,7 @@ export class WaterStorage {
     assembly.add(wall);
 
     const floorSlab = new THREE.Mesh(
-      new THREE.CylinderGeometry(vaultRadius, vaultRadius, 0.12, 40),
+      new LowPolyCylinderGeometry(vaultRadius, vaultRadius, 0.12, 40),
       vaultMaterial,
     );
     floorSlab.position.set(x, -vaultDepth + 0.06, z);
@@ -567,7 +568,7 @@ export class WaterStorage {
 
     // HDPE storage tank, open at the top so the cutaway shows the water plane.
     const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius, radius * 1.012, height, 44, 1, true),
+      new LowPolyCylinderGeometry(radius, radius * 1.012, height, 44, 1, true),
       this.materials.tankHDPEBlue,
     );
     shell.name = 'rainwater-harvester-shell';
@@ -578,7 +579,7 @@ export class WaterStorage {
 
     for (let rib = 0; rib < 5; rib += 1) {
       const hoop = new THREE.Mesh(
-        new THREE.TorusGeometry(radius + 0.014, 0.026, 8, 42),
+        new LowPolyTorusGeometry(radius + 0.014, 0.026, 8, 42),
         this.materials.tankHDPE,
       );
       hoop.rotation.x = Math.PI / 2;
@@ -587,7 +588,7 @@ export class WaterStorage {
     }
 
     const tankRim = new THREE.Mesh(
-      new THREE.TorusGeometry(radius + 0.01, 0.04, 8, 42),
+      new LowPolyTorusGeometry(radius + 0.01, 0.04, 8, 42),
       this.materials.tankHDPEBlue,
     );
     tankRim.rotation.x = Math.PI / 2;
@@ -703,7 +704,7 @@ export class WaterStorage {
     this.harvesterHatch = hatch;
 
     const collar = new THREE.Mesh(
-      new THREE.CylinderGeometry(hatchRadius + 0.13, hatchRadius + 0.16, 0.09, 36),
+      new LowPolyCylinderGeometry(hatchRadius + 0.13, hatchRadius + 0.16, 0.09, 36),
       this.materials.concretePlinth,
     );
     collar.position.y = 0.035;
@@ -711,7 +712,7 @@ export class WaterStorage {
     hatch.add(collar);
 
     const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(hatchRadius, hatchRadius, 0.075, 36),
+      new LowPolyCylinderGeometry(hatchRadius, hatchRadius, 0.075, 36),
       this.materials.steelDark,
     );
     lid.position.y = 0.115;
@@ -720,7 +721,7 @@ export class WaterStorage {
     hatch.add(lid);
 
     const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(hatchRadius + 0.035, 0.03, 8, 36),
+      new LowPolyTorusGeometry(hatchRadius + 0.035, 0.03, 8, 36),
       this.materials.stainless,
     );
     rim.rotation.x = Math.PI / 2;
@@ -743,14 +744,14 @@ export class WaterStorage {
     vent.name = 'harvester-vault-vent';
     vent.position.set(x + hatchRadius + 0.24, 0, z + 0.12);
     const ventPipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 0.72, 14),
+      new LowPolyCylinderGeometry(0.045, 0.045, 0.72, 14),
       this.materials.pvcWhite,
     );
     ventPipe.position.y = 0.34;
     ventPipe.castShadow = true;
     vent.add(ventPipe);
     const ventCap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.09, 0.05, 18),
+      new LowPolyCylinderGeometry(0.09, 0.09, 0.05, 18),
       this.materials.pvcGrey,
     );
     ventCap.position.y = 0.73;
@@ -762,26 +763,26 @@ export class WaterStorage {
     flush.name = 'harvester-first-flush';
     flush.position.set(flushX, 0, flushZ);
     const flushPipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.095, 0.095, 1.48, 18),
+      new LowPolyCylinderGeometry(0.095, 0.095, 1.48, 18),
       this.materials.pvcReturn,
     );
     flushPipe.position.y = 0.78;
     flushPipe.castShadow = true;
     flush.add(flushPipe);
     const flushTop = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.12, 0.08, 18),
+      new LowPolyCylinderGeometry(0.12, 0.12, 0.08, 18),
       this.materials.pvcGrey,
     );
     flushTop.position.y = 1.55;
     flush.add(flushTop);
     const flushCap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.1, 0.1, 0.06, 18),
+      new LowPolyCylinderGeometry(0.1, 0.1, 0.06, 18),
       this.materials.pvcGrey,
     );
     flushCap.position.y = 0.12;
     flush.add(flushCap);
     const flushWheel = new THREE.Mesh(
-      new THREE.TorusGeometry(0.075, 0.014, 8, 18),
+      new LowPolyTorusGeometry(0.075, 0.014, 8, 18),
       this.materials.ledRed,
     );
     flushWheel.rotation.x = Math.PI / 2;
@@ -875,7 +876,7 @@ export class WaterStorage {
     }
 
     const volute = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.19, 0.19, 0.28, 24),
+      new LowPolyCylinderGeometry(0.19, 0.19, 0.28, 24),
       this.materials.pumpBlue,
     );
     volute.rotation.z = Math.PI / 2;
@@ -884,7 +885,7 @@ export class WaterStorage {
     assembly.add(volute);
 
     const motor = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.155, 0.155, 0.34, 20),
+      new LowPolyCylinderGeometry(0.155, 0.155, 0.34, 20),
       this.materials.pumpBlue,
     );
     motor.rotation.z = Math.PI / 2;
@@ -893,7 +894,7 @@ export class WaterStorage {
     assembly.add(motor);
 
     const cowl = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.17, 0.17, 0.13, 20),
+      new LowPolyCylinderGeometry(0.17, 0.17, 0.13, 20),
       this.materials.steelDark,
     );
     cowl.rotation.z = Math.PI / 2;
@@ -951,19 +952,19 @@ export class WaterStorage {
     discharge.build(assembly, 'rain-pump-discharge');
 
     const valveBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.085, 0.085, 0.13, 16),
+      new LowPolyCylinderGeometry(0.085, 0.085, 0.13, 16),
       this.materials.stainless,
     );
     valveBody.position.set(x + 0.3, 0.78, z - 0.22);
     assembly.add(valveBody);
     const valveStem = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.016, 0.016, 0.16, 10),
+      new LowPolyCylinderGeometry(0.016, 0.016, 0.16, 10),
       this.materials.stainless,
     );
     valveStem.position.set(x + 0.3, 0.92, z - 0.22);
     assembly.add(valveStem);
     const wheel = new THREE.Mesh(
-      new THREE.TorusGeometry(0.075, 0.014, 8, 18),
+      new LowPolyTorusGeometry(0.075, 0.014, 8, 18),
       this.materials.ledRed,
     );
     wheel.rotation.x = Math.PI / 2;
@@ -981,13 +982,13 @@ export class WaterStorage {
       boxMesh(0.24, 0.3, 0.12, this.materials.cabinetPaint, V(0, 0, 0), 'rain-pump-starter-box'),
     );
     const lamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.025, 10, 8),
+      new LowPolySphereGeometry(0.025, 10, 8),
       this.materials.ledGreen,
     );
     lamp.position.set(-0.06, 0.08, -0.065);
     starter.add(lamp);
     const button = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14),
+      new LowPolyCylinderGeometry(0.038, 0.038, 0.03, 14),
       this.materials.ledWhite,
     );
     button.rotation.x = Math.PI / 2;
@@ -1076,18 +1077,18 @@ export class WaterStorage {
       valve.position.set(x, config.y - 0.22, config.z);
 
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.085, 0.085, 0.14, 16),
+        new LowPolyCylinderGeometry(0.085, 0.085, 0.14, 16),
         this.materials.stainless,
       );
       valve.add(body);
       const bonnet = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045, 0.06, 0.09, 14),
+        new LowPolyCylinderGeometry(0.045, 0.06, 0.09, 14),
         this.materials.stainless,
       );
       bonnet.position.y = 0.11;
       valve.add(bonnet);
       const stem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.014, 0.014, 0.18, 10),
+        new LowPolyCylinderGeometry(0.014, 0.014, 0.18, 10),
         this.materials.stainless,
       );
       stem.position.y = 0.22;
@@ -1097,7 +1098,7 @@ export class WaterStorage {
       handle.position.y = 0.31;
       handle.add(
         new THREE.Mesh(
-          new THREE.TorusGeometry(0.082, 0.012, 6, 18),
+          new LowPolyTorusGeometry(0.082, 0.012, 6, 18),
           this.materials.ledRed,
         ),
       );
@@ -1147,7 +1148,7 @@ export class WaterStorage {
     gauge.name = 'clean-manifold-pressure-gauge';
     gauge.position.set(-8.0, config.y + 0.22, config.z);
     const dial = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.12, 0.035, 24),
+      new LowPolyCylinderGeometry(0.12, 0.12, 0.035, 24),
       this.materials.stainless,
     );
     dial.rotation.x = Math.PI / 2;
@@ -1163,7 +1164,7 @@ export class WaterStorage {
     gauge.add(face);
     gauge.add(
       new THREE.Mesh(
-        new THREE.CylinderGeometry(0.012, 0.012, 0.1, 8),
+        new LowPolyCylinderGeometry(0.012, 0.012, 0.1, 8),
         this.materials.steelDark,
       ),
     );
@@ -1201,7 +1202,7 @@ export class WaterStorage {
     parent.add(assembly);
 
     const sump = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.46, 0.48, 0.05, 28),
+      new LowPolyCylinderGeometry(0.46, 0.48, 0.05, 28),
       this.materials.steelDark,
     );
     sump.position.set(x, 0.012, z);
@@ -1209,7 +1210,7 @@ export class WaterStorage {
     assembly.add(sump);
 
     const flange = new THREE.Mesh(
-      new THREE.TorusGeometry(0.43, 0.045, 8, 28),
+      new LowPolyTorusGeometry(0.43, 0.045, 8, 28),
       this.materials.stainless,
     );
     flange.rotation.x = Math.PI / 2;
@@ -1239,7 +1240,7 @@ export class WaterStorage {
     }
 
     const stub = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.15, 0.32, 20),
+      new LowPolyCylinderGeometry(0.15, 0.15, 0.32, 20),
       this.materials.pvcReturn,
     );
     stub.position.set(x, 0.2, z);
@@ -1283,7 +1284,7 @@ export class WaterStorage {
     for (const sx of [-0.56, 0.56]) {
       clean.add(
         new THREE.Mesh(
-          new THREE.CylinderGeometry(0.03, 0.032, 1.5, 10),
+          new LowPolyCylinderGeometry(0.03, 0.032, 1.5, 10),
           this.materials.steelDark,
         ),
       );
@@ -1315,7 +1316,7 @@ export class WaterStorage {
     dirty.position.set(6.0, 0, -12.98);
     for (const sx of [-0.6, 0.6]) {
       const post = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.032, 1.5, 10),
+        new LowPolyCylinderGeometry(0.03, 0.032, 1.5, 10),
         this.materials.steelDark,
       );
       post.position.set(sx, 0.75, 0);

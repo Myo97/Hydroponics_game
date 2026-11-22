@@ -1,3 +1,4 @@
+import { LowPolyCylinderGeometry, LowPolySphereGeometry, LowPolyTorusGeometry } from './LowPolyGeometry.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { BeamBatch, CylinderBatch, boxMesh } from './Batches.js';
@@ -157,7 +158,7 @@ export class HydraulicNetwork {
         ),
       );
       const supplyWheel = new THREE.Mesh(
-        new THREE.TorusGeometry(0.075, 0.011, 5, 16),
+        new LowPolyTorusGeometry(0.075, 0.011, 5, 16),
         this.materials.ledRed,
       );
       supplyWheel.rotation.x = Math.PI / 2;
@@ -229,7 +230,7 @@ export class HydraulicNetwork {
       }
 
       const valve = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 0.11, 12),
+        new LowPolyCylinderGeometry(0.05, 0.05, 0.11, 12),
         this.materials.stainless,
       );
       valve.position.set(table.supplyX, 0.48, table.supplyZ);
@@ -243,7 +244,7 @@ export class HydraulicNetwork {
       handle.add(
         boxMesh(0.15, 0.022, 0.036, this.materials.pumpBlue, V(0.055, 0, 0), 'table-valve-lever'),
       );
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), this.materials.ledRed);
+      const knob = new THREE.Mesh(new LowPolySphereGeometry(0.016, 8, 6), this.materials.ledRed);
       knob.position.set(0.132, 0, 0);
       handle.add(knob);
 
@@ -304,7 +305,7 @@ export class HydraulicNetwork {
       returnLine.addJoint(V(table.returnX, pipes.returnY, pipes.returnMainZ), 0.075);
 
       const union = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 0.12, 12),
+        new LowPolyCylinderGeometry(0.06, 0.06, 0.12, 12),
         this.materials.steelDark,
       );
       union.rotation.z = Math.PI / 2;
@@ -379,7 +380,7 @@ export class HydraulicNetwork {
       group.add(sign);
       for (const sx of [-0.25, 0.25]) {
         const post = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012, 0.012, 0.58, 6),
+          new LowPolyCylinderGeometry(0.012, 0.012, 0.58, 6),
           this.materials.stainless,
         );
         post.position.set(x + sx, 0.29, z);
