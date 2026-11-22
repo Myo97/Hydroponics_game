@@ -89,6 +89,16 @@ export class GreenhouseClimate {
     return Math.max(0, svp - avp);
   }
 
+  // A simplified game calendar, derived from the saved clock.
+  get moonPhase() {
+    const age = (this.dayIndex + this.hour / 24) / LAYOUT.moon.cycleDays;
+    return age - Math.floor(age);
+  }
+
+  get moonIllumination() {
+    return (1 - Math.cos(this.moonPhase * Math.PI * 2)) / 2;
+  }
+
   get weatherState() {
     return this.weatherConfig.states[this.weather] ?? this.weatherConfig.states.sunny;
   }

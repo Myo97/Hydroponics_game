@@ -12,6 +12,50 @@ function cropTint(cropKey = '') {
   return CROP_TINTS.green;
 }
 
+function createCurlyLeafGeometry() {
+  const rows = 7;
+  const columns = 9;
+  const positions = [];
+  const indices = [];
+  for (let row = 0; row <= rows; row += 1) {
+    const t = row / rows;
+    const halfWidth = Math.pow(Math.sin(Math.PI * t), 0.72);
+    for (let column = 0; column <= columns; column += 1) {
+      const u = column / columns * 2 - 1;
+      const edgeWave = 1 + 0.12 * Math.sin(column * 2.4 + row * 1.8);
+      positions.push(
+        u * halfWidth * edgeWave,
+        0.16 * Math.sin(Math.PI * t) * (1 - Math.abs(u)) + 0.055 * Math.sin(column * 2.1 + row * 1.7),
+        t,
+      );
+    }
+  }
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const a = row * (columns + 1) + column;
+      const b = a + columns + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function halton(index, base) {
+  let result = 0;
+  let fraction = 1 / base;
+  let value = index;
+  while (value > 0) {
+    result += fraction * (value % base);
+    value = Math.floor(value / base);
+    fraction /= base;
+  }
+  return result;
+}
+
 /**
  * Version 14 styrofoam harvest box.
  *
@@ -97,17 +141,30 @@ export class HarvestBox {
       }),
     );
 
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), this.foam);
-    shell.position.y = height / 2;
-    group.add(shell);
-
-    // Dark rim inset reads as an open tray without modelling four walls.
-    const recess = new THREE.Mesh(
-      new THREE.BoxGeometry(width - 0.05, 0.012, depth - 0.05),
-      this.innerMaterial,
+    // Open-top insulated shipping crate: a thick foam floor and four separate
+    // walls leave a real cavity for the harvested crop to sit in.
+    const base = new THREE.Mesh(new THREE.BoxGeometry(width, 0.055, depth), this.foam);
+    base.position.y = 0.0275;
+    group.add(base);
+    const wallHeight = height - 0.055;
+    const wallGeometry = new THREE.BoxGeometry(width, wallHeight, 0.055);
+    const frontWall = new THREE.Mesh(wallGeometry, this.foam);
+    frontWall.position.set(0, 0.055 + wallHeight / 2, depth / 2 - 0.0275);
+    group.add(frontWall);
+    const backWall = new THREE.Mesh(wallGeometry, this.foam);
+    backWall.position.set(0, 0.055 + wallHeight / 2, -depth / 2 + 0.0275);
+    group.add(backWall);
+    const sideGeometry = new THREE.BoxGeometry(0.055, wallHeight, depth - 0.1);
+    for (const side of [-1, 1]) {
+      const wall = new THREE.Mesh(sideGeometry, this.foam);
+      wall.position.set(side * (width / 2 - 0.0275), 0.055 + wallHeight / 2, 0);
+      group.add(wall);
+    }
+    const inner = new THREE.Mesh(
+      new THREE.BoxGeometry(width - 0.075, 0.012, depth - 0.075), this.innerMaterial,
     );
-    recess.position.y = height - 0.012;
-    group.add(recess);
+    inner.position.y = 0.057;
+    group.add(inner);
 
     const band = new THREE.Mesh(
       new THREE.BoxGeometry(width + 0.012, 0.036, 0.026),
@@ -116,7 +173,7 @@ export class HarvestBox {
     band.position.set(0, height * 0.62, depth / 2 + 0.002);
     group.add(band);
 
-    // Produce volume: one block scaled by fill ratio keeps a full box cheap.
+    // The old produce block stays hidden; the visible contents are loose leaves.
     this.produceMaterial = new THREE.MeshStandardMaterial({
       color: CROP_TINTS.green,
       roughness: 0.82,
@@ -129,8 +186,16 @@ export class HarvestBox {
     this.produce.name = 'harvest-box-produce';
     this.produce.scale.y = 0.001;
     this.produce.position.y = height;
+    this.produce.visible = false;
     group.add(this.produce);
 
+    this.leafMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide });
+    this.leafGeometry = createCurlyLeafGeometry();
+    this.produceLeaves = new THREE.InstancedMesh(this.leafGeometry, this.leafMaterial, 240);
+    this.produceLeaves.name = 'harvest-box-packed-lettuce';
+    this.produceLeaves.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.produceLeaves.frustumCulled = false;
+    group.add(this.produceLeaves);
     this.height = height;
     this.width = width;
     this.depth = depth;
@@ -247,13 +312,47 @@ export class HarvestBox {
 
   refresh() {
     const ratio = this.fillRatio;
-    const visibleHeight = Math.max(0.001, (this.height - 0.05) * ratio);
-    this.produce.scale.y = visibleHeight;
-    this.produce.position.y = this.height - 0.012 + visibleHeight / 2;
-    this.produce.visible = ratio > 0.005;
-    this.produceMaterial.color.setHex(
-      cropTint(this.cropKey ?? Array.from(this.lots.keys())[0] ?? ''),
-    );
+    const key = this.cropKey ?? Array.from(this.lots.keys())[0] ?? '';
+    this.produceMaterial.color.setHex(cropTint(key));
+    const leafPalette = /red/i.test(key)
+      ? [0x6f873f, 0x84964a, 0x9e5946, 0xb7664c, 0x748a42]
+      : /dark|oak/i.test(key)
+        ? [0x4c783e, 0x5c8b45, 0x6d9848, 0x47743b, 0x7a9d50]
+        : [0x5f913f, 0x70a447, 0x82b34f, 0x4f823b, 0x94bd5d];
+    const leafCount = this.isEmpty ? 0 : Math.min(240, Math.max(28, Math.ceil(ratio * 240)));
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    let seed = 0;
+    for (const char of this.id) seed = (seed * 31 + char.charCodeAt(0)) >>> 0;
+    for (let index = 0; index < 240; index += 1) {
+      if (index < leafCount) {
+        const pointIndex = index + 1 + seed % 977;
+        const x = (halton(pointIndex, 2) - 0.5) * (this.width - 0.22);
+        const z = (halton(pointIndex, 3) - 0.5) * (this.depth - 0.32);
+        const angle = halton(pointIndex, 5) * Math.PI * 2;
+        const tilt = (halton(pointIndex, 7) - 0.5) * 0.9;
+        const layer = Math.floor(index / Math.max(1, leafCount / 4));
+        position.set(x, this.height - 0.12 + layer * 0.027 + halton(pointIndex, 11) * 0.02, z);
+        rotation.setFromEuler(new THREE.Euler(tilt, angle, (halton(pointIndex, 13) - 0.5) * 0.7));
+        scale.set(
+          0.035 + halton(pointIndex, 17) * 0.02,
+          0.012 + halton(pointIndex, 19) * 0.01,
+          0.07 + halton(pointIndex, 23) * 0.04,
+        );
+        this.produceLeaves.setColorAt(index, new THREE.Color(leafPalette[Math.floor(halton(pointIndex, 29) * leafPalette.length)]));
+      } else {
+        position.set(0, 0, 0);
+        rotation.identity();
+        scale.set(0, 0, 0);
+      }
+      matrix.compose(position, rotation, scale);
+      this.produceLeaves.setMatrixAt(index, matrix);
+    }
+    this.produceLeaves.instanceMatrix.needsUpdate = true;
+    if (this.produceLeaves.instanceColor) this.produceLeaves.instanceColor.needsUpdate = true;
+    this.produceLeaves.count = 240;
 
     const status = this.stored
       ? 'chilled'
@@ -333,6 +432,7 @@ export class HarvestBox {
       lots: this.cropSummary,
       carried: false,
       stored: this.stored,
+      chilledAt: this.chilledAt ?? null,
       spawned: this.spawned,
       position: {
         x: this.group.position.x,
@@ -363,6 +463,7 @@ export class HarvestBox {
       this.cropName ??= lot.cropName ?? 'Crop';
     }
     this.stored = Boolean(state.stored);
+    this.chilledAt = Number.isFinite(state.chilledAt) ? state.chilledAt : null;
     this.carried = false;
     this.spawned = Boolean(state.spawned) || this.plantCount > 0 || this.stored;
     this.group.position.set(this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z);
@@ -383,5 +484,6 @@ export class HarvestBox {
     for (const material of this.ownedMaterials) material.dispose();
     this.ownedMaterials.length = 0;
     this.produceMaterial.dispose();
+    this.leafMaterial.dispose();
   }
 }

@@ -32,7 +32,7 @@ export class SaveSystem {
     }
   }
 
-  save({ player, settings, plants, water, climate, control, nursery, harvest, containerHouse, farm } = {}) {
+  save({ player, settings, plants, water, climate, control, nursery, harvest, containerHouse, farm, market, shop } = {}) {
     const payload = {
       version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
@@ -50,6 +50,8 @@ export class SaveSystem {
       harvest: harvest?.snapshot?.() ?? null,
       containerHouse: containerHouse?.snapshot?.() ?? null,
       farm: farm?.snapshot?.() ?? null,
+      shop: shop?.snapshot?.() ?? null,
+      market: market ? { cash: Math.max(0, Number(market.cash) || 0) } : null,
       water: water
         ? {
             elapsedSeconds: water.elapsedSeconds,

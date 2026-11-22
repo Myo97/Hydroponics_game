@@ -977,6 +977,9 @@ kbd {
   pointer-events: auto;
 }
 
+#fridge-modal .btn:disabled { cursor: not-allowed; }
+#fridge-modal .modal-panel { max-height: 90vh; overflow-y: auto; }
+
 .modal-panel {
   width: min(430px, 100%);
   background: rgba(12, 17, 18, 0.94);
@@ -1477,3 +1480,12 @@ input[type="range"]::-moz-range-thumb {
     font-size: 9px;
   }
 }
+
+.shop-panel { margin-top: 18px; padding-top: 16px; border-top: 1px solid #40514c; }
+.shop-heading, .shop-price-row { display: flex; align-items: center; gap: 10px; }
+.shop-heading { justify-content: space-between; }
+.shop-heading h3 { margin: 0; }
+.shop-price-row { margin: 10px 0; }
+.shop-price-row span { flex: 1; }
+.shop-price-row input { width: 76px; padding: 7px; color: inherit; background: #152825; border: 1px solid #65847a; border-radius: 4px; }
+#pause-modal .modal-panel { max-height: 90vh; overflow-y: auto; }

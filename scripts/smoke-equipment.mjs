@@ -6,6 +6,8 @@
  * rotation, climate data and disposal are real.
  */
 import * as THREE from 'three';
+import './smoke-shop.mjs';
+import './smoke-fridge.mjs';
 
 const context = new Proxy(
   {
@@ -1278,6 +1280,43 @@ check(
   'night hides the sun and shows stars',
   skyEnvironment.sun.visible === false && skyEnvironment.stars.visible === true,
 );
+// Lunar lighting uses the same saved day/hour as the farming simulation.
+fastClock.dayIndex = 0;
+fastClock.hour = 0;
+fastClock.setWeather('sunny', { manual: true });
+skyEnvironment.update(0, fastClock);
+check('new moon emits no directional moonlight', fastClock.moonIllumination === 0 && skyEnvironment.moon.intensity === 0);
+fastClock.dayIndex = 7;
+check('quarter moon is half illuminated', Math.abs(fastClock.moonIllumination - 0.5) < 1e-9);
+fastClock.dayIndex = 14;
+skyEnvironment.applyQuality({ id: 'medium', shadows: true, shadowMapSize: 512, environmentIntensity: 0.5 });
+skyEnvironment.update(0, fastClock);
+const fullMoonIntensity = skyEnvironment.moon.intensity;
+check('full moon lights the night and casts shadows', fullMoonIntensity > 0.3 && skyEnvironment.moon.castShadow && skyEnvironment.moonDisc.visible);
+const moonBearing = skyEnvironment.moon.position.clone().sub(skyEnvironment.moon.target.position).normalize();
+check('moon shadows follow the visible moon', moonBearing.distanceTo(skyEnvironment.moonDisc.position.clone().normalize()) < 1e-9);
+fastClock.setWeather('heavyRain', { manual: true });
+skyEnvironment.update(0, fastClock);
+check('clouds dim moonlight', skyEnvironment.moon.intensity < fullMoonIntensity);
+const lunarSave = fastClock.snapshot();
+const lunarRestore = new GreenhouseClimate();
+lunarRestore.restore(lunarSave);
+check('saved date restores the moon phase', lunarRestore.moonPhase === fastClock.moonPhase);
+fastClock.hour = 12;
+skyEnvironment.update(0, fastClock);
+check('moonlight switches off during daytime', skyEnvironment.moon.intensity === 0);
+fastClock.dayIndex = 28;
+fastClock.hour = 0;
+check('lunar cycle repeats after 28 days', fastClock.moonPhase === 0);
+fastClock.dayIndex = 14;
+skyEnvironment.update(0, fastClock);
+skyEnvironment.update(0, fastClock);
+check('stationary moon reuses its shadow map', skyEnvironment.moonChanged === false);
+fastClock.hour = 1;
+skyEnvironment.update(0, fastClock);
+check('moving moon invalidates cached shadows', skyEnvironment.moonChanged === true);
+skyEnvironment.applyQuality({ id: 'low', shadows: false, shadowMapSize: 256, environmentIntensity: 0.5 });
+check('moon respects shadow quality settings', !skyEnvironment.moon.castShadow && skyEnvironment.moon.shadow.mapSize.x === 256);
 skyEnvironment.dispose();
 check('weather environment disposed', skyScene.children.length === 0, skyScene.children.length);
 
@@ -2087,6 +2126,63 @@ const containerHouse = new ContainerHouse({
   collisionWorld,
   camera: carryCamera,
 }).build();
+const shopVisual = {
+  order: { stage: 'returning', elapsed: 3, quantity: 2, cropKey: 'green-coral' },
+  climate: { rainIntensity: 0 }, sales: 0, revenueCents: 0, status: () => 'Packing order',
+};
+let shopVisualsValid = true;
+for (const stage of ['arriving', 'collecting', 'returning', 'packing', 'handover', 'leaving']) {
+  shopVisual.order.stage = stage;
+  containerHouse.updateShopVisuals(shopVisual, 0.25);
+  shopVisualsValid &&= containerHouse.customer.visible &&
+    Number.isFinite(containerHouse.shopAssistant.position.z) &&
+    containerHouse.pickupHeadGroups.filter(head => head.visible).length === 2;
+}
+check('automatic shop animates every stage with the exact ordered head count', shopVisualsValid);
+const customerNames = new Set();
+let singleCustomerVisible = true;
+for (let variant = 0; variant < containerHouse.customers.length; variant += 1) {
+  shopVisual.order.customerVariant = variant;
+  containerHouse.updateShopVisuals(shopVisual, 0.25);
+  customerNames.add(containerHouse.customer.userData.figure.name);
+  singleCustomerVisible &&= containerHouse.customers.filter(person => person.visible).length === 1;
+}
+check('shop rotates eight distinct customers with one visible per order', customerNames.size === 8 && singleCustomerVisible);
+check('the complete customer cast stays outside static batching', containerHouse.getDynamicRoots().includes(containerHouse.customerGroup));
+check('shopkeeper has the dedicated reference design', containerHouse.shopAssistant.userData.figure.name === 'Farm shopkeeper');
+
+// Sample both carton sizes across the wall, including the shortest customer.
+containerHouse.toggleWindow(true);
+containerHouse.update(2);
+let handoverClear = true;
+let crossingSamples = 0;
+const shopOrigin = containerHouse.group.position.clone().negate();
+const servingWindow = LAYOUT.container.window;
+const shopWallZ = LAYOUT.container.length / 2;
+for (const quantity of [2, 4]) {
+  for (let variant = 0; variant < containerHouse.customers.length; variant += 1) {
+    for (let step = 0; step <= 20; step += 1) {
+      shopVisual.order = { stage: 'handover', elapsed: step / 20, quantity, customerVariant: variant, cropKey: 'green-coral' };
+      containerHouse.updateShopVisuals(shopVisual, 0);
+      containerHouse.group.updateMatrixWorld(true);
+      const cartonBounds = new THREE.Box3().setFromObject(containerHouse.pickupCrate).translate(shopOrigin);
+      const sashBounds = new THREE.Box3().setFromObject(containerHouse.windowPivot).translate(shopOrigin);
+      handoverClear &&= !cartonBounds.intersectsBox(sashBounds);
+      if (cartonBounds.max.z >= shopWallZ - LAYOUT.container.wallThickness && cartonBounds.min.z <= shopWallZ) {
+        crossingSamples += 1;
+        handoverClear &&= cartonBounds.min.y > servingWindow.sillY &&
+          cartonBounds.max.y < servingWindow.sillY + servingWindow.height &&
+          cartonBounds.min.x > -servingWindow.width / 2 && cartonBounds.max.x < servingWindow.width / 2;
+      }
+    }
+  }
+}
+check('retail cartons clear the serving window sill, jambs and open sash for every customer', handoverClear && crossingSamples > 0);
+
+shopVisual.order = null;
+containerHouse.updateShopVisuals(shopVisual, 0);
+check('idle shop hides customer and retail carton', !containerHouse.customer.visible && !containerHouse.pickupCrate.visible);
+check('shop assistant and retail carton remain dynamic', containerHouse.getDynamicRoots().includes(containerHouse.shopAssistant) && containerHouse.getDynamicRoots().includes(containerHouse.pickupCrate));
 const houseInteractions = containerHouse.getInteractables().map((entry) => entry.data?.interaction);
 check(
   'harvest house ships a door, vent window, bench and glass fridge',

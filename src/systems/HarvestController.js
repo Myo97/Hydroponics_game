@@ -32,6 +32,7 @@ export class HarvestController {
     simulation,
     collisionWorld = null,
     fridge = null,
+    fridges = [],
     layout = LAYOUT,
     onPacked = null,
     onModeChange = null,
@@ -43,6 +44,7 @@ export class HarvestController {
     this.simulation = simulation;
     this.collisionWorld = collisionWorld;
     this.fridge = fridge;
+    this.fridges = Array.from(new Set([fridge, ...fridges].filter(Boolean)));
     this.layout = layout;
     this.config = layout.harvest ?? {};
     this.onPacked = onPacked;
@@ -127,7 +129,7 @@ export class HarvestController {
       parent: this.scene,
       camera: this.camera,
       name: 'harvest-badges',
-      text: 'READY TO HARVEST',
+      text: 'HARVEST TABLE',
       variant: 'harvest',
       width: 1.18,
       height: 0.28,
@@ -173,8 +175,8 @@ export class HarvestController {
       title: `${table.data?.title ?? table.id} - harvest`,
       description:
         'Two gullies are cut per pass. Every harvest-ready head is lifted into the styrofoam box staged in the aisle, which holds one full two-gully pass (80 heads). Carry the packed box to the harvest house and chill it.',
-      interaction: 'harvest-mode-toggle',
-      interactionHint: 'Tap to start harvest mode',
+      interaction: 'harvest-table-pass',
+      interactionHint: 'Harvest the next ready pass',
       specs: [],
       tableId: table.id,
       nftTableId: table.id,
@@ -239,9 +241,9 @@ export class HarvestController {
   }
 
   /**
-   * Clicking a "HARVEST READY" badge turns harvest mode on for that table.
-   * While it is on, clicking an individual plant packs that head into the next
-   * staged box. Clicking the same badge (or the HUD stop button) turns it off.
+   * Harvest badges submit one ready two-gully pass directly into the next box.
+   * The finer plant-by-plant workflow remains available through the legacy
+   * harvest-mode interaction, while the visible badge does the expected action.
    */
   toggleHarvestMode(tableId) {
     if (!tableId) return { ok: false, active: this.harvestMode, reason: 'No table selected' };
@@ -331,7 +333,7 @@ export class HarvestController {
     if (this.modeTableId === tableId) {
       return `Stop harvest mode - box ${pad2(status.box.index + 1)} open`;
     }
-    return `Start harvest mode - ${status.readyHeads} heads ready`;
+    return `Harvest next pass - ${status.readyHeads} heads ready`;
   }
 
   /* ----------------------------------------------------------------- harvest */
@@ -555,7 +557,7 @@ export class HarvestController {
     this.carried = box;
     this.carryElapsed = 0;
     if (this.harvestMode) this.#setMode(null);
-    this.fridge?.setCarryContext(true, box);
+    for (const cabinet of this.fridges) cabinet.setCarryContext(true, box);
     this.update(0, this.camera);
     return { ok: true, box };
   }
@@ -571,7 +573,7 @@ export class HarvestController {
     this.carried = null;
     this.carryElapsed = 0;
     this.carryLabel?.setText('');
-    this.fridge?.setCarryContext(false);
+    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
     return { ok: true, box, position: box.group.position };
   }
 
@@ -591,11 +593,12 @@ export class HarvestController {
     return dropPoint;
   }
 
-  storeInFridge() {
+  storeInFridge(fridge = this.fridge) {
     if (!this.carried) return { ok: false, reason: 'Not carrying a box' };
-    if (!this.fridge) return { ok: false, reason: 'No refrigerator available' };
+    if (!fridge) return { ok: false, reason: 'No refrigerator available' };
+    if (!fridge.doorOpen) return { ok: false, reason: 'Open the fridge before putting a box inside' };
     const box = this.carried;
-    const result = this.fridge.addBox(box);
+    const result = fridge.addBox(box);
     if (!result.ok) return result;
     // The box keeps its staging slot as its home position, so taking it back
     // out of the fridge later returns it to the same table.
@@ -604,18 +607,19 @@ export class HarvestController {
     this.carried = null;
     this.carryElapsed = 0;
     this.carryLabel?.setText('');
-    this.fridge.setCarryContext(false);
-    return { ok: true, box, count: this.fridge.boxes.length };
+    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
+    return { ok: true, box, count: fridge.boxes.length };
   }
 
-  takeFromFridge() {
-    if (!this.fridge) return { ok: false, reason: 'No refrigerator available' };
+  takeFromFridge(fridge = this.fridge) {
+    if (!fridge) return { ok: false, reason: 'No refrigerator available' };
+    if (!fridge.doorOpen) return { ok: false, reason: 'Open the fridge before taking a box outside' };
     if (this.carried) {
       return { ok: false, reason: 'Set the box in your hands down first' };
     }
-    const box = this.fridge.boxes[this.fridge.boxes.length - 1];
-    if (!box) return { ok: false, reason: 'The fridge is empty' };
-    const removed = this.fridge.removeBox(box);
+    const box = [...fridge.boxes].reverse().find(box => !box.shopReserved);
+    if (!box) return { ok: false, reason: 'No unreserved chilled box is available' };
+    const removed = fridge.removeBox(box);
     if (!removed.ok) return removed;
     box.setStored(false);
     box.setSpawned(true);
@@ -689,7 +693,7 @@ export class HarvestController {
     this.badgeField?.update(camera);
   }
 
-  /** One shared texture: the badge only says READY, the panel carries numbers. */
+  /** One shared texture: per-table counts remain in the interaction panel. */
   refreshBadges(force = false) {
     if (!this.badgeField) return;
     const tables = this.equipment?.tables ?? [];
@@ -779,7 +783,7 @@ export class HarvestController {
         box.setPosition(box.spawnPosition.x, box.spawnPosition.y, box.spawnPosition.z);
       }
     }
-    this.fridge?.setCarryContext(false);
+    for (const cabinet of this.fridges) cabinet.setCarryContext(false);
     this.#syncBoxVisibility();
     this.refreshBadges(true);
     return this;

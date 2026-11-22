@@ -5,7 +5,7 @@ import * as THREE from 'three';
  *
  * The fridge references filled styrofoam boxes (never copies) so head counts and
  * weights stay in one place, while the glass front still lets the player see the
- * chilled stock. The container house owns the floating interact label.
+ * chilled stock. Shop reservations prevent removal during order collection.
  */
 export class GlassRefrigerator {
   constructor({
@@ -182,6 +182,7 @@ export class GlassRefrigerator {
       return { ok: false, reason: `Fridge full - ${this.capacity}/${this.capacity} boxes` };
     }
     if (!this.boxes.includes(box)) this.boxes.push(box);
+    box.chilledAt ??= Date.now();
     box.stored = true;
     box.carried = false;
     this.createBoxVisual(box);
@@ -191,16 +192,25 @@ export class GlassRefrigerator {
 
   removeBox(box) {
     const index = this.boxes.indexOf(box);
+    if (box.shopReserved) return { ok: false, reason: 'This box is reserved for a shop order' };
     if (index < 0) return { ok: false, reason: 'Box is not in the fridge' };
     this.boxes.splice(index, 1);
     if (box.view) {
-      this.boxRoot.remove(box.view);
+      box.view.removeFromParent();
       box.view.traverse((node) => {
-        if (node.isMesh) node.geometry?.dispose?.();
+        if (node.isMesh) {
+          node.geometry?.dispose?.();
+          node.material?.dispose?.();
+        }
       });
       box.view = null;
     }
     box.stored = false;
+    box.chilledAt = null;
+    this.boxes.forEach((storedBox, slot) => {
+      const positions = storedBox.view?.userData.slotPositions;
+      if (positions?.length) storedBox.view.position.copy(positions[slot % positions.length]);
+    });
     this.refreshInfo();
     return { ok: true, box };
   }
@@ -211,6 +221,7 @@ export class GlassRefrigerator {
     const position = this.slotPositions[slot] ?? new THREE.Vector3(0, 0.33, 0);
     const group = new THREE.Group();
     group.name = `fridge-box-${box.id ?? slot}`;
+    group.userData.slotPositions = this.slotPositions;
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.36, 0.2, 0.4),
       new THREE.MeshStandardMaterial({ color: 0xf2f4ec, roughness: 0.86 }),
@@ -230,8 +241,8 @@ export class GlassRefrigerator {
   }
 
   toggleDoors(open = !this.doorOpen) {
-    this.doorOpen = open;
-    this.targetAngle = open ? (this.config.doorOpenAngle ?? 1.95) : 0;
+    this.doorOpen = Boolean(open);
+    this.targetAngle = this.doorOpen ? (this.config.doorOpenAngle ?? 1.95) : 0;
     this.refreshInfo();
     return this.doorOpen;
   }
@@ -245,21 +256,9 @@ export class GlassRefrigerator {
   refreshInfo() {
     if (!this.info) return;
     const count = this.boxes.length;
-    // Door state drives the interaction: closed = open the doors, open with
-    // stock = take the last chilled box back out, carrying = store the box.
-    const canTake = this.doorOpen && count > 0;
-    this.info.interaction = this.carryContext
-      ? 'harvest-store-box'
-      : canTake
-        ? 'harvest-take-box'
-        : 'fridge-inspect';
-    this.info.interactionHint = this.carryContext
-      ? `Store box - ${count}/${this.capacity} chilled`
-      : canTake
-        ? `Take chilled box - ${count} in store`
-        : count > 0
-          ? `Open fridge - ${count}/${this.capacity} boxes`
-          : 'Open fridge - empty';
+    // A world click always opens the menu, regardless of stock or hands.
+    this.info.interaction = 'fridge-inspect';
+    this.info.interactionHint = `Fridge options - ${this.doorOpen ? 'open' : 'closed'}`;
     this.info.specs = [
       ['Boxes', `${count} / ${this.capacity}`],
       ['Heads', String(this.totalHeads)],
@@ -288,7 +287,11 @@ export class GlassRefrigerator {
   update(dt = 0) {
     this.doorAngle += (this.targetAngle - this.doorAngle) * Math.min(1, dt * 5.5);
     if (Math.abs(this.targetAngle - this.doorAngle) < 0.002) this.doorAngle = this.targetAngle;
-    for (const door of this.doors) door.pivot.rotation.y = door.side * this.doorAngle;
+    for (const door of this.doors) {
+      // Swing each leaf away from the centre seam; mirrored signs keep both
+      // doors from rotating through the cabinet when they open.
+      door.pivot.rotation.y = door.side * this.doorAngle;
+    }
   }
 
   dispose() {

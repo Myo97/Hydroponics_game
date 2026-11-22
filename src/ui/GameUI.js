@@ -9,7 +9,10 @@
 const HUD_MARKUP = `
   <div class="hud" id="hud">
     <div class="hud-block panel hud-block--tl">
-      <div class="hud-title">Verde Block 4</div>
+      <div class="hud-title">Green Farm</div>
+      <div class="hud-row"><span>Farm money</span><strong class="accent" data-money>$0.00</strong></div>
+      <div class="hud-row"><span>Shop</span><strong data-shop-status>Closed</strong></div>
+      <div class="hud-row"><span>Sales today</span><strong data-shop-sales>0 orders · S$0.00</strong></div>
       <div class="hud-row"><span>Zone</span><strong data-zone>Entrance</strong></div>
       <div class="hud-row"><span>Time</span><strong class="accent" data-clock>Day 1 &middot; 10:42</strong></div>
       <div class="hud-row"><span>Weather</span><strong data-weather>Sunny</strong></div>
@@ -23,6 +26,7 @@ const HUD_MARKUP = `
     <div class="hud-block hud-block--tr">
       <div class="hud-buttons">
         <span class="fps-readout"><strong data-fps>60</strong>FPS</span>
+        <button type="button" class="btn btn-small btn-ghost" data-action="shop">Shop</button>
         <button type="button" class="btn btn-small btn-ghost" data-action="menu">Menu</button>
       </div>
       <div class="hud-row"><span>Position</span><strong data-pos>0.0 / 27.0</strong></div>
@@ -115,16 +119,43 @@ const HUD_MARKUP = `
     </aside>
   </div>
 
+  <div class="modal" id="fridge-modal" role="dialog" aria-modal="true" aria-labelledby="fridge-title" aria-hidden="true" inert>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <p class="eyebrow">Cold storage</p>
+        <h2 id="fridge-title">Fridge options</h2>
+      </div>
+      <div class="modal-body" aria-live="polite">
+        <p data-fridge-status></p>
+        <p class="hint" data-fridge-help></p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" data-action="fridge-door">1. Open fridge</button>
+        <button type="button" class="btn" data-action="fridge-box">2. Take box outside</button>
+        <button type="button" class="btn btn-ghost" data-action="close-fridge">Done</button>
+      </div>
+      <p class="modal-note">Open the fridge to move a box. ESC closes this menu.</p>
+    </div>
+  </div>
+
   <div class="modal" id="pause-modal">
     <div class="modal-panel">
       <div class="modal-head">
         <p class="eyebrow">Simulation paused</p>
-        <h2>Walkthrough</h2>
+        <h2>Farm menu</h2>
       </div>
       <div class="modal-body">
         <div class="hud-row"><span>Build</span><strong>Version 14 &middot; harvest boxes &amp; touch input</strong></div>
         <div class="hud-row"><span>Pointer</span><strong>Released</strong></div>
         <p class="hint">Resume to re-lock the mouse and continue walking the house.</p>
+        <section class="shop-panel" data-shop-panel aria-label="Automatic farm shop">
+          <div class="shop-heading"><h3>Farm shop</h3><button type="button" class="btn btn-small" data-action="toggle-shop">Open shop</button></div>
+          <p data-shop-detail>Stock the fridge and open the shop.</p>
+          <p data-shop-totals></p>
+          <div data-shop-prices></div>
+          <p class="hint">Prices are per head. Your assistant serves one customer at a time. Closing finishes the accepted order. Resume to continue sales.</p>
+        </section>
+
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-primary" data-action="resume">Resume</button>
@@ -181,6 +212,14 @@ export class GameUI {
     const $ = (selector) => this.root.querySelector(selector);
     this.el = {
       hud: $('#hud'),
+      money: $('[data-money]'),
+      shopPanel: $('[data-shop-panel]'),
+      shopStatus: $('[data-shop-status]'),
+      shopSales: $('[data-shop-sales]'),
+      shopDetail: $('[data-shop-detail]'),
+      shopTotals: $('[data-shop-totals]'),
+      shopPrices: $('[data-shop-prices]'),
+      shopToggle: $('[data-action="toggle-shop"]'),
       crosshair: $('#crosshair'),
       hint: $('#interaction-hint'),
       hintName: $('[data-hint-name]'),
@@ -212,6 +251,12 @@ export class GameUI {
       inspectDesc: $('[data-inspect-desc]'),
       inspectSpecs: $('[data-inspect-specs]'),
       pause: $('#pause-modal'),
+      fridge: $('#fridge-modal'),
+      fridgeTitle: $('#fridge-title'),
+      fridgeStatus: $('[data-fridge-status]'),
+      fridgeHelp: $('[data-fridge-help]'),
+      fridgeDoor: $('[data-action="fridge-door"]'),
+      fridgeBox: $('[data-action="fridge-box"]'),
       settings: $('#settings-modal'),
       sensitivity: $('#sensitivity'),
       sensitivityOut: $('#sensitivity-out'),
@@ -222,6 +267,7 @@ export class GameUI {
     };
 
     this.inspectOpen = false;
+    this.fridgeOpen = false;
     this.paused = false;
     this.settingsOpen = false;
     this.zoneTagTimer = null;
@@ -233,6 +279,13 @@ export class GameUI {
   }
 
   bindEvents() {
+    this.el.fridge.addEventListener('keydown', event => {
+      if (event.key !== 'Tab') return;
+      const buttons = [...this.el.fridge.querySelectorAll('button:not(:disabled)')];
+      const index = buttons.indexOf(document.activeElement);
+      event.preventDefault();
+      buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    });
     this.root.addEventListener('click', (event) => {
       const quality = event.target.closest('[data-quality]');
       if (quality) {
@@ -242,9 +295,14 @@ export class GameUI {
       }
 
       const actionEl = event.target.closest('[data-action]');
-      if (!actionEl) return;
+      if (!actionEl || actionEl.disabled) return;
       const { action } = actionEl.dataset;
-      if (action === 'menu') this.handlers.onPause?.();
+      if (action === 'fridge-door') this.handlers.onFridgeDoor?.();
+      else if (action === 'fridge-box') this.handlers.onFridgeBox?.();
+      else if (action === 'close-fridge') this.handlers.onCloseFridge?.();
+      else if (action === 'shop') this.handlers.onShop?.();
+      else if (action === 'toggle-shop') this.handlers.onShopToggle?.();
+      else if (action === 'menu') this.handlers.onPause?.();
       else if (action === 'resume') this.handlers.onResume?.();
       else if (action === 'settings') this.openSettings();
       else if (action === 'respawn') this.handlers.onRespawn?.();
@@ -253,6 +311,10 @@ export class GameUI {
       else if (action === 'skip-time') this.handlers.onSkipTime?.();
       else if (action === 'cycle-weather') this.handlers.onCycleWeather?.();
       else if (action === 'stop-harvest') this.handlers.onStopHarvest?.();
+    });
+
+    this.el.shopPrices.addEventListener('change', event => {
+      if (event.target.dataset.cropKey) this.handlers.onShopPrice?.(event.target.dataset.cropKey, event.target.value);
     });
 
     this.el.sensitivity.addEventListener('input', () => {
@@ -333,6 +395,10 @@ export class GameUI {
         2600,
       );
     }
+  }
+
+  setFarmMoney(amount = 0) {
+    if (this.el.money) this.el.money.textContent = `S$${Number(amount || 0).toFixed(2)}`;
   }
 
   /** Crosshair + hint reflect the currently raycast equipment (or null). */
@@ -443,6 +509,68 @@ export class GameUI {
     return false;
   }
 
+  setShop(shop, refreshPrices = false) {
+    if (!shop) return;
+    const stock = shop.stock();
+    this.el.shopStatus.textContent = shop.status();
+    this.el.shopSales.textContent = shop.sales + ' orders · S$' + (shop.revenueCents / 100).toFixed(2);
+    this.el.shopToggle.textContent = shop.open ? 'Close shop' : 'Open shop';
+    this.el.shopDetail.textContent = shop.order
+      ? shop.status() + ' · ' + shop.order.quantity + ' ' + shop.order.cropName + ' · S$' + (shop.order.totalCents / 100).toFixed(2)
+      : shop.status();
+    this.el.shopTotals.textContent = shop.headsSold + ' heads sold today · ' +
+      stock.reduce((sum, crop) => sum + crop.available, 0) + ' heads available in fridge';
+    if (!refreshPrices) return;
+    this.el.shopPrices.replaceChildren();
+    if (!stock.length) {
+      this.el.shopPrices.textContent = 'Store vegetables in the fridge to set their prices.';
+    }
+    for (const crop of stock) {
+      const row = document.createElement('label');
+      row.className = 'shop-price-row';
+      const name = document.createElement('span');
+      name.textContent = crop.cropName + ' · ' + crop.available + ' available';
+      const price = document.createElement('input');
+      price.type = 'number';
+      price.min = '0.10';
+      price.max = '100';
+      price.step = '0.10';
+      price.value = (crop.priceCents / 100).toFixed(2);
+      price.dataset.cropKey = crop.cropKey;
+      price.setAttribute('aria-label', crop.cropName + ' price in Singapore dollars per head');
+      row.append(name, document.createTextNode('S$'), price);
+      this.el.shopPrices.append(row);
+    }
+  }
+
+  showFridge(state) {
+    this.fridgeOpen = true;
+    this.updateFridge(state);
+    this.el.fridge.inert = false;
+    this.el.fridge.setAttribute('aria-hidden', 'false');
+    this.el.fridge.classList.add('is-open');
+    this.el.fridgeDoor.focus();
+  }
+
+  updateFridge({ title, doorOpen, count, capacity, carrying, reason }) {
+    this.el.fridgeTitle.textContent = title;
+    this.el.fridgeStatus.textContent = `Door ${doorOpen ? 'open' : 'closed'} · ${count}/${capacity} boxes chilled`;
+    this.el.fridgeDoor.textContent = `1. ${doorOpen ? 'Close' : 'Open'} fridge`;
+    this.el.fridgeBox.textContent = `2. ${carrying ? 'Put box inside' : 'Take box outside'}`;
+    this.el.fridgeBox.disabled = Boolean(reason);
+    this.el.fridgeHelp.textContent = reason || (carrying
+      ? 'Put the box you are carrying into cold storage.'
+      : 'Take an available chilled box into your hands.');
+  }
+
+  closeFridge() {
+    if (this.el.fridge.contains(document.activeElement)) document.activeElement.blur();
+    this.fridgeOpen = false;
+    this.el.fridge.inert = true;
+    this.el.fridge.setAttribute('aria-hidden', 'true');
+    this.el.fridge.classList.remove('is-open');
+  }
+
   setPaused(paused) {
     this.paused = paused;
     this.el.pause.classList.toggle('is-open', paused && !this.settingsOpen);
@@ -465,7 +593,7 @@ export class GameUI {
   }
 
   isModalOpen() {
-    return this.paused || this.settingsOpen;
+    return this.paused || this.settingsOpen || this.fridgeOpen;
   }
 
   setQuality(quality) {

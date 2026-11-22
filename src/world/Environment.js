@@ -20,6 +20,9 @@ export class Environment {
     this.shadowSunAzimuth = null;
     this.shadowSunVisible = null;
     this.sunChanged = true;
+    this.moonDirection = new THREE.Vector3();
+    this.previousMoonDirection = new THREE.Vector3();
+    this.moonChanged = true;
     const greenhouse = LAYOUT.greenhouse ?? {};
     const nursery = LAYOUT.nursery ?? {};
     this.rainUniforms = {
@@ -155,17 +158,22 @@ export class Environment {
     this.hemisphereBaseIntensity = config.skylightIntensity ?? 0.36;
     this.lights.push(hemisphere);
 
-    // Low blue night fill so the glasshouse remains inspectable after sunset.
+    // Directional moonlight follows the visible moon and its illuminated phase.
     const moon = new THREE.DirectionalLight(0x9cb9d8, 0);
     moon.name = 'moonlight';
-    moon.position.set(-28, 42, 22);
-    moon.target.position.set(0, 1.2, 0);
+    moon.target.position.copy(sun.target.position);
+    moon.shadow.camera.copy(sun.shadow.camera);
+    moon.shadow.bias = shadow.bias;
+    moon.shadow.normalBias = shadow.normalBias;
+    moon.castShadow = Boolean(this.preset?.shadows);
+    moon.visible = false;
     this.scene.add(moon);
     this.scene.add(moon.target);
     this.moon = moon;
     this.lights.push(moon);
 
     this.buildSunDisc();
+    this.buildMoonDisc();
 
     this.scene.fog = new THREE.Fog(0xc6d2d2, 62, 260);
   }
@@ -214,6 +222,77 @@ export class Environment {
     this.sunDisc = group;
   }
 
+  buildMoonDisc() {
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        phaseLight: { value: new THREE.Vector3(0, 0, -1) },
+        visibility: { value: 1 },
+      },
+      transparent: true,
+      depthWrite: false,
+      vertexShader: `
+        varying vec2 moonUv;
+        void main() {
+          moonUv = uv;
+          vec3 worldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+          vec4 viewPosition = vec4(mat3(viewMatrix) * worldPosition, 1.0);
+          gl_Position = projectionMatrix * viewPosition;
+          gl_Position.z = gl_Position.w * 0.99998;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 phaseLight;
+        uniform float visibility;
+        varying vec2 moonUv;
+        void main() {
+          vec2 p = moonUv * 2.0 - 1.0;
+          float radiusSquared = dot(p, p);
+          if (radiusSquared > 1.0) discard;
+          vec3 normal = vec3(p, sqrt(max(0.0, 1.0 - radiusSquared)));
+          float light = max(0.0, dot(normal, phaseLight));
+          float maria = 0.88 + 0.07 * sin(p.x * 13.0 + sin(p.y * 8.0))
+            * cos(p.y * 17.0 + p.x * 5.0);
+          vec3 color = vec3(0.75, 0.81, 0.88) * sqrt(light) * maria;
+          gl_FragColor = vec4(color, visibility);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+    });
+    this.moonDisc = new THREE.Mesh(
+      new THREE.PlaneGeometry(LAYOUT.moon.discRadius * 2, LAYOUT.moon.discRadius * 2),
+      material,
+    );
+    this.moonDisc.name = 'moon-disc';
+    this.moonDisc.frustumCulled = false;
+    this.moonDisc.renderOrder = -2;
+    this.scene.add(this.moonDisc);
+  }
+
+  updateMoon(climate, night, cloudCover) {
+    const phaseAngle = climate.moonPhase * Math.PI * 2;
+    const orbit = (climate.hour - 6) / 24 * Math.PI * 2 - phaseAngle;
+    this.moonDirection.set(Math.cos(orbit), Math.sin(orbit), Math.sin(orbit) * 0.45).normalize();
+    const height = THREE.MathUtils.smoothstep(this.moonDirection.y, 0, 0.3);
+    const transmission = 1 - cloudCover * 0.85;
+    const strength = Math.pow(climate.moonIllumination, 1.5) * height * night * transmission;
+    const visible = strength > 0.0001;
+    this.moonChanged = this.moon.visible !== visible ||
+      this.previousMoonDirection.distanceToSquared(this.moonDirection) > 0.0000004;
+    if (this.moonChanged) this.previousMoonDirection.copy(this.moonDirection);
+    this.moon.visible = visible;
+    this.moon.intensity = LAYOUT.moon.fullIntensity * strength;
+    this.moon.position.copy(this.moon.target.position).addScaledVector(this.moonDirection, 120);
+    this.moon.target.updateMatrixWorld();
+    this.moonDisc.position.copy(this.moonDirection).multiplyScalar(330);
+    this.moonDisc.lookAt(0, 0, 0);
+    this.moonDisc.visible = this.moonDirection.y > 0 && night > 0.01;
+    this.moonDisc.material.uniforms.phaseLight.value.set(Math.sin(phaseAngle), 0, -Math.cos(phaseAngle));
+    this.moonDisc.material.uniforms.visibility.value = night * transmission;
+    // Keep a small night fill for navigation while allowing darker moon phases.
+    this.hemisphere.intensity *= 1 - night * (0.72 - strength * 0.35);
+  }
+
   /** True when a point sits under a glasshouse roof, so rain stops at the glass. */
   isInsideRoof(x, z, margin = 0.5) {
     return [LAYOUT.greenhouse, LAYOUT.nursery].filter(Boolean).some((house) => {
@@ -231,7 +310,8 @@ export class Environment {
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i += 1) {
       const theta = Math.random() * Math.PI * 2;
-      const elevation = 0.12 + Math.random() * 1.36;
+      // Sample the whole upper hemisphere, including directly overhead.
+      const elevation = Math.asin(Math.random());
       const radius = 330;
       starPositions[i * 3] = Math.cos(theta) * Math.cos(elevation) * radius;
       starPositions[i * 3 + 1] = Math.sin(elevation) * radius;
@@ -249,8 +329,22 @@ export class Environment {
       fog: false,
       toneMapped: false,
     });
+    // Stars represent distant directions. Ignore camera translation and put
+    // their depth just inside the far plane while retaining foreground occlusion.
+    starMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `vec4 mvPosition = vec4(mat3(modelViewMatrix) * transformed, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        gl_Position.z = gl_Position.w * 0.99999;`,
+      );
+    };
+    starMaterial.customProgramCacheKey = () => 'sky-stars-background-v1';
     const stars = new THREE.Points(starGeometry, starMaterial);
+    // The shader centres the star field on whichever camera is rendering.
+    stars.frustumCulled = false;
     stars.name = 'night-stars';
+    stars.renderOrder = -3;
     stars.visible = false;
     this.scene.add(stars);
     this.stars = stars;
@@ -396,7 +490,7 @@ export class Environment {
     this.hemisphere.color.setHex(
       night > 0.6 ? 0x607a9a : config.skylightColor ?? 0xd8e8ef,
     );
-    this.moon.intensity = night * 0.26;
+
 
     this.skyUniforms.turbidity.value = 3.2 + (1 - weatherFactor) * 8;
     this.skyUniforms.rayleigh.value =
@@ -425,6 +519,7 @@ export class Environment {
     const cloudCover =
       climate.weatherState?.cloudCover ??
       (climate.rainIntensity > 0.5 ? 0.95 : climate.rainIntensity > 0 ? 0.7 : 0.1);
+    this.updateMoon(climate, night, cloudCover);
     this.clouds.visible = cloudCover > 0.18;
     this.cloudMaterial.opacity = cloudCover * 0.46;
     this.cloudMaterial.color.setHex(
@@ -558,14 +653,17 @@ export class Environment {
     if (!this.sun) return;
 
     const size = preset.shadowMapSize;
-    if (this.sun.shadow.mapSize.x !== size) {
-      this.sun.shadow.mapSize.set(size, size);
-      if (this.sun.shadow.map) {
-        this.sun.shadow.map.dispose();
-        this.sun.shadow.map = null;
+    for (const light of [this.sun, this.moon]) {
+      if (light.shadow.mapSize.x !== size) {
+        light.shadow.mapSize.set(size, size);
+        if (light.shadow.map) {
+          light.shadow.map.dispose();
+          light.shadow.map = null;
+        }
       }
+      light.castShadow = preset.shadows;
+      light.shadow.needsUpdate = true;
     }
-    this.sun.castShadow = preset.shadows;
     this.scene.environmentIntensity = preset.environmentIntensity;
     this.scene.fog.near = preset.id === 'low' ? 48 : 62;
   }
@@ -581,6 +679,7 @@ export class Environment {
     for (const light of this.lights) {
       light.target?.removeFromParent?.();
       light.parent?.remove(light);
+      light.dispose?.();
     }
     if (this.sky) {
       this.scene.remove(this.sky);
@@ -589,6 +688,12 @@ export class Environment {
       this.sky = null;
     }
     this.skyUniforms = null;
+    if (this.moonDisc) {
+      this.moonDisc.removeFromParent();
+      this.moonDisc.geometry.dispose();
+      this.moonDisc.material.dispose();
+      this.moonDisc = null;
+    }
     if (this.stars) {
       this.stars.geometry.dispose();
       this.stars.material.dispose();

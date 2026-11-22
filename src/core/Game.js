@@ -1,3 +1,4 @@
+import { AutoShopController } from '../systems/AutoShopController.js';
 import * as THREE from 'three';
 import { LAYOUT } from '../config/layout.js';
 import { getPreset } from './Quality.js';
@@ -59,6 +60,7 @@ export class Game {
     this.report = () => {};
     this.lastGrowthDayIndex = null;
     this.saveAccumulator = 0;
+    this.market = { cash: 0 };
 
     this.settings = this.loadSettings();
     this.preset = getPreset(this.settings.quality);
@@ -229,6 +231,15 @@ export class Game {
     this.ui = new GameUI({
       handlers: {
         onResume: () => this.resume(),
+        onShop: () => this.openShop(),
+        onShopToggle: () => {
+          this.shop.setOpen(!this.shop.open);
+          this.ui.setShop(this.shop, true);
+        },
+        onShopPrice: (key, value) => {
+          if (!this.shop.setPrice(key, value)) this.ui.toast('Enter a price between S$0.10 and S$100.', 'warn');
+          this.ui.setShop(this.shop, true);
+        },
         onPause: () => this.pause(),
         onRespawn: () => this.respawn(),
         onQualityChange: (id) => this.applyQuality(id),
@@ -245,6 +256,9 @@ export class Game {
         onSkipTime: () => this.skipTime(24),
         onCycleWeather: () => this.cycleWeather(),
         onCloseInspect: () => this.closeInspect(),
+        onFridgeDoor: () => this.useFridgeDoor(),
+        onFridgeBox: () => this.useFridgeBox(),
+        onCloseFridge: () => this.closeFridge(),
         onStopHarvest: () => {
           this.harvest?.stopHarvestMode();
           this.ui.toast('Harvest mode off');
@@ -301,6 +315,7 @@ export class Game {
       simulation: this.plants,
       collisionWorld: this.collisionWorld,
       fridge: this.containerHouse?.fridge ?? null,
+      fridges: [this.containerHouse?.fridge2, ...(this.containerHouse?.extraFridges ?? [])],
       layout: LAYOUT,
       onPacked: (summary) => this.onBoxPacked(summary),
       onModeChange: () => this.syncHarvestModeUI(),
@@ -319,6 +334,11 @@ export class Game {
       control: this.control,
       climate: this.climate,
       plants: this.plants,
+    });
+    this.shop = new AutoShopController({
+      house: this.containerHouse, market: this.market, climate: this.climate,
+      onChange: () => this.saveGame(),
+      onNotice: (message) => this.ui.toast(message),
     });
     this.saveSystem = new SaveSystem({ key: 'verde-block4:save' });
     this.restoreSession();
@@ -477,10 +497,13 @@ export class Game {
     // Drop out of inspect first so the panel state cannot outlive the pause.
     this.inspecting = false;
     this.ui.closeInspect();
+    this.activeFridge = null;
+    this.ui.closeFridge();
     this.player.setEnabled(false);
     this.player.exitPointerLock();
     this.interaction.setEnabled(false);
     this.touch?.setActive(false);
+    this.ui.setShop(this.shop, true);
     this.ui.setPaused(true);
   }
 
@@ -510,6 +533,76 @@ export class Game {
     if (this.paused) this.resume();
   }
 
+  findFridge(id) {
+    return [this.containerHouse?.fridge, this.containerHouse?.fridge2,
+      ...(this.containerHouse?.extraFridges ?? [])]
+      .find(cabinet => cabinet?.info?.id === id) ?? null;
+  }
+
+  fridgeMenuState() {
+    const fridge = this.activeFridge;
+    const carrying = Boolean(this.harvest?.isCarrying);
+    let reason = '';
+    if (this.trayPickup?.isCarrying) reason = 'Set the seedling tray down first.';
+    else if (!fridge.doorOpen) reason = 'Open the fridge first.';
+    else if (carrying && !fridge.hasRoom) reason = 'The fridge is full.';
+    else if (!carrying && !fridge.boxes.length) reason = 'The fridge is empty. Carry a harvest box here to put it inside.';
+    else if (!carrying && !fridge.boxes.some(box => !box.shopReserved)) reason = 'These boxes are reserved for customer orders.';
+    return { title: fridge.info.title, doorOpen: fridge.doorOpen,
+      count: fridge.boxes.length, capacity: fridge.capacity, carrying, reason };
+  }
+
+  openFridge(fridge) {
+    if (!fridge) return false;
+    this.activeFridge = fridge;
+    this.inspecting = true;
+    this.ui.closeInspect();
+    this.player.setEnabled(false);
+    this.interaction.setEnabled(false);
+    this.touch?.setActive(false);
+    this.ui.setTarget(null);
+    // Mark the modal open before releasing the pointer so it does not pause.
+    this.ui.showFridge(this.fridgeMenuState());
+    this.player.exitPointerLock();
+    return true;
+  }
+
+  useFridgeDoor() {
+    if (!this.activeFridge) return;
+    const open = this.activeFridge.toggleDoors();
+    // A player's choice takes precedence over the assistant's saved door state.
+    if (this.activeFridge === this.containerHouse.fridge2 && this.containerHouse.shopFridgeWasOpen !== undefined) {
+      this.containerHouse.shopFridgeWasOpen = open;
+    }
+    this.ui.updateFridge(this.fridgeMenuState());
+    this.requestShadowUpdate();
+  }
+
+  useFridgeBox() {
+    if (!this.activeFridge) return;
+    const state = this.fridgeMenuState();
+    if (state.reason) {
+      this.ui.toast(state.reason, 'warn');
+    } else {
+      this.handleInteraction({ id: this.activeFridge.info.id,
+        interaction: state.carrying ? 'harvest-store-box' : 'harvest-take-box' });
+    }
+    this.ui.updateFridge(this.fridgeMenuState());
+  }
+
+  closeFridge() {
+    if (!this.activeFridge) return;
+    this.activeFridge = null;
+    this.inspecting = false;
+    this.ui.closeFridge();
+    if (!this.paused) {
+      this.player.setEnabled(true);
+      this.interaction.setEnabled(true);
+      this.touch?.setActive(true);
+      this.requestLookLock();
+    }
+  }
+
   openInspect(data) {
     this.inspecting = true;
     this.player.setEnabled(false);
@@ -519,6 +612,7 @@ export class Game {
   }
 
   closeInspect() {
+    if (this.activeFridge) return this.closeFridge();
     if (!this.inspecting) return;
     this.inspecting = false;
     this.ui.closeInspect();
@@ -548,7 +642,7 @@ export class Game {
     }
     const actionTarget = this.decorateCarryTarget(target);
     if (actionTarget && this.handleInteraction(actionTarget.data, { shiftKey })) {
-      this.ui.setTarget(actionTarget);
+      if (!this.inspecting) this.ui.setTarget(actionTarget);
       return true;
     }
     this.openInspect(target.data);
@@ -708,9 +802,11 @@ export class Game {
    * live capacity check. Nothing else is repurposed.
    */
   decorateCarryTarget(target) {
-    if (!target || !this.trayPickup?.isCarrying) return target;
+    if (!target) return target;
     const data = target.data;
     if (!data) return target;
+    if (data.kind === 'cold-storage') return target;
+    if (!this.trayPickup?.isCarrying) return target;
     const bedId = this.nursery.tidalBed?.bed.id;
     const isBench = data.trayId || data.id === bedId;
     if (isBench && data.buildingId === LAYOUT.nursery.id) {
@@ -985,6 +1081,18 @@ export class Game {
         }
         return true;
       }
+      case 'harvest-table-pass': {
+        const result = this.harvest?.harvestTable(data.tableId);
+        if (result?.ok) {
+          this.ui.toast(
+            `Harvesting ${result.heads} ready head${result.heads === 1 ? '' : 's'} from gullies ${result.gullies.join(' and ')} into box ${String(result.box.index + 1).padStart(2, '0')}`,
+          );
+          this.requestShadowUpdate();
+        } else {
+          this.ui.toast(result?.reason ?? 'Harvest pass could not start', 'warn');
+        }
+        return true;
+      }
       case 'harvest-stop-mode': {
         this.harvest?.stopHarvestMode();
         this.ui.toast('Harvest mode off');
@@ -994,7 +1102,12 @@ export class Game {
       case 'harvest-box-pickup':
         return this.pickUpHarvestBox(data.boxId);
       case 'harvest-store-box': {
-        const result = this.harvest?.storeInFridge();
+        const targetFridge = [
+          this.containerHouse?.fridge,
+          this.containerHouse?.fridge2,
+          ...(this.containerHouse?.extraFridges ?? []),
+        ].find((cabinet) => cabinet?.info?.id === data.id) ?? this.containerHouse?.fridge;
+        const result = this.harvest?.storeInFridge(targetFridge);
         if (result?.ok) {
           this.ui.setBoxCarry(null);
           this.ui.toast(
@@ -1007,7 +1120,11 @@ export class Game {
         return true;
       }
       case 'harvest-take-box': {
-        const result = this.harvest?.takeFromFridge();
+        if (this.trayPickup?.isCarrying) {
+          this.ui.toast('Set the seedling tray down first', 'warn');
+          return true;
+        }
+        const result = this.harvest?.takeFromFridge(this.findFridge(data.id) ?? this.containerHouse?.fridge);
         if (result?.ok) {
           this.ui.setBoxCarry(result.box);
           this.ui.toast(
@@ -1020,14 +1137,7 @@ export class Game {
         return true;
       }
       case 'fridge-inspect': {
-        const fridge = this.containerHouse?.fridge;
-        if (!fridge) return false;
-        fridge.toggleDoors(true);
-        this.ui.toast(
-          `Fridge doors open - ${fridge.boxes.length}/${fridge.capacity} boxes chilled, ${fridge.totalHeads} heads`,
-        );
-        this.openInspect(fridge.describe());
-        return true;
+        return this.openFridge(this.findFridge(data.id));
       }
       case 'container-door': {
         const open = this.containerHouse?.toggleDoor?.() ?? false;
@@ -1041,9 +1151,16 @@ export class Game {
         this.ui.toast(`Harvest house vent window ${open ? 'open' : 'closed'}`);
         return true;
       }
+      case 'shop-sell':
+        this.openShop();
+        return true;
+      case 'container-sleep': {
+        this.skipTime(6, { reason: 'Sleep' });
+        return true;
+      }
       case 'farm-gate': {
         const open = this.farmPerimeter?.toggleGate?.() ?? false;
-        this.ui.toast(`Farm gate ${open ? 'opening' : 'closing'}`);
+        this.ui.toast(open ? 'Farm gate opening' : 'Farm gate closing');
         return true;
       }
       case 'inspect':
@@ -1051,6 +1168,13 @@ export class Game {
         return false;
     }
   }
+
+  openShop() {
+    this.pause();
+    this.ui.setShop(this.shop, true);
+    this.ui.el.shopPanel.scrollIntoView({ block: 'nearest' });
+  }
+
 
   /**
    * One calendar authority for every living crop. The climate day index is
@@ -1145,6 +1269,7 @@ export class Game {
       environment?.rain,
       environment?.sky,
       environment?.sunDisc,
+      environment?.moonDisc,
       environment?.stars,
       environment?.clouds,
       this.trayPickup?.view?.group,
@@ -1208,6 +1333,8 @@ export class Game {
     const saved = this.saveSystem?.load();
     if (!saved) return false;
     try {
+      this.market.cash = Math.max(0, Number(saved.market?.cash) || 0);
+      this.ui?.setFarmMoney(this.market.cash);
       if (saved.climate) this.climate.restore(saved.climate);
       if (saved.control) this.control.apply(saved.control);
       if (saved.water) this.water.applyState(saved.water);
@@ -1218,6 +1345,7 @@ export class Game {
       if (saved.containerHouse) this.containerHouse?.restore(saved.containerHouse);
       if (saved.farm) this.farmPerimeter?.restore(saved.farm);
       if (saved.harvest) this.harvest?.restore(saved.harvest);
+      this.shop.restore(saved.shop);
       if (saved.player && this.player) {
         this.player.teleport(saved.player.x, saved.player.z, saved.player.yaw);
         this.player.pitch = saved.player.pitch ?? this.player.pitch;
@@ -1245,6 +1373,8 @@ export class Game {
       harvest: this.harvest,
       containerHouse: this.containerHouse,
       farm: this.farmPerimeter,
+      market: this.market,
+      shop: this.shop,
     });
   }
 
@@ -1269,7 +1399,7 @@ export class Game {
    * Developer clock jump. Climate is advanced through its normal update path so
    * the date, sun, DLI and automatic weather schedule all stay in sync.
    */
-  skipTime(hours = 24) {
+  skipTime(hours = 24, { reason = 'DEV clock' } = {}) {
     const snapshot = this.climate.skipGameHours(hours);
     const growth = this.applyCalendarGrowth();
     this.environment?.update(0, this.climate);
@@ -1279,7 +1409,7 @@ export class Game {
       growth.days > 0
         ? ` \u00b7 ${growth.nursery.advanced} trays + ${growth.plants.advanced} crops grew`
         : '';
-    this.ui.toast(`DEV clock +${hours} h - ${snapshot.dayLabel} \u00b7 ${snapshot.clock}${growthNote}`);
+    this.ui.toast(`${reason} +${hours} h - ${snapshot.dayLabel} \u00b7 ${snapshot.clock}${growthNote}`);
     this.saveGame();
     return snapshot;
   }
@@ -1580,7 +1710,10 @@ export class Game {
       if (this.player) this.player.speedScale = this.harvest?.moveSpeedScale ?? 1;
       if (!this.inspecting) {
         if (this.droneView) this.drone.update(dt);
-        else this.player.update(dt);
+        else {
+          this.player.update(dt);
+          this.containerHouse?.applyPlayerElevation(this.player);
+        }
       }
       this.climate.update(dt);
       this.applyCalendarGrowth();
@@ -1602,9 +1735,11 @@ export class Game {
       this.equipment.updateCrops(dt, viewer);
       this.trayPickup.update(dt);
       // Version 14: doors, gate leaves, packing heads and carried boxes.
+      this.shop.update(dt);
+      this.containerHouse.updateShopVisuals(this.shop, dt);
       this.containerHouse?.update(dt, this.camera);
       this.harvest?.update(dt, this.camera);
-      this.farmPerimeter?.update(dt, this.camera);
+      this.farmPerimeter?.update(dt, this.camera, this.climate);
 
       if (!this.droneView) {
         const target = this.interaction.update();
@@ -1618,6 +1753,9 @@ export class Game {
       if (this.hudAccumulator >= 0.25) {
         this.hudAccumulator = 0;
         this.ui.setClimate(this.climate.snapshot());
+        this.ui.setFarmMoney(this.market.cash);
+        this.ui.setShop(this.shop);
+        if (this.activeFridge) this.ui.updateFridge(this.fridgeMenuState());
         this.ui.setPlayerState(
           this.droneView
             ? {
@@ -1639,6 +1777,8 @@ export class Game {
       // transitions or a carried tray. Camera movement alone never qualifies.
       const shadowMotion = Boolean(
         this.environment?.sunChanged ||
+          this.environment?.moonChanged ||
+          Boolean(this.shop?.order) ||
           this.equipment?.hasAnimatedShadow ||
           this.greenhouse?.hasAnimatedShadow ||
           this.nursery?.building?.hasAnimatedShadow ||

@@ -66,6 +66,12 @@ export const LAYOUT = {
    * so a real second advances 0.4 game minutes. Sunrise and sunset drive the
    * physical sun, the sky shader and the visible solar disc.
    */
+  moon: {
+    cycleDays: 28,
+    fullIntensity: 0.42,
+    discRadius: 4.6,
+  },
+
   time: {
     realSecondsPerGameDay: 3600,
     startHour: 10.7,
@@ -688,16 +694,18 @@ export const LAYOUT = {
    */
   container: {
     id: 'container-house',
-    label: 'Harvest House',
+    label: 'Green Farm Shop',
     zone: 'container-house',
-    centre: [17.2, 12],
-    width: 3.4,
-    length: 6.4,
-    height: 2.72,
+    // Inside the south gate apron, beside the driveway shown in the reference.
+    centre: [8.2, 34.2],
+    width: 7.2,
+    length: 10.0,
+    height: 5.9,
+    upperFloorY: 2.85,
     floorY: 0.12,
     wallThickness: 0.09,
     door: { z: 1.55, width: 1.0, height: 2.12, openAngle: 1.82 },
-    window: { z: 2.55, width: 1.35, height: 0.72, sillY: 1.32, openAngle: 0.95 },
+    window: { z: 2.55, width: 1.35, height: 1.5, sillY: 0.98, openAngle: 1.45 },
     fridge: {
       offset: [0.98, -1.72],
       width: 0.92,
@@ -707,9 +715,9 @@ export const LAYOUT = {
       doorOpenAngle: 1.95,
     },
     signage: {
-      title: 'HARVEST HOUSE',
-      subtitle: 'GRADE · WEIGH · CHILL',
-      y: 2.5,
+      title: 'GREEN FARM SHOP',
+      subtitle: 'FRESH HYDROPONIC LETTUCE',
+      y: 5.45,
     },
   },
 
@@ -731,22 +739,23 @@ export const LAYOUT = {
       roadZ: 50,
       roadWidth: 9,
       sidewalkWidth: 3,
+      // Low suburban homes replace the old warehouse/city skyline. The last
+      // fields select a distinct roof and front treatment in FarmPerimeter.
       buildings: [
-        { x: -44, z: 64, width: 18, depth: 14, height: 14, tint: '#2b3a41' },
-        { x: -22, z: 69, width: 16, depth: 16, height: 21, tint: '#33454c' },
-        { x: -2, z: 62, width: 15, depth: 12, height: 11, tint: '#3a4038' },
-        { x: 18, z: 67, width: 20, depth: 15, height: 18, tint: '#2c3944' },
-        { x: 41, z: 62, width: 17, depth: 13, height: 9, tint: '#3b3933' },
-        { x: -58, z: 80, width: 22, depth: 20, height: 27, tint: '#26333a' },
-        { x: -28, z: 84, width: 20, depth: 18, height: 16, tint: '#303a3d' },
-        { x: 4, z: 82, width: 24, depth: 20, height: 24, tint: '#2a353b' },
-        { x: 34, z: 86, width: 20, depth: 18, height: 13, tint: '#383b34' },
-        { x: 58, z: 78, width: 18, depth: 16, height: 19, tint: '#2c383e' },
-        { x: -46, z: 47, width: 10, depth: 12, height: 7, tint: '#41423a' },
-        { x: 48, z: 48, width: 12, depth: 12, height: 8, tint: '#37403c' },
+        { x: -34, z: 40, width: 10, depth: 9, height: 4.4, tint: '#d8c8ae', style: 0 },
+        { x: -34, z: 22, width: 12, depth: 10, height: 5.1, tint: '#b9c9bd', style: 1 },
+        { x: -34, z: 2, width: 9, depth: 11, height: 4.0, tint: '#d4d5c9', style: 2 },
+        { x: -34, z: -19, width: 12, depth: 9, height: 5.4, tint: '#c8b5a5', style: 1 },
+        { x: 34, z: 40, width: 11, depth: 10, height: 5.0, tint: '#c5ceb9', style: 2 },
+        { x: 34, z: 21, width: 9, depth: 9, height: 4.2, tint: '#d7c7ae', style: 0 },
+        { x: 34, z: 0, width: 12, depth: 10, height: 5.5, tint: '#b9c4c9', style: 1 },
+        { x: 34, z: -20, width: 10, depth: 11, height: 4.6, tint: '#d1c6b5', style: 2 },
+        { x: -18, z: 62, width: 10, depth: 8, height: 4.1, tint: '#c6d0c1', style: 1 },
+        { x: 0, z: 65, width: 12, depth: 9, height: 5.2, tint: '#d7c6b4', style: 2 },
+        { x: 20, z: 62, width: 10, depth: 8, height: 4.5, tint: '#b9c7c0', style: 0 },
       ],
     },
-    signage: { title: 'GREENHOUSE 14', subtitle: 'HYDROPONIC FARM', y: 3.1 },
+    signage: { title: 'GREEN FARM', subtitle: 'HYDROPONIC FARM', y: 3.1 },
   },
 
   exterior: {

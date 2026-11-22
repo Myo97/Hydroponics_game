@@ -224,7 +224,31 @@ export class LabelField {
   }
 
   update(camera = this.camera) {
-    if (this.mesh && camera) this.mesh.quaternion.copy(camera.quaternion);
+    if (!this.mesh || !camera) return this;
+    // Each instance matrix contains a world-space position. Rotating the parent
+    // InstancedMesh to face the camera would rotate those translations around
+    // the scene origin, making labels drift away from their equipment. Keep the
+    // field transform fixed and billboard each plane inside its own matrix.
+    this.mesh.position.set(0, 0, 0);
+    this.mesh.quaternion.identity();
+    this.mesh.scale.set(1, 1, 1);
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const cameraRotation = camera.quaternion;
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const point = this.entries[index]?.position;
+      if (!point) {
+        scale.set(0, 0, 0);
+        matrix.compose(position.set(0, 0, 0), cameraRotation, scale);
+      } else {
+        position.set(point.x ?? 0, (point.y ?? 0) + this.depthOffset, point.z ?? 0);
+        scale.set(1, 1, 1);
+        matrix.compose(position, cameraRotation, scale);
+      }
+      this.mesh.setMatrixAt(index, matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
     return this;
   }
 
